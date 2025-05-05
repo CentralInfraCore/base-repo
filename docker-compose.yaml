@@ -1,0 +1,51 @@
+version: '3.9'
+
+x-golang-version: &golang_image golang:1.21.5
+x-nats-version: &nats_image nats:2.10.12
+x-nats-box-version: &nats_box_image natsio/nats-box:0.12.0
+
+
+services:
+  mod-cache-loader:
+    image: *golang_image
+    volumes:
+      - ./:/go/src:rw
+      - ./tmp/gomodcache:/go/pkg/mod
+    working_dir: /go/src
+    entrypoint: ["go"]
+  nats:
+    image: *nats_image
+    container_name: nats-server
+    ports:
+      - "4222:4222"
+    volumes:
+      - ./nats-data:/data
+    restart: unless-stopped
+
+  nats-cli:
+    image: *nats_box_image
+    container_name: nats-cli
+    depends_on:
+      - nats
+    stdin_open: true
+    tty: true
+    entrypoint: ["sh"]
+    environment:
+      - NATS_URL=nats://nats:4222
+
+  builder:
+    image: *golang_image
+    container_name: cic-go-builder
+    volumes:
+      - ./:/git-source:ro
+      - ./tmp/gomodcache:/go/pkg/mod:ro
+      - ./tmp/cache:/go/cache
+      - ./output:/output
+      - ./tmp/build:/tmp
+    environment:
+      - GOMODCACHE=/go/pkg/mod
+      - GOCACHE=/go/cache
+    working_dir: /tmp
+    stdin_open: true
+    tty: true
+    entrypoint: ["sh"]
