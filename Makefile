@@ -22,13 +22,7 @@ build: prepare test coverage quality
 	@echo "🔨 Building $(APP_NAME)..."
 	docker compose exec builder go build -o /output/$(COMMIT)/$(APP_NAME) /git-source/main.go
 	@echo "✅ Build complete at $(BUILD_DIR)/$(APP_NAME)"
-	@$(MAKE) mq-publish		FILE="/output/$(COMMIT)/$(APP_NAME)" && \
-		if [ -f $$FILE ]; then \
-			nats pub build.result.$(COMMIT) "✅ Build ready: $$FILE"; \
-		else \
-			nats pub build.result.$(COMMIT) "❌ Build failed or missing output."; \
-		fi '
-"✅ Build complete at $(BUILD_DIR)/$(APP_NAME)""✅ Build complete at $(BUILD_DIR)/$(APP_NAME)"
+	@$(MAKE) mq-publish
 
 # Run dev shell in persistent builder
 shell:
