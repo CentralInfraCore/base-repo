@@ -19,8 +19,9 @@ prepare:
 
 # Build the application
 build: prepare test coverage quality
+
 	@echo "🔨 Building $(APP_NAME)..."
-	docker compose exec builder sh -c 'cd /git-source/cmd/relay && go build -o /output/$(COMMIT)/$(APP_NAME)'
+	docker compose exec builder sh -c 'git config --global safe.directory /git-source && cd /git-source/cmd/relay && go build -o /output/$(COMMIT)/$(APP_NAME)'
 	@echo "✅ Build complete at $(BUILD_DIR)/$(APP_NAME)"
 	@$(MAKE) mq-publish
 
@@ -35,11 +36,11 @@ clean:
 
 # Populate Go module cache
 cache-populate:
-	docker compose run --rm --entrypoint sh mod-cache-loader -c '
+	docker compose run --rm --entrypoint bash mod-cache-loader -c " \
 		go mod download && \
 		go install honnef.co/go/tools/cmd/staticcheck@v0.4.6 && \
-		go install github.com/gordonklaus/ineffassign@v0.1.0
-	'
+		go install github.com/gordonklaus/ineffassign@v0.1.0 \
+	"
 
 test:
 	docker compose exec builder sh -c 'cd /git-source && go test ./... -v'
@@ -52,7 +53,7 @@ coverage-html:
 
 # Code quality checks
 quality:
-	docker compose exec builder sh -c 'cd /git-source && staticcheck ./... && ineffassign .'
+	docker compose exec builder sh -c 'cd /git-source && staticcheck ./... && ineffassign ./...'
 
 # Lint suggestions (non-blocking)
 lint:

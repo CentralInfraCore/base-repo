@@ -38,7 +38,7 @@ services:
     container_name: cic-go-builder
     volumes:
       - ./:/git-source:ro
-      - ./tmp/gomodcache:/go/pkg/mod:ro
+      - ./tmp/gomodcache:/go/pkg/mod
       - ./tmp/cache:/go/cache
       - ./output:/output
       - ./tmp/build:/tmp
