@@ -20,7 +20,7 @@ prepare:
 # Build the application
 build: prepare test coverage quality
 	@echo "🔨 Building $(APP_NAME)..."
-	docker compose exec builder go build -o /output/$(COMMIT)/$(APP_NAME) /git-source/main.go
+	docker compose exec builder sh -c 'cd /git-source/cmd/relay && go build -o /output/$(COMMIT)/$(APP_NAME)'
 	@echo "✅ Build complete at $(BUILD_DIR)/$(APP_NAME)"
 	@$(MAKE) mq-publish
 
@@ -71,4 +71,3 @@ mq-publish:
 # Stop and clean up infrastructure
 infra-down:
 	docker compose down
-
