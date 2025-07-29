@@ -11,6 +11,9 @@ APP_NAME := cic-relay
 VERSION := dev
 COMMIT := $(shell git rev-parse --short HEAD)
 BUILD_DIR := ./output/$(COMMIT)
+LD_FLAGS := -X main.BuildID=$(VERSION)-$(COMMIT) \
+            -X main.CommitHash=$(COMMIT) \
+            -X main.Timestamp=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Create output directory
 prepare:
@@ -19,9 +22,8 @@ prepare:
 
 # Build the application
 build: prepare test coverage quality
-
 	@echo "🔨 Building $(APP_NAME)..."
-	docker compose exec builder sh -c 'git config --global safe.directory /git-source && cd /git-source/cmd/relay && go build -o /output/$(COMMIT)/$(APP_NAME)'
+	docker compose exec builder sh -c 'git config --global safe.directory /git-source && cd /git-source/cmd/relay && go build -ldflags "$(LD_FLAGS)" -o /output/$(COMMIT)/$(APP_NAME)'
 	@echo "✅ Build complete at $(BUILD_DIR)/$(APP_NAME)"
 	@$(MAKE) mq-publish
 
@@ -72,3 +74,9 @@ mq-publish:
 # Stop and clean up infrastructure
 infra-down:
 	docker compose down
+
+# Build crt_parser tool
+build-crt-parser: prepare
+	@echo "🔨 Building crt_parser..."
+	docker compose exec builder sh -c 'cd /git-source/tools/certutils && go build -ldflags "$(LD_FLAGS)" -o /output/$(COMMIT)/crt_parser crt_parser.go'
+	@echo "✅ crt_parser built at $(BUILD_DIR)/crt_parser"
