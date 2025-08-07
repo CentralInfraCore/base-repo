@@ -40,6 +40,7 @@ clean:
 cache-populate:
 	docker compose run --rm --entrypoint bash mod-cache-loader -c " \
 		go mod download && \
+		go mod download gopkg.in/yaml.v3 && \
 		go install honnef.co/go/tools/cmd/staticcheck@v0.4.6 && \
 		go install github.com/gordonklaus/ineffassign@v0.1.0 \
 	"
