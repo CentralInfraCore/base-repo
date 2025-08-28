@@ -39,11 +39,17 @@ clean:
 # Populate Go module cache
 cache-populate:
 	docker compose run --rm --entrypoint bash mod-cache-loader -c " \
+		GOFLAGS=-buildvcs=false GOBIN=/go/bin \
 		go mod download && \
 		go mod download gopkg.in/yaml.v3 && \
-		go install honnef.co/go/tools/cmd/staticcheck@v0.4.6 && \
+		go install honnef.co/go/tools/cmd/staticcheck@v0.6.1 && \
 		go install github.com/gordonklaus/ineffassign@v0.1.0 \
 	"
+tdd:
+	# reflex helyett lehet inotify-tools is; reflex-et itt installáljuk futáskor
+	docker compose exec -T builder sh -lc '\
+		reflex -r "(\\.go|go\\.mod|go\\.sum)$$" -- sh -c "go test -race -count=1 ./..." \
+	'
 
 test:
 	docker compose exec builder sh -c 'cd /git-source && go test ./... -v'
@@ -52,11 +58,11 @@ coverage:
 	docker compose exec builder sh -c 'cd /git-source && go test -cover ./...'
 
 coverage-html:
-	docker compose exec builder sh -c 'cd /git-source && go test -coverprofile=/output/$(COMMIT)/coverage.out ./... && go tool cover -html=/output/$(COMMIT)/coverage.out -o /output/$(COMMIT)/coverage.html'
+	docker compose exec builder sh -c 'cd /git-source && mkdir /output/$(COMMIT) -p && go test -coverprofile=/output/$(COMMIT)/coverage.out ./... && go tool cover -html=/output/$(COMMIT)/coverage.out -o /output/$(COMMIT)/coverage.html'
 
 # Code quality checks
 quality:
-	docker compose exec builder sh -c 'cd /git-source && staticcheck ./... && ineffassign ./...'
+	docker compose exec builder sh -c 'cd /git-source && GOFLAGS=-buildvcs=false  staticcheck ./... &&  GOFLAGS=-buildvcs=false ineffassign ./...'
 
 # Lint suggestions (non-blocking)
 lint:

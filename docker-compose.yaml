@@ -1,6 +1,6 @@
 version: '3.9'
 
-x-golang-version: &golang_image golang:1.21.5
+x-golang-version: &golang_image golang:1.24.6
 x-nats-version: &nats_image nats:2.10.12
 x-nats-box-version: &nats_box_image natsio/nats-box:0.12.0
 
