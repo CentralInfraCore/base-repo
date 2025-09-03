@@ -87,3 +87,14 @@ build-crt-parser: prepare
 	@echo "🔨 Building crt_parser..."
 	docker compose exec builder sh -c 'cd /git-source/tools/certutils && go build -ldflags "$(LD_FLAGS)" -o /output/$(COMMIT)/crt_parser crt_parser.go'
 	@echo "✅ crt_parser built at $(BUILD_DIR)/crt_parser"
+
+
+# Golden verification (LLM-ready overlay)
+.PHONY: verify
+verify:
+	@scripts/ai_verify.sh
+
+build-canonicalize: prepare
+	@echo "🔨 Building canonicalize..."
+	docker compose exec builder sh -c 'cd /git-source/tools/canonicalize && mkdir -p /output/$(COMMIT) && go build -trimpath -ldflags "$(LD_FLAGS)" -o /output/$(COMMIT)/canonicalize .'
+	@echo "✅ canonicalize built at $(BUILD_DIR)/canonicalize"
