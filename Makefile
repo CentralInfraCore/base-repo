@@ -107,3 +107,35 @@ coverage-gate:
 		awk -v min=$(COVERMIN) '\''{gsub("%","",$3); if ($$3+0 < min) {printf "Coverage %.1f%% < min %.1f%%\n", $$3, min; exit 1}}'\'' \
 	'
 
+# --- Coverage küszöbök (docker compose exec mintára) ---
+# Használat:
+#   make coverage-check            # globális min 85%
+#   make COVER_MIN=90 coverage-check
+#   make coverage-check-pkgs       # per-csomag minimumok
+
+coverage-check:
+	docker compose exec builder sh -c 'cd /git-source && \
+		go test -coverprofile=/tmp/coverage.out ./... >/dev/null && \
+		pct=$$(go tool cover -func=/tmp/coverage.out | awk '\''END{print $$3}'\'' | tr -d "%"); \
+		min=$${COVER_MIN:-85}; \
+		echo "Total coverage: $$pct% (min $$min%)"; \
+		awk -v p=$$pct -v m=$$min '\''BEGIN{exit (p+0 < m+0)}'\'' || { echo "Coverage below threshold"; exit 1; }'
+
+# Per-csomag küszöbök — igazítsd igény szerint:
+# cabinet: 95, canonicalize: 85, certutils: 70, cmd/relay: 80, egyebek: 75
+coverage-check-pkgs:
+	docker compose exec builder sh -c 'cd /git-source && \
+		set -e; \
+		for p in $$(go list ./... | grep -v /vendor/); do \
+		  go test $$p -coverprofile=/tmp/cover.out >/dev/null; \
+		  pc=$$(go tool cover -func=/tmp/cover.out | awk '\''END{print $$3}'\'' | tr -d "%"); \
+		  case "$$p" in \
+		    *"/core/cabinet") min=95 ;; \
+		    *"/tools/canonicalize") min=85 ;; \
+		    *"/tools/certutils") min=70 ;; \
+		    *"/cmd/relay") min=80 ;; \
+		    *) min=75 ;; \
+		  esac; \
+		  echo "$$p: $$pc% (min $$min%)"; \
+		  awk -v p=$$pc -v m=$$min '\''BEGIN{exit (p+0 < m+0)}'\''; \
+		done'
