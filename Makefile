@@ -98,3 +98,12 @@ build-canonicalize: prepare
 	@echo "🔨 Building canonicalize..."
 	docker compose exec builder sh -c 'cd /git-source/tools/canonicalize && mkdir -p /output/$(COMMIT) && go build -trimpath -ldflags "$(LD_FLAGS)" -o /output/$(COMMIT)/canonicalize .'
 	@echo "✅ canonicalize built at $(BUILD_DIR)/canonicalize"
+
+COVERMIN ?= 40.0
+coverage-gate:
+	docker compose exec -T builder sh -lc '\
+		go test -race -covermode=atomic -coverprofile=/output/$(COMMIT)/cover.out ./... && \
+		go tool cover -func=/output/$(COMMIT)/cover.out | tail -n1 | \
+		awk -v min=$(COVERMIN) '\''{gsub("%","",$3); if ($$3+0 < min) {printf "Coverage %.1f%% < min %.1f%%\n", $$3, min; exit 1}}'\'' \
+	'
+
