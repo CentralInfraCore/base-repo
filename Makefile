@@ -7,6 +7,7 @@ infra-init:
 # Default goal
 .DEFAULT_GOAL := build
 
+MAKE := make
 APP_NAME := cic-relay
 VERSION := dev
 COMMIT := $(shell git rev-parse --short HEAD)
@@ -93,6 +94,8 @@ build-crt-parser: prepare
 .PHONY: verify
 verify:
 	@scripts/ai_verify.sh
+	$(MAKE) quality
+	$(MAKE) coverage-check-pkgs
 
 build-canonicalize: prepare
 	@echo "🔨 Building canonicalize..."
@@ -139,3 +142,42 @@ coverage-check-pkgs:
 		  echo "$$p: $$pc% (min $$min%)"; \
 		  awk -v p=$$pc -v m=$$min '\''BEGIN{exit (p+0 < m+0)}'\''; \
 		done'
+
+.PHONY: verify-auto verify-debug
+
+# Automatikus build → bináris felderítés → verify
+verify-auto:
+	@set -e; \
+	BIN=$$(ls -1t output/*/canonicalize 2>/dev/null | head -n1 || true); \
+	if [ -z "$$BIN" ]; then \
+	  echo "→ Building canonicalize..."; \
+	  $(MAKE) build-canonicalize; \
+	  BIN=$$(ls -1t output/*/canonicalize | head -n1); \
+	fi; \
+	echo "→ Using BINARY=$$BIN"; \
+	$(MAKE) verify BINARY="$$BIN"
+
+# Hibakereső target – megmutatja, mit lát
+verify-debug:
+	@set -x; ls -l output/*/canonicalize || true; env | grep -E 'BINARY|MAKE|PATH' || true
+
+# --- MANIFEST ellenőrzés / frissítés ---
+.PHONY: manifest-verify manifest-update
+
+# Ellenőrzés (sha256sum -c)
+manifest-verify:
+	docker compose exec builder sh -c 'cd /git-source && \
+		test -f MANIFEST.sha256 && sha256sum -c MANIFEST.sha256'
+
+# Frissítés (újra-generálás) – kizárjuk .git és output mappákat
+manifest-update:
+	docker compose exec builder sh -c 'cd /git-source && \
+		git ls-files -z  \
+		| xargs -0 sha256sum' | grep -v "MANIFEST.sha256" | LC_ALL=C sort > MANIFEST.sha256 ; \
+	echo "MANIFEST.sha256 updated"
+
+.PHONY: verify-full
+verify-full:
+	$(MAKE) quality
+	$(MAKE) coverage-check-pkgs
+	$(MAKE) manifest-verify
