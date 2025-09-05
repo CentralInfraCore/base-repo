@@ -23,10 +23,12 @@ prepare:
 
 # Build the application
 build: prepare test coverage quality
+
 	@echo "🔨 Building $(APP_NAME)..."
-	docker compose exec builder sh -c 'git config --global safe.directory /git-source && cd /git-source/cmd/relay && go build -ldflags "$(LD_FLAGS)" -o /output/$(COMMIT)/$(APP_NAME)'
+	docker compose exec builder sh -c 'git config --global safe.directory /git-source && cd /git-source/cmd/relay && go build -race $(GOFLAGS) -gcflags="$(GCFLAGS)" -ldflags "$(LDFLAGS)"  -o /output/$(COMMIT)/$(APP_NAME)'
 	@echo "✅ Build complete at $(BUILD_DIR)/$(APP_NAME)"
 	@$(MAKE) mq-publish
+	@if [ -z "$(NO_PUBLISH)" ]; then $(MAKE) mq-publish; fi
 
 # Run dev shell in persistent builder
 shell:
@@ -53,7 +55,7 @@ tdd:
 	'
 
 test:
-	docker compose exec builder sh -c 'cd /git-source && go test ./... -v'
+	docker compose exec builder sh -c 'cd /git-source && GOFLAGS='$(GOFLAGS)' go test -race ./... -v'
 
 coverage:
 	docker compose exec builder sh -c 'cd /git-source && go test -cover ./...'
@@ -181,3 +183,20 @@ verify-full:
 	$(MAKE) quality
 	$(MAKE) coverage-check-pkgs
 	$(MAKE) manifest-verify
+# Coverage report (profile)
+COVERAGE_FILE ?= /output/$(COMMIT)/coverage.out
+# Coverage HTML report
+COVERAGE_HTML ?= /output/$(COMMIT)/coverage.html
+# Deterministic builds
+GOFLAGS ?= -mod=readonly -trimpath
+# Smaller binaries, strip debug DWARF info
+GCFLAGS ?= all=-dwarf=false
+# Linker flags (strip, size)
+LDFLAGS ?= $(LD_FLAGS) -s -w
+
+## Show this help
+help: ## Show available make targets
+	@echo "Available targets:"
+	@grep -E '^[a-zA-Z0-9_.-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
+	awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+
