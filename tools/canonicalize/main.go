@@ -37,11 +37,15 @@ func writeCanonicalJSON(buf *bytes.Buffer, v any) {
 	switch x := v.(type) {
 	case map[string]any:
 		keys := make([]string, 0, len(x))
-		for k := range x { keys = append(keys, k) }
+		for k := range x {
+			keys = append(keys, k)
+		}
 		sort.Strings(keys)
 		buf.WriteByte('{')
 		for i, k := range keys {
-			if i > 0 { buf.WriteByte(',') }
+			if i > 0 {
+				buf.WriteByte(',')
+			}
 			writeJSONString(buf, k)
 			buf.WriteByte(':')
 			writeCanonicalJSON(buf, x[k])
@@ -50,7 +54,9 @@ func writeCanonicalJSON(buf *bytes.Buffer, v any) {
 	case []any:
 		buf.WriteByte('[')
 		for i := range x {
-			if i > 0 { buf.WriteByte(',') }
+			if i > 0 {
+				buf.WriteByte(',')
+			}
 			writeCanonicalJSON(buf, x[i])
 		}
 		buf.WriteByte(']')
@@ -59,7 +65,11 @@ func writeCanonicalJSON(buf *bytes.Buffer, v any) {
 	case string:
 		writeJSONString(buf, x)
 	case bool:
-		if x { buf.WriteString("true") } else { buf.WriteString("false") }
+		if x {
+			buf.WriteString("true")
+		} else {
+			buf.WriteString("false")
+		}
 	case nil:
 		buf.WriteString("null")
 	default:

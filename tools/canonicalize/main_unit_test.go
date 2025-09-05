@@ -37,7 +37,7 @@ func Test_writeCanonicalJSON_ArrayMix(t *testing.T) {
 func Test_writeCanonicalJSON_Nested(t *testing.T) {
 	v := map[string]any{
 		"list": []any{map[string]any{"z": 1, "a": 2}, "ok"},
-		"m":    map[string]any{"k":"v"},
+		"m":    map[string]any{"k": "v"},
 	}
 	var b bytes.Buffer
 	writeCanonicalJSON(&b, v)
