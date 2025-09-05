@@ -1,35 +1,40 @@
-# Initialize infrastructure (MQ, builder)
-infra-init:
-	@mkdir -p output tmp/{build,cache,gomodcache,bin}
-	@sudo chown -R $(shell id -u):$(shell id -g) output tmp
-	docker compose up -d
+
+SHELL := /bin/bash
+.SHELLFLAGS := -eu -o pipefail -c
+MAKEFLAGS += --no-builtin-rules --warn-undefined-variables
 
 # Default goal
 .DEFAULT_GOAL := build
 
 MAKE := make
-APP_NAME := cic-relay
-VERSION := dev
-COMMIT := $(shell git rev-parse --short HEAD)
-BUILD_DIR := ./output/$(COMMIT)
-LD_FLAGS := -X main.BuildID=$(VERSION)-$(COMMIT) \
+APP_NAME ?= cic-relay
+VERSION  ?= dev
+COMMIT   ?= $(shell git rev-parse --short HEAD)
+BUILD_DIR ?= ./output/$(COMMIT)
+
+# ---- Coverage outputs ----
+COVERAGE_FILE ?= /output/$(COMMIT)/coverage.out
+COVERAGE_HTML ?= /output/$(COMMIT)/coverage.html
+
+# ---- Build flags ----
+LD_FLAGS ?= -X main.BuildID=$(VERSION)-$(COMMIT) \
             -X main.CommitHash=$(COMMIT) \
             -X main.Timestamp=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Create output directory
-prepare:
-	@mkdir -p $(BUILD_DIR)
-	@sudo chown -R $(shell id -u):$(shell id -g) ./output
+GOFLAGS  ?= -mod=readonly -trimpath
+GCFLAGS  ?= all=-dwarf=false
+LDFLAGS  ?= $(LD_FLAGS) -s -w
 
-# Build the application
-build: prepare test coverage quality
-
-	@echo "🔨 Building $(APP_NAME)..."
-	docker compose exec builder sh -c 'git config --global safe.directory /git-source && cd /git-source/cmd/relay && go build -race $(GOFLAGS) -gcflags="$(GCFLAGS)" -ldflags "$(LDFLAGS)"  -o /output/$(COMMIT)/$(APP_NAME)'
-	@echo "✅ Build complete at $(BUILD_DIR)/$(APP_NAME)"
-	@$(MAKE) mq-publish
-	@if [ -z "$(NO_PUBLISH)" ]; then $(MAKE) mq-publish; fi
-
+# Kapcsolható race detektor: dev/CI ON, release OFF (RACE=0)
+RACE ?= 1
+ifeq ($(RACE),1)
+  GO_RACE := -race
+else
+  GO_RACE :=
+endif
+define GO_EXEC
+	docker compose exec -T builder sh -eu -o pipefail -c 'cd /git-source && $(1)'
+endef
 # Run dev shell in persistent builder
 shell:
 	docker compose exec builder sh
@@ -39,96 +44,65 @@ clean:
 	rm -rf $(BUILD_DIR)
 	@echo "🧹 Cleaned build output for commit $(COMMIT)"
 
-# Populate Go module cache
-cache-populate:
-	docker compose run --rm --entrypoint bash mod-cache-loader -c " \
-		GOFLAGS=-buildvcs=false GOBIN=/go/bin \
-		go mod download && \
-		go mod download gopkg.in/yaml.v3 && \
-		go install honnef.co/go/tools/cmd/staticcheck@v0.6.1 && \
-		go install github.com/gordonklaus/ineffassign@v0.1.0 \
-	"
-tdd:
-	# reflex helyett lehet inotify-tools is; reflex-et itt installáljuk futáskor
-	docker compose exec -T builder sh -lc '\
-		reflex -r "(\\.go|go\\.mod|go\\.sum)$$" -- sh -c "go test -race -count=1 ./..." \
-	'
+# ---- Help ----
+## Show available make targets
+help: ## Show available make targets
+	@echo "Available targets:"
+	@grep -E '^[a-zA-Z0-9_.-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
+	awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
-test:
-	docker compose exec builder sh -c 'cd /git-source && GOFLAGS='$(GOFLAGS)' go test -race ./... -v'
+# ---- Infra / prepare ----
+infra-init: ## Initialize dockerized infra and dirs
+	@mkdir -p output tmp/{build,cache,gomodcache,bin}
+	@sudo chown -R $(shell id -u):$(shell id -g) output tmp
+	docker compose up -d
 
-coverage:
-	docker compose exec builder sh -c 'cd /git-source && go test -cover ./...'
+prepare: infra-init ## Prepare local/dev environment
+	@mkdir -p $(BUILD_DIR)
+	@sudo chown -R $(shell id -u):$(shell id -g) ./output
+# ---- Quality gate ----
+fmt: ## Apply gofmt -s to all files
+	docker compose exec fixer sh -c 'cd /git-source && git config --global --add safe.directory /git-source && git ls-files -z -- "*.go" | xargs -0 gofmt -s -w'
 
-coverage-html:
-	docker compose exec builder sh -c 'cd /git-source && mkdir /output/$(COMMIT) -p && go test -coverprofile=/output/$(COMMIT)/coverage.out ./... && go tool cover -html=/output/$(COMMIT)/coverage.out -o /output/$(COMMIT)/coverage.html'
+fmt-check: ## Fail if formatting differs
+	$(call GO_EXEC, M="$$(git ls-files -z -- "*.go" | xargs -0 gofmt -s -l)"; \
+		test -z "$$M" || { printf "%s\n" "$$M"; echo "Code not formatted. Run make fmt"; exit 1; })
 
-# Code quality checks
-quality:
-	docker compose exec builder sh -c 'cd /git-source && GOFLAGS=-buildvcs=false  staticcheck ./... &&  GOFLAGS=-buildvcs=false ineffassign ./...'
+lint: ## Run static linters (staticcheck, ineffassign)
+	docker compose exec builder sh -c 'cd /git-source && GOFLAGS=-buildvcs=false staticcheck ./...'
 
-# Lint suggestions (non-blocking)
-lint:
-	docker compose exec builder sh -c 'cd /git-source && go vet ./... && staticcheck ./...'
+vet: ## Run go vet
+	docker compose exec builder sh -c 'cd /git-source && go vet ./...'
 
-# Publish build result to MQ
-mq-publish:
-	docker compose exec nats-cli sh -c ' \
-		FILE="/output/$(COMMIT)/$(APP_NAME)" && \
-		if [ -f $$FILE ]; then \
-			nats pub build.result.$(COMMIT) "✅ Build ready: $$FILE"; \
-		else \
-			nats pub build.result.$(COMMIT) "❌ Build failed or missing output."; \
-		fi '
+quality: fmt-check lint vet ## Quality gate: all checks must pass
 
-# Stop and clean up infrastructure
-infra-down:
-	docker compose down
+# ---- Tests & coverage ----
+test: ## Run unit tests (verbose, race)
+	$(call GO_EXEC, GOFLAGS="$(GOFLAGS)" go test $(GO_RACE) -v ./...)
 
-# Build crt_parser tool
-build-crt-parser: prepare
-	@echo "🔨 Building crt_parser..."
-	docker compose exec builder sh -c 'cd /git-source/tools/certutils && go build -ldflags "$(LD_FLAGS)" -o /output/$(COMMIT)/crt_parser crt_parser.go'
-	@echo "✅ crt_parser built at $(BUILD_DIR)/crt_parser"
+coverage: coverage-profile coverage-html ## Run tests with coverage (profile + HTML)
+	@echo "Coverage HTML: $(COVERAGE_HTML)"
+
+coverage-profile: ## Run tests with coverage (profile)
+	$(call GO_EXEC, GOFLAGS="$(GOFLAGS)" mkdir /output/$(COMMIT) -p \
+	       	&& go test $(GO_RACE) -covermode=atomic -coverprofile=$(COVERAGE_FILE) ./...)
+	@echo "Coverage HTML: $(COVERAGE_HTML)"
+coverage-html: ## Run tests with coverage (HTML)
+	$(call GO_EXEC, GOFLAGS="$(GOFLAGS)" mkdir /output/$(COMMIT) -p \
+		&& go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML))
+	@echo "Coverage HTML: $(COVERAGE_HTML)"
 
 
-# Golden verification (LLM-ready overlay)
-.PHONY: verify
-verify:
-	@scripts/ai_verify.sh
-	$(MAKE) quality
-	$(MAKE) coverage-check-pkgs
+COVERAGE_MIN ?= 85
 
-build-canonicalize: prepare
-	@echo "🔨 Building canonicalize..."
-	docker compose exec builder sh -c 'cd /git-source/tools/canonicalize && mkdir -p /output/$(COMMIT) && go build -trimpath -ldflags "$(LD_FLAGS)" -o /output/$(COMMIT)/canonicalize .'
-	@echo "✅ canonicalize built at $(BUILD_DIR)/canonicalize"
-
-COVERMIN ?= 40.0
-coverage-gate:
-	docker compose exec -T builder sh -lc '\
-		go test -race -covermode=atomic -coverprofile=/output/$(COMMIT)/cover.out ./... && \
-		go tool cover -func=/output/$(COMMIT)/cover.out | tail -n1 | \
-		awk -v min=$(COVERMIN) '\''{gsub("%","",$3); if ($$3+0 < min) {printf "Coverage %.1f%% < min %.1f%%\n", $$3, min; exit 1}}'\'' \
-	'
-
-# --- Coverage küszöbök (docker compose exec mintára) ---
-# Használat:
-#   make coverage-check            # globális min 85%
-#   make COVER_MIN=90 coverage-check
-#   make coverage-check-pkgs       # per-csomag minimumok
-
-coverage-check:
-	docker compose exec builder sh -c 'cd /git-source && \
-		go test -coverprofile=/tmp/coverage.out ./... >/dev/null && \
-		pct=$$(go tool cover -func=/tmp/coverage.out | awk '\''END{print $$3}'\'' | tr -d "%"); \
-		min=$${COVER_MIN:-85}; \
-		echo "Total coverage: $$pct% (min $$min%)"; \
-		awk -v p=$$pct -v m=$$min '\''BEGIN{exit (p+0 < m+0)}'\'' || { echo "Coverage below threshold"; exit 1; }'
+coverage-threshold: coverage ## Fail if coverage < $(COVERAGE_MIN)%
+	docker compose exec -T builder sh -c 'cd /git-source && \
+		go tool cover -func=$(COVERAGE_FILE) | \
+		awk -v MIN=$(COVERAGE_MIN) '"'"'/^total:/ { gsub("%","",$$3); v=$$3+0 } END { if (v < MIN) { printf "Coverage below %d%% (got %.1f%%)\n", MIN, v; exit 1 } else { printf "Coverage OK: %.1f%% >= %d%%\n", v, MIN } }'"'"''
 
 # Per-csomag küszöbök — igazítsd igény szerint:
 # cabinet: 95, canonicalize: 85, certutils: 70, cmd/relay: 80, egyebek: 75
-coverage-check-pkgs:
+coverage-check-pkgs: ## Fail if pacakes`s coverage < $(COVERAGE_MIN)%
 	docker compose exec builder sh -c 'cd /git-source && \
 		set -e; \
 		for p in $$(go list ./... | grep -v /vendor/); do \
@@ -145,10 +119,29 @@ coverage-check-pkgs:
 		  awk -v p=$$pc -v m=$$min '\''BEGIN{exit (p+0 < m+0)}'\''; \
 		done'
 
-.PHONY: verify-auto verify-debug
+
+
+# Stop and clean up infrastructure
+infra-down: ## Stop end clean infra
+	docker compose down
+
+# Build crt_parser tool
+build-crt-parser: prepare ## build-crt-parser
+	@echo "🔨 Building crt_parser..."
+	docker compose exec builder sh -c 'cd /git-source/tools/certutils && go build -ldflags "$(LD_FLAGS)" -o /output/$(COMMIT)/crt_parser crt_parser.go'
+	@echo "✅ crt_parser built at $(BUILD_DIR)/crt_parser"
+
+
+# Golden verification (LLM-ready overlay)
+
+build-canonicalize: prepare ## build-canonicalize
+	@echo "🔨 Building canonicalize..."
+	docker compose exec builder sh -c 'cd /git-source/tools/canonicalize && mkdir -p /output/$(COMMIT) && go build -trimpath -ldflags "$(LD_FLAGS)" -o /output/$(COMMIT)/canonicalize .'
+	@echo "✅ canonicalize built at $(BUILD_DIR)/canonicalize"
+
 
 # Automatikus build → bináris felderítés → verify
-verify-auto:
+verify-auto: ## verify-auto
 	@set -e; \
 	BIN=$$(ls -1t output/*/canonicalize 2>/dev/null | head -n1 || true); \
 	if [ -z "$$BIN" ]; then \
@@ -160,26 +153,24 @@ verify-auto:
 	$(MAKE) verify BINARY="$$BIN"
 
 # Hibakereső target – megmutatja, mit lát
-verify-debug:
+verify-debug: ## verify-debug
 	@set -x; ls -l output/*/canonicalize || true; env | grep -E 'BINARY|MAKE|PATH' || true
 
 # --- MANIFEST ellenőrzés / frissítés ---
-.PHONY: manifest-verify manifest-update
 
 # Ellenőrzés (sha256sum -c)
-manifest-verify:
+manifest-verify: ##manifest-verify
 	docker compose exec builder sh -c 'cd /git-source && \
 		test -f MANIFEST.sha256 && sha256sum -c MANIFEST.sha256'
 
 # Frissítés (újra-generálás) – kizárjuk .git és output mappákat
-manifest-update:
+manifest-update: ##manifest-update
 	docker compose exec builder sh -c 'cd /git-source && \
 		git ls-files -z  \
 		| xargs -0 sha256sum' | grep -v "MANIFEST.sha256" | LC_ALL=C sort > MANIFEST.sha256 ; \
 	echo "MANIFEST.sha256 updated"
 
-.PHONY: verify-full
-verify-full:
+verify-full: ##verify-full
 	$(MAKE) quality
 	$(MAKE) coverage-check-pkgs
 	$(MAKE) manifest-verify
@@ -187,16 +178,62 @@ verify-full:
 COVERAGE_FILE ?= /output/$(COMMIT)/coverage.out
 # Coverage HTML report
 COVERAGE_HTML ?= /output/$(COMMIT)/coverage.html
-# Deterministic builds
-GOFLAGS ?= -mod=readonly -trimpath
-# Smaller binaries, strip debug DWARF info
-GCFLAGS ?= all=-dwarf=false
-# Linker flags (strip, size)
-LDFLAGS ?= $(LD_FLAGS) -s -w
 
-## Show this help
-help: ## Show available make targets
-	@echo "Available targets:"
-	@grep -E '^[a-zA-Z0-9_.-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
-	awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
+
+# Build the application
+build: prepare quality test coverage coverage-check-pkgs ## Build binary with quality gates
+	@echo "🔨 Building $(APP_NAME)..."
+	docker compose exec builder sh -c 'git config --global safe.directory /git-source \
+		&& cd /git-source/cmd/relay \
+		&& go build $(GO_RACE) $(GOFLAGS) -gcflags="$(GCFLAGS)" -ldflags "$(LDFLAGS)" \
+		 -o /output/$(COMMIT)/$(APP_NAME)'
+	@echo "✅ Build complete at $(BUILD_DIR)/$(APP_NAME)"
+	@$(MAKE) verify
+	@if [ -z "$(NO_PUBLISH)" ]; then $(MAKE) mq-publish; fi
+
+# ---- Artefakt és forrás MANIFEST-ek ----
+MANIFEST := /output/$(COMMIT)/MANIFEST.sha256
+
+verify: ## Generate MANIFEST with sha256 of built artefacts
+	@cd /output/$(COMMIT) && sha256sum $(APP_NAME) > $(MANIFEST)
+	@echo "Manifest written to $(MANIFEST)"
+
+manifest-src: ## Snapshot of tracked sources (audit)
+	$(call GO_EXEC, git ls-files -z | xargs -0 sha256sum > /output/$(COMMIT)/SOURCE.MANIFEST.sha256)
+	@echo "Source manifest: /output/$(COMMIT)/SOURCE.MANIFEST.sha256"
+
+# ---- Optional: TDD loop ----
+tdd: ## TDD loop with reflex
+	$(call GO_EXEC, \
+		command -v reflex >/dev/null 2>&1 || go install github.com/cespare/reflex@latest; \
+		reflex -r "(\.go|go\.mod|go\.sum)$$" -- sh -c "GOFLAGS='$(GOFLAGS)' go test $(GO_RACE) -count=1 ./..." \
+	)
+
+
+
+cache-populate: ##cache-populate
+	docker compose run --rm --entrypoint bash mod-cache-loader -c " \
+		GOFLAGS=-buildvcs=false GOBIN=/go/bin \
+		&& go mod download \
+		&& go mod download gopkg.in/yaml.v3 \
+		&& go install honnef.co/go/tools/cmd/staticcheck@v0.6.1 \
+		&& go install github.com/gordonklaus/ineffassign@v0.1.0 \
+		&& go install github.com/cespare/reflex@v0.3.1 \
+	"
+
+# ---- Optional: MQ publish (guarded by NO_PUBLISH) ----
+mq-publish: ## Example publish step (override as needed)
+	docker compose exec nats-cli sh -c ' \
+		FILE="/output/$(COMMIT)/$(APP_NAME)" && \
+		if [ -f $$FILE ]; then \
+			nats pub build.result.$(COMMIT) "✅ Build ready: $$FILE"; \
+		else \
+			nats pub build.result.$(COMMIT) "❌ Build failed or missing output."; \
+		fi '
+
+# ---- Phony ----
+.PHONY: help infra-init prepare fmt fmt-check lint vet quality \
+        test coverage coverage-threshold build verify manifest-src \
+        tdd cache-populate mq-publish verify-auto verify-debug \
+	manifest-verify manifest-update verify-full clean shell

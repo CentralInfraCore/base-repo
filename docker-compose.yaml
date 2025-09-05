@@ -49,3 +49,20 @@ services:
     stdin_open: true
     tty: true
     entrypoint: ["sh"]
+
+  fixer:
+    image: *golang_image
+    container_name: cic-go-fixer
+    volumes:
+      - ./:/git-source:rw
+      - ./tmp/gomodcache:/go/pkg/mod
+      - ./tmp/cache:/go/cache
+      - ./output:/output
+      - ./tmp/build:/tmp
+    environment:
+      - GOMODCACHE=/go/pkg/mod
+      - GOCACHE=/go/cache
+    working_dir: /tmp
+    stdin_open: true
+    tty: true
+    entrypoint: ["sh"]
