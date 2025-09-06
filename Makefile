@@ -57,21 +57,24 @@ help: ## Show available make targets
 # ---- Infra / prepare ----
 infra-init: ## Initialize dockerized infra and dirs
 	@mkdir -p output tmp/{build,cache,gomodcache,bin}
-	@sudo chown -R $(shell id -u):$(shell id -g) output tmp
+	@{ command -v sudo >/dev/null 2>&1 && sudo chown -R $(shell id -u):$(shell id -g) ./output; } || true
 	docker compose up -d
 
 prepare: infra-init ## Prepare local/dev environment
 	@mkdir -p $(BUILD_DIR)
 	@sudo chown -R $(shell id -u):$(shell id -g) ./output
 # ---- Quality gate ----
-fmt: ## Apply gofmt -s to all files
-	docker compose exec fixer sh -c 'cd /git-source && git config --global --add safe.directory /git-source && git ls-files -z -- "*.go" | xargs -0 gofmt -s -w'
+fmt: ## Apply gofmt -s (and goimports if available)
+	$(call GO_FIXER, git config --global --add safe.directory /git-source && \
+		git ls-files -z -- "*.go" | xargs -0 gofmt -s -w ; \
+		if command -v goimports >/dev/null 2>&1; then \
+			git ls-files -z -- "*.go" | xargs -0 goimports -w ; \
+		fi )
 
 fmt-check: ## Fail if formatting differs
 	$(call GO_EXEC, M="$$(git ls-files -z -- "*.go" | xargs -0 gofmt -s -l)"; \
 		test -z "$$M" || { printf "%s\n" "$$M"; echo "Code not formatted. Run make fmt"; exit 1; })
 
-PACKAGES ?= $$(go list ./... | grep -vE '(^|/)(tmp|output|dist|build|vendor|.git|scripts|hack|examples?|third_party)(/|$$)')
 lint: ## Run static linters (staticcheck, ineffassign)
 	$(call GO_EXEC, \
 		set -euo pipefail; \
@@ -104,11 +107,11 @@ vet: ## Run go vet
 			echo "No Go packages to lint."; \
 			exit 0; \
 		fi; \
-		echo "Staticcheck on: $$PKGS"; \
+		echo "Vet on: $$PKGS"; \
 		GO111MODULE=on GOFLAGS="$(GOFLAGS)" go vet $$PKGS \
 	)
 
-quality: fmt-check lint vet ## Quality gate: all checks must pass
+quality: fmt-check lint vet vuln ## Quality gate: all checks must pass
 
 # ---- Tests & coverage ----
 test: ## Run unit tests (verbose, race)
@@ -125,8 +128,8 @@ test: ## Run unit tests (verbose, race)
 			echo "No Go packages to lint."; \
 			exit 0; \
 		fi; \
-		echo "Staticcheck on: $$PKGS"; \
-		GO111MODULE=on GOFLAGS="$(GOFLAGS)" go test $(GO_RAVE) -v $$PKGS \
+		echo "Test on: $$PKGS"; \
+		GO111MODULE=on GOFLAGS="$(GOFLAGS)" go test $(GO_RACE) -v $$PKGS \
 	)
 
 coverage: coverage-profile coverage-html ## Run tests with coverage (profile + HTML)
@@ -165,7 +168,7 @@ coverage-threshold: coverage ## Fail if coverage < $(COVERAGE_MIN)%
 
 # Per-csomag küszöbök — igazítsd igény szerint:
 # cabinet: 95, canonicalize: 85, certutils: 70, cmd/relay: 80, egyebek: 75
-coverage-check-pkgs: ## Fail if pacakes`s coverage < $(COVERAGE_MIN)%
+coverage-check-pkgs: ## Fail if packages coverage < $(COVERAGE_MIN)%
 	docker compose exec builder sh -c 'cd /git-source && \
 		set -e; \
 		for p in $$(go list ./... | grep -v /vendor/); do \
@@ -182,10 +185,27 @@ coverage-check-pkgs: ## Fail if pacakes`s coverage < $(COVERAGE_MIN)%
 		  awk -v p=$$pc -v m=$$min '\''BEGIN{exit (p+0 < m+0)}'\''; \
 		done'
 
+vuln: ## Run Go vulnerability scan (govulncheck)
+	$(call GO_EXEC, \
+		set -euo pipefail; \
+		PKGS="$$(git ls-files -z \
+			| tr "\0" "\n" \
+			| grep "\\.go$$" \
+			| xargs -n1 dirname \
+			| sed -e 's#^#./#' \
+			| sort -u \
+			| grep -vE "(^|/)(tmp|output|dist|build|vendor|scripts|hack|examples?|third_party)(/|$$)")"; \
+		if [ -z "$$PKGS" ]; then \
+			echo "No Go packages to lint."; \
+			exit 0; \
+		fi; \
+		echo "govulncheck on: $$PKGS"; \
+		GO111MODULE=on GOFLAGS="$(GOFLAGS)" govulncheck $$PKGS \
+	)
 
 
 # Stop and clean up infrastructure
-infra-down: ## Stop end clean infra
+infra-down: ## Stop and clean infra
 	docker compose down
 
 # Build crt_parser tool
@@ -276,9 +296,10 @@ cache-populate: ##cache-populate
 		GOFLAGS=-buildvcs=false GOBIN=/go/bin \
 		&& go mod download \
 		&& go mod download gopkg.in/yaml.v3 \
-		&& go install honnef.co/go/tools/cmd/staticcheck@v0.6.1 \
-		&& go install github.com/gordonklaus/ineffassign@v0.1.0 \
-		&& go install github.com/cespare/reflex@v0.3.1 \
+		&& echo staticcheck && go install honnef.co/go/tools/cmd/staticcheck@v0.6.1 \
+		&& echo ineffassign && go install github.com/gordonklaus/ineffassign@v0.1.0 \
+		&& echo reflex && go install github.com/cespare/reflex@v0.3.1 \
+		&& echo govulncheck && go install golang.org/x/vuln/cmd/govulncheck@v1.1.4 \
 	"
 
 # ---- Optional: MQ publish (guarded by NO_PUBLISH) ----

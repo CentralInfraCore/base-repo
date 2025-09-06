@@ -11,6 +11,7 @@ services:
     volumes:
       - ./:/go/src:rw
       - ./tmp/gomodcache:/go/pkg/mod
+      - ./tmp/go/bin:/go/bin
     working_dir: /go/src
     entrypoint: ["go"]
   nats:
@@ -40,6 +41,7 @@ services:
       - ./:/git-source:ro
       - ./tmp/gomodcache:/go/pkg/mod
       - ./tmp/cache:/go/cache
+      - ./tmp/go/bin:/go/bin
       - ./output:/output
       - ./tmp/build:/tmp
     environment:
@@ -57,6 +59,7 @@ services:
       - ./:/git-source:rw
       - ./tmp/gomodcache:/go/pkg/mod
       - ./tmp/cache:/go/cache
+      - ./tmp/go/bin:/go/bin
       - ./output:/output
       - ./tmp/build:/tmp
     environment:
