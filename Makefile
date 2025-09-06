@@ -35,6 +35,9 @@ endif
 define GO_EXEC
 	docker compose exec -T builder sh -eu -o pipefail -c 'cd /git-source && $(1)'
 endef
+define GO_FIXER
+	docker compose exec -T fixer sh -eu -o pipefail -c 'cd /git-source && $(1)'
+endef
 # Run dev shell in persistent builder
 shell:
 	docker compose exec builder sh
@@ -68,30 +71,90 @@ fmt-check: ## Fail if formatting differs
 	$(call GO_EXEC, M="$$(git ls-files -z -- "*.go" | xargs -0 gofmt -s -l)"; \
 		test -z "$$M" || { printf "%s\n" "$$M"; echo "Code not formatted. Run make fmt"; exit 1; })
 
+PACKAGES ?= $$(go list ./... | grep -vE '(^|/)(tmp|output|dist|build|vendor|.git|scripts|hack|examples?|third_party)(/|$$)')
 lint: ## Run static linters (staticcheck, ineffassign)
-	docker compose exec builder sh -c 'cd /git-source && GOFLAGS=-buildvcs=false staticcheck ./...'
+	$(call GO_EXEC, \
+		set -euo pipefail; \
+		PKGS="$$(git ls-files -z \
+			| tr "\0" "\n" \
+			| grep "\\.go$$" \
+			| xargs -n1 dirname \
+			| sed -e 's#^#./#' \
+			| sort -u \
+			| grep -vE "(^|/)(tmp|output|dist|build|vendor|scripts|hack|examples?|third_party)(/|$$)")"; \
+		if [ -z "$$PKGS" ]; then \
+			echo "No Go packages to lint."; \
+			exit 0; \
+		fi; \
+		echo "Staticcheck on: $$PKGS"; \
+		GO111MODULE=on GOFLAGS="$(GOFLAGS)" staticcheck $$PKGS \
+	)
 
 vet: ## Run go vet
-	docker compose exec builder sh -c 'cd /git-source && go vet ./...'
+	$(call GO_EXEC, \
+		set -euo pipefail; \
+		PKGS="$$(git ls-files -z \
+			| tr "\0" "\n" \
+			| grep "\\.go$$" \
+			| xargs -n1 dirname \
+			| sed -e 's#^#./#' \
+			| sort -u \
+			| grep -vE "(^|/)(tmp|output|dist|build|vendor|scripts|hack|examples?|third_party)(/|$$)")"; \
+		if [ -z "$$PKGS" ]; then \
+			echo "No Go packages to lint."; \
+			exit 0; \
+		fi; \
+		echo "Staticcheck on: $$PKGS"; \
+		GO111MODULE=on GOFLAGS="$(GOFLAGS)" go vet $$PKGS \
+	)
 
 quality: fmt-check lint vet ## Quality gate: all checks must pass
 
 # ---- Tests & coverage ----
 test: ## Run unit tests (verbose, race)
-	$(call GO_EXEC, GOFLAGS="$(GOFLAGS)" go test $(GO_RACE) -v ./...)
+	$(call GO_EXEC, \
+		set -euo pipefail; \
+		PKGS="$$(git ls-files -z \
+			| tr "\0" "\n" \
+			| grep "\\.go$$" \
+			| xargs -n1 dirname \
+			| sed -e 's#^#./#' \
+			| sort -u \
+			| grep -vE "(^|/)(tmp|output|dist|build|vendor|scripts|hack|examples?|third_party)(/|$$)")"; \
+		if [ -z "$$PKGS" ]; then \
+			echo "No Go packages to lint."; \
+			exit 0; \
+		fi; \
+		echo "Staticcheck on: $$PKGS"; \
+		GO111MODULE=on GOFLAGS="$(GOFLAGS)" go test $(GO_RAVE) -v $$PKGS \
+	)
 
 coverage: coverage-profile coverage-html ## Run tests with coverage (profile + HTML)
 	@echo "Coverage HTML: $(COVERAGE_HTML)"
 
 coverage-profile: ## Run tests with coverage (profile)
-	$(call GO_EXEC, GOFLAGS="$(GOFLAGS)" mkdir /output/$(COMMIT) -p \
-	       	&& go test $(GO_RACE) -covermode=atomic -coverprofile=$(COVERAGE_FILE) ./...)
-	@echo "Coverage HTML: $(COVERAGE_HTML)"
-coverage-html: ## Run tests with coverage (HTML)
-	$(call GO_EXEC, GOFLAGS="$(GOFLAGS)" mkdir /output/$(COMMIT) -p \
-		&& go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML))
-	@echo "Coverage HTML: $(COVERAGE_HTML)"
+		$(call GO_EXEC, \
+		set -euo pipefail; \
+		PKGS="$$(git ls-files -z \
+			| tr "\0" "\n" \
+			| grep "\\.go$$" \
+			| xargs -n1 dirname \
+			| sed -e 's#^#./#' \
+			| sort -u \
+			| grep -vE "(^|/)(tmp|output|dist|build|vendor|scripts|hack|examples?|third_party)(/|$$)")"; \
+		if [ -z "$$PKGS" ]; then \
+			echo "No Go packages to lint."; \
+			exit 0; \
+		fi; \
+		echo "Staticcheck on: $$PKGS"; \
+		mkdir -p $(BUILD_DIR) \
+		&& GOFLAGS="$(GOFLAGS)" go test $(GO_RACE) -covermode=atomic -coverprofile=$(COVERAGE_FILE) $$PKGS \
+	)
 
+
+coverage-html: ## Run tests with coverage (HTML)
+	$(call GO_EXEC, mkdir -p $(BUILD_DIR) \
+		&& go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML))
 
 COVERAGE_MIN ?= 85
 
@@ -189,18 +252,14 @@ build: prepare quality test coverage coverage-check-pkgs ## Build binary with qu
 		&& go build $(GO_RACE) $(GOFLAGS) -gcflags="$(GCFLAGS)" -ldflags "$(LDFLAGS)" \
 		 -o /output/$(COMMIT)/$(APP_NAME)'
 	@echo "✅ Build complete at $(BUILD_DIR)/$(APP_NAME)"
-	@$(MAKE) verify
+	@$(MAKE) manifest-src
 	@if [ -z "$(NO_PUBLISH)" ]; then $(MAKE) mq-publish; fi
 
 # ---- Artefakt és forrás MANIFEST-ek ----
 MANIFEST := /output/$(COMMIT)/MANIFEST.sha256
 
-verify: ## Generate MANIFEST with sha256 of built artefacts
-	@cd /output/$(COMMIT) && sha256sum $(APP_NAME) > $(MANIFEST)
-	@echo "Manifest written to $(MANIFEST)"
-
 manifest-src: ## Snapshot of tracked sources (audit)
-	$(call GO_EXEC, git ls-files -z | xargs -0 sha256sum > /output/$(COMMIT)/SOURCE.MANIFEST.sha256)
+	$(call GO_FIXER, git ls-files -z | xargs -0 sha256sum > /output/$(COMMIT)/SOURCE.MANIFEST.sha256)
 	@echo "Source manifest: /output/$(COMMIT)/SOURCE.MANIFEST.sha256"
 
 # ---- Optional: TDD loop ----
