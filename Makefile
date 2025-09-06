@@ -289,8 +289,6 @@ tdd: ## TDD loop with reflex
 		reflex -r "(\.go|go\.mod|go\.sum)$$" -- sh -c "GOFLAGS='$(GOFLAGS)' go test $(GO_RACE) -count=1 ./..." \
 	)
 
-
-
 cache-populate: ##cache-populate
 	docker compose run --rm --entrypoint bash mod-cache-loader -c " \
 		GOFLAGS=-buildvcs=false GOBIN=/go/bin \
