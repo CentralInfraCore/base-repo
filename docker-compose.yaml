@@ -10,8 +10,8 @@ services:
     image: *golang_image
     volumes:
       - ./:/go/src:rw
-      - ./tmp/gomodcache:/go/pkg/mod
-      - ./tmp/go/bin:/go/bin
+      - ~/tmp/cache/CIC-Relay/gomodcache:/go/pkg/mod
+      - ~/tmp/cache/CIC-Relay/go/bin:/go/bin
     working_dir: /go/src
     entrypoint: ["go"]
   nats:
@@ -39,11 +39,11 @@ services:
     container_name: cic-go-builder
     volumes:
       - ./:/git-source:ro
-      - ./tmp/gomodcache:/go/pkg/mod
-      - ./tmp/cache:/go/cache
-      - ./tmp/go/bin:/go/bin
+      - ~/tmp/cache/CIC-Relay/gomodcache:/go/pkg/mod
+      - ~/tmp/cache/CIC-Relay/cache:/go/cache
+      - ~/tmp/cache/CIC-Relay/go/bin:/go/bin
       - ./output:/output
-      - ./tmp/build:/tmp
+      - ~/tmp/cache/CIC-Relay/build:/tmp
     environment:
       - GOMODCACHE=/go/pkg/mod
       - GOCACHE=/go/cache
@@ -57,11 +57,11 @@ services:
     container_name: cic-go-fixer
     volumes:
       - ./:/git-source:rw
-      - ./tmp/gomodcache:/go/pkg/mod
-      - ./tmp/cache:/go/cache
-      - ./tmp/go/bin:/go/bin
+      - ~/tmp/cache/CIC-Relay/gomodcache:/go/pkg/mod
+      - ~/tmp/cache/CIC-Relay/cache:/go/cache
+      - ~/tmp/cache/CIC-Relay/go/bin:/go/bin
       - ./output:/output
-      - ./tmp/build:/tmp
+      - ~/tmp/cache/CIC-Relay/build:/tmp
     environment:
       - GOMODCACHE=/go/pkg/mod
       - GOCACHE=/go/cache

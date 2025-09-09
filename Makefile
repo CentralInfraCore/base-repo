@@ -267,8 +267,7 @@ COVERAGE_HTML ?= /output/$(COMMIT)/coverage.html
 # Build the application
 build: prepare quality test coverage coverage-check-pkgs ## Build binary with quality gates
 	@echo "🔨 Building $(APP_NAME)..."
-	docker compose exec builder sh -c 'git config --global safe.directory /git-source \
-		&& cd /git-source/cmd/relay \
+	docker compose exec builder sh -c ' cd /git-source/cmd/relay \
 		&& go build $(GO_RACE) $(GOFLAGS) -gcflags="$(GCFLAGS)" -ldflags "$(LDFLAGS)" \
 		 -o /output/$(COMMIT)/$(APP_NAME)'
 	@echo "✅ Build complete at $(BUILD_DIR)/$(APP_NAME)"
@@ -286,7 +285,7 @@ manifest-src: ## Snapshot of tracked sources (audit)
 tdd: ## TDD loop with reflex
 	$(call GO_EXEC, \
 		command -v reflex >/dev/null 2>&1 || go install github.com/cespare/reflex@latest; \
-		reflex -r "(\.go|go\.mod|go\.sum)$$" -- sh -c "GOFLAGS='$(GOFLAGS)' go test $(GO_RACE) -count=1 ./..." \
+		reflex -r "(\.go|go\.mod|go\.sum)$$" -- sh -c "GOFLAGS=-mod=readonly\ -trimpath go test -race -count=1 ./..." \
 	)
 
 cache-populate: ##cache-populate
