@@ -1,49 +1,46 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"strings"
 	"testing"
+
+	"centralrelay/pkg/canonicaljson"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func Test_writeJSONString_Simple(t *testing.T) {
-	var b bytes.Buffer
-	writeJSONString(&b, "hello")
-	got := b.String()
-	if got != `"hello"` {
-		t.Fatalf("want %q, got %q", `"hello"`, got)
+func TestCanonicalJSONOutput(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    any
+		wantJSON string
+	}{
+		{
+			name:     "simple map",
+			input:    map[string]any{"b": 2, "a": 1},
+			wantJSON: `{"a":1,"b":2}`,
+		},
+		{
+			name:     "nested map",
+			input:    map[string]any{"c": 3, "a": map[string]any{"z": 26, "y": 25}},
+			wantJSON: `{"a":{"y":25,"z":26},"c":3}`,
+		},
+		{
+			name:     "array of maps",
+			input:    []any{map[string]any{"b": 2}, map[string]any{"a": 1}},
+			wantJSON: `[{"b":2},{"a":1}]`, // Array order is preserved
+		},
+		{
+			name:     "complex structure",
+			input:    map[string]any{"p": true, "n": nil, "s": "string", "arr": []any{"x", "y"}},
+			wantJSON: `{"arr":["x","y"],"n":null,"p":true,"s":"string"}`,
+		},
 	}
-}
 
-func Test_writeCanonicalJSON_MapOrderStable(t *testing.T) {
-	m := map[string]any{"b": 2, "a": 1}
-	var b bytes.Buffer
-	writeCanonicalJSON(&b, m)
-	if got := b.String(); got != `{"a":1,"b":2}` {
-		t.Fatalf("want %q, got %q", `{"a":1,"b":2}`, got)
-	}
-}
-
-func Test_writeCanonicalJSON_ArrayMix(t *testing.T) {
-	v := []any{"x", true, nil, json.Number("123")}
-	var b bytes.Buffer
-	writeCanonicalJSON(&b, v)
-	if got := b.String(); got != `["x",true,null,123]` {
-		t.Fatalf("want %q, got %q", `["x",true,null,123]`, got)
-	}
-}
-
-func Test_writeCanonicalJSON_Nested(t *testing.T) {
-	v := map[string]any{
-		"list": []any{map[string]any{"z": 1, "a": 2}, "ok"},
-		"m":    map[string]any{"k": "v"},
-	}
-	var b bytes.Buffer
-	writeCanonicalJSON(&b, v)
-	got := b.String()
-	// kulcsoknak lexikografikus sorrendben kell lenniük a belső mapokban is
-	if !strings.Contains(got, `{"a":2,"z":1}`) {
-		t.Fatalf("nested map not canonical: %q", got)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotBytes, err := canonicaljson.ToJSON(tc.input)
+			require.NoError(t, err)
+			assert.JSONEq(t, tc.wantJSON, string(gotBytes), "The canonical JSON output should match the expected string")
+		})
 	}
 }

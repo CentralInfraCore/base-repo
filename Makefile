@@ -78,13 +78,7 @@ fmt-check: ## Fail if formatting differs
 lint: ## Run static linters (staticcheck, ineffassign)
 	$(call GO_EXEC, \
 		set -euo pipefail; \
-		PKGS="$$(git ls-files -z \
-			| tr "\0" "\n" \
-			| grep "\\.go$$" \
-			| xargs -n1 dirname \
-			| sed -e 's#^#./#' \
-			| sort -u \
-			| grep -vE "(^|/)(tmp|output|dist|build|vendor|scripts|hack|examples?|third_party)(/|$$)")"; \
+		PKGS="$$(go list ./... | grep -v /vendor/)"; \
 		if [ -z "$$PKGS" ]; then \
 			echo "No Go packages to lint."; \
 			exit 0; \
@@ -96,13 +90,7 @@ lint: ## Run static linters (staticcheck, ineffassign)
 vet: ## Run go vet
 	$(call GO_EXEC, \
 		set -euo pipefail; \
-		PKGS="$$(git ls-files -z \
-			| tr "\0" "\n" \
-			| grep "\\.go$$" \
-			| xargs -n1 dirname \
-			| sed -e 's#^#./#' \
-			| sort -u \
-			| grep -vE "(^|/)(tmp|output|dist|build|vendor|scripts|hack|examples?|third_party)(/|$$)")"; \
+		PKGS="$$(go list ./... | grep -v /vendor/)"; \
 		if [ -z "$$PKGS" ]; then \
 			echo "No Go packages to lint."; \
 			exit 0; \
@@ -117,13 +105,7 @@ quality: fmt-check lint vet vuln ## Quality gate: all checks must pass
 test: ## Run unit tests (verbose, race)
 	$(call GO_EXEC, \
 		set -euo pipefail; \
-		PKGS="$$(git ls-files -z \
-			| tr "\0" "\n" \
-			| grep "\\.go$$" \
-			| xargs -n1 dirname \
-			| sed -e 's#^#./#' \
-			| sort -u \
-			| grep -vE "(^|/)(tmp|output|dist|build|vendor|scripts|hack|examples?|third_party)(/|$$)")"; \
+		PKGS="$$(go list ./... | grep -v /vendor/)"; \
 		if [ -z "$$PKGS" ]; then \
 			echo "No Go packages to lint."; \
 			exit 0; \
@@ -138,13 +120,7 @@ coverage: coverage-profile coverage-html ## Run tests with coverage (profile + H
 coverage-profile: ## Run tests with coverage (profile)
 		$(call GO_EXEC, \
 		set -euo pipefail; \
-		PKGS="$$(git ls-files -z \
-			| tr "\0" "\n" \
-			| grep "\\.go$$" \
-			| xargs -n1 dirname \
-			| sed -e 's#^#./#' \
-			| sort -u \
-			| grep -vE "(^|/)(tmp|output|dist|build|vendor|scripts|hack|examples?|third_party)(/|$$)")"; \
+		PKGS="$$(go list ./... | grep -v /vendor/)"; \
 		if [ -z "$$PKGS" ]; then \
 			echo "No Go packages to lint."; \
 			exit 0; \
@@ -172,7 +148,7 @@ coverage-check-pkgs: ## Fail if packages coverage < $(COVERAGE_MIN)%
 	docker compose exec builder sh -c 'cd /git-source && \
 		set -e; \
 		for p in $$(go list ./... | grep -v /vendor/); do \
-		  go test $$p -coverprofile=/tmp/cover.out >/dev/null; \
+		  GO111MODULE=on GOFLAGS="$(GOFLAGS)" go test $$p -coverprofile=/tmp/cover.out >/dev/null; \
 		  pc=$$(go tool cover -func=/tmp/cover.out | awk '\''END{print $$3}'\'' | tr -d "%"); \
 		  case "$$p" in \
 		    *"/core/cabinet") min=95 ;; \
@@ -188,13 +164,7 @@ coverage-check-pkgs: ## Fail if packages coverage < $(COVERAGE_MIN)%
 vuln: ## Run Go vulnerability scan (govulncheck)
 	$(call GO_EXEC, \
 		set -euo pipefail; \
-		PKGS="$$(git ls-files -z \
-			| tr "\0" "\n" \
-			| grep "\\.go$$" \
-			| xargs -n1 dirname \
-			| sed -e 's#^#./#' \
-			| sort -u \
-			| grep -vE "(^|/)(tmp|output|dist|build|vendor|scripts|hack|examples?|third_party)(/|$$)")"; \
+		PKGS="$$(go list ./... | grep -v /vendor/)"; \
 		if [ -z "$$PKGS" ]; then \
 			echo "No Go packages to lint."; \
 			exit 0; \
@@ -306,7 +276,7 @@ mq-publish: ## Example publish step (override as needed)
 		if [ -f $$FILE ]; then \
 			nats pub build.result.$(COMMIT) "✅ Build ready: $$FILE"; \
 		else \
-			nats pub build.result.$(COMMIT) "❌ Build failed or missing output."; \
+				nats pub build.result.$(COMMIT) "❌ Build failed or missing output."; \
 		fi '
 
 # ---- Phony ----

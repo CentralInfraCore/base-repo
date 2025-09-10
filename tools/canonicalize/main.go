@@ -1,84 +1,41 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"sort"
+
+	"centralrelay/pkg/canonicaljson"
 )
 
-var ErrInput = fmt.Errorf("ErrInput")
-
 func main() {
-	// Read all stdin
-	data, err := io.ReadAll(bufio.NewReader(os.Stdin))
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	stdin, err := io.ReadAll(os.Stdin)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, ErrInput.Error())
-		os.Exit(2)
+		return fmt.Errorf("failed to read stdin: %w", err)
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
+
+	if len(stdin) == 0 {
+		return fmt.Errorf("empty input")
+	}
+
 	var v any
-	if err := dec.Decode(&v); err != nil {
-		fmt.Fprintln(os.Stderr, ErrInput.Error())
-		os.Exit(2)
+	if err := json.Unmarshal(stdin, &v); err != nil {
+		return fmt.Errorf("failed to unmarshal json: %w", err)
 	}
-	var buf bytes.Buffer
-	writeCanonicalJSON(&buf, v)
-	buf.WriteByte('\n')
-	os.Stdout.Write(buf.Bytes())
-}
 
-// writeCanonicalJSON writes a stable, canonical JSON encoding with sorted keys and compact form.
-func writeCanonicalJSON(buf *bytes.Buffer, v any) {
-	switch x := v.(type) {
-	case map[string]any:
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		buf.WriteByte('{')
-		for i, k := range keys {
-			if i > 0 {
-				buf.WriteByte(',')
-			}
-			writeJSONString(buf, k)
-			buf.WriteByte(':')
-			writeCanonicalJSON(buf, x[k])
-		}
-		buf.WriteByte('}')
-	case []any:
-		buf.WriteByte('[')
-		for i := range x {
-			if i > 0 {
-				buf.WriteByte(',')
-			}
-			writeCanonicalJSON(buf, x[i])
-		}
-		buf.WriteByte(']')
-	case json.Number:
-		buf.WriteString(x.String())
-	case string:
-		writeJSONString(buf, x)
-	case bool:
-		if x {
-			buf.WriteString("true")
-		} else {
-			buf.WriteString("false")
-		}
-	case nil:
-		buf.WriteString("null")
-	default:
-		b, _ := json.Marshal(x)
-		buf.Write(b)
+	canonicalBytes, err := canonicaljson.ToJSON(v)
+	if err != nil {
+		return fmt.Errorf("failed to create canonical json: %w", err)
 	}
-}
 
-func writeJSONString(buf *bytes.Buffer, s string) {
-	b, _ := json.Marshal(s)
-	buf.Write(b)
+	fmt.Println(string(canonicalBytes))
+	return nil
 }
