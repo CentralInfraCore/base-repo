@@ -118,7 +118,7 @@ coverage: coverage-profile coverage-html ## Run tests with coverage (profile + H
 	@echo "Coverage HTML: $(COVERAGE_HTML)"
 
 coverage-profile: ## Run tests with coverage (profile)
-		mkdir -p $BUILD_DIR && $(call GO_EXEC, \
+		mkdir -p $(BUILD_DIR) && $(call GO_EXEC, \
 		set -euo pipefail; \
 		PKGS="$$(go list ./... | grep -v /vendor/)"; \
 		if [ -z "$$PKGS" ]; then \
