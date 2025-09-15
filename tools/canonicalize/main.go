@@ -9,17 +9,21 @@ import (
 	"centralrelay/pkg/canonicaljson"
 )
 
+// runFunc is a variable that holds the actual run function.
+// It can be reassigned for testing purposes.
+var runFunc = run
+
 func main() {
-	if err := run(); err != nil {
+	if err := runFunc(os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	stdin, err := io.ReadAll(os.Stdin)
+func run(input io.Reader, output io.Writer) error {
+	stdin, err := io.ReadAll(input)
 	if err != nil {
-		return fmt.Errorf("failed to read stdin: %w", err)
+		return fmt.Errorf("failed to read input: %w", err)
 	}
 
 	if len(stdin) == 0 {
@@ -36,6 +40,10 @@ func run() error {
 		return fmt.Errorf("failed to create canonical json: %w", err)
 	}
 
-	fmt.Println(string(canonicalBytes))
+	_, err = fmt.Fprintln(output, string(canonicalBytes))
+	if err != nil {
+		return fmt.Errorf("failed to write output: %w", err)
+	}
+
 	return nil
 }

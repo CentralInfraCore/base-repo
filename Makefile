@@ -76,7 +76,7 @@ fmt-check: ## Fail if formatting differs
 		test -z "$$M" || { printf "%s\n" "$$M"; echo "Code not formatted. Run make fmt"; exit 1; })
 
 lint: ## Run static linters (staticcheck, ineffassign)
-	$(call GO_EXEC, \
+	mkdir -p $BUILD_DIR && $(call GO_EXEC, \
 		set -euo pipefail; \
 		PKGS="$$(go list ./... | grep -v /vendor/)"; \
 		if [ -z "$$PKGS" ]; then \
@@ -103,7 +103,7 @@ quality: fmt-check lint vet vuln ## Quality gate: all checks must pass
 
 # ---- Tests & coverage ----
 test: ## Run unit tests (verbose, race)
-	$(call GO_EXEC, \
+	mkdir -p $(BUILD_DIR) && $(call GO_EXEC, \
 		set -euo pipefail; \
 		PKGS="$$(go list ./... | grep -v /vendor/)"; \
 		if [ -z "$$PKGS" ]; then \
@@ -118,7 +118,7 @@ coverage: coverage-profile coverage-html ## Run tests with coverage (profile + H
 	@echo "Coverage HTML: $(COVERAGE_HTML)"
 
 coverage-profile: ## Run tests with coverage (profile)
-		$(call GO_EXEC, \
+		mkdir -p $BUILD_DIR && $(call GO_EXEC, \
 		set -euo pipefail; \
 		PKGS="$$(go list ./... | grep -v /vendor/)"; \
 		if [ -z "$$PKGS" ]; then \
@@ -128,24 +128,24 @@ coverage-profile: ## Run tests with coverage (profile)
 		echo "Staticcheck on: $$PKGS"; \
 		mkdir -p $(BUILD_DIR) \
 		&& GOFLAGS="$(GOFLAGS)" go test $(GO_RACE) -covermode=atomic -coverprofile=$(COVERAGE_FILE) $$PKGS \
-	)
+	) && cp $(BUILD_DIR)/* ./CurrentTest/
 
 
 coverage-html: ## Run tests with coverage (HTML)
 	$(call GO_EXEC, mkdir -p $(BUILD_DIR) \
-		&& go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML))
+		&& go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML)) && cp $(BUILD_DIR)/* ./CurrentTest/
 
 COVERAGE_MIN ?= 85
 
 coverage-threshold: coverage ## Fail if coverage < $(COVERAGE_MIN)%
-	docker compose exec -T builder sh -c 'cd /git-source && \
+	mkdir -p $(BUILD_DIR) && docker compose exec -T builder sh -c 'cd /git-source && \
 		go tool cover -func=$(COVERAGE_FILE) | \
 		awk -v MIN=$(COVERAGE_MIN) '"'"'/^total:/ { gsub("%","",$$3); v=$$3+0 } END { if (v < MIN) { printf "Coverage below %d%% (got %.1f%%)\n", MIN, v; exit 1 } else { printf "Coverage OK: %.1f%% >= %d%%\n", v, MIN } }'"'"''
 
 # Per-csomag küszöbök — igazítsd igény szerint:
 # cabinet: 95, canonicalize: 85, certutils: 70, cmd/relay: 80, egyebek: 75
 coverage-check-pkgs: ## Fail if packages coverage < $(COVERAGE_MIN)%
-	docker compose exec builder sh -c 'cd /git-source && \
+	mkdir -p $(BUILD_DIR) && docker compose exec builder sh -c 'cd /git-source && \
 		set -e; \
 		for p in $$(go list ./... | grep -v /vendor/); do \
 		  GO111MODULE=on GOFLAGS="$(GOFLAGS)" go test $$p -coverprofile=/tmp/cover.out >/dev/null; \
@@ -162,7 +162,7 @@ coverage-check-pkgs: ## Fail if packages coverage < $(COVERAGE_MIN)%
 		done'
 
 vuln: ## Run Go vulnerability scan (govulncheck)
-	$(call GO_EXEC, \
+	mkdir -p $BUILD_DIR && $(call GO_EXEC, \
 		set -euo pipefail; \
 		PKGS="$$(go list ./... | grep -v /vendor/)"; \
 		if [ -z "$$PKGS" ]; then \
