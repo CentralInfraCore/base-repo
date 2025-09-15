@@ -9,18 +9,18 @@ import (
 	"centralrelay/pkg/canonicaljson"
 )
 
-// runFunc is a variable that holds the actual run function.
+// RunFunc is a variable that holds the actual run function.
 // It can be reassigned for testing purposes.
-var runFunc = run
+var RunFunc = Run
 
 func main() {
-	if err := runFunc(os.Stdin, os.Stdout); err != nil {
+	if err := RunFunc(os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(input io.Reader, output io.Writer) error {
+func Run(input io.Reader, output io.Writer) error {
 	stdin, err := io.ReadAll(input)
 	if err != nil {
 		return fmt.Errorf("failed to read input: %w", err)
