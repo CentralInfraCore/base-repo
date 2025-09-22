@@ -22,6 +22,11 @@ jobs:
         run: |
           go mod download || true
 
+      - name: Check for symbol drift
+        run: |
+          go run ./tools/symbolsgen
+          git diff --exit-code context/SYMBOLS.md
+
       - name: Build canonicalize (local, no Docker)
         run: |
           mkdir -p output/dev
