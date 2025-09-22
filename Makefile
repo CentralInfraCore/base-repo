@@ -267,7 +267,7 @@ cache-populate: ##cache-populate
 		&& echo ineffassign && go install github.com/gordonklaus/ineffassign@v0.1.0 \
 		&& echo reflex && go install github.com/cespare/reflex@v0.3.1 \
 		&& echo govulncheck && go install golang.org/x/vuln/cmd/govulncheck@v1.1.4 \
-	"
+		"
 
 # ---- Optional: MQ publish (guarded by NO_PUBLISH) ----
 mq-publish: ## Example publish step (override as needed)
@@ -276,7 +276,7 @@ mq-publish: ## Example publish step (override as needed)
 		if [ -f $$FILE ]; then \
 			nats pub build.result.$(COMMIT) "✅ Build ready: $$FILE"; \
 		else \
-				nats pub build.result.$(COMMIT) "❌ Build failed or missing output."; \
+			nats pub build.result.$(COMMIT) "❌ Build failed or missing output."; \
 		fi '
 
 # ---- Phony ----
@@ -284,3 +284,7 @@ mq-publish: ## Example publish step (override as needed)
         test coverage coverage-threshold build verify manifest-src \
         tdd cache-populate mq-publish verify-auto verify-debug \
 	manifest-verify manifest-update verify-full clean shell
+	test coverage coverage-threshold build verify manifest-src \
+	tdd cache-populate mq-publish verify-auto verify-debug \
+	manifest-verify manifest-update verify-full clean shell \
+	symbols check-symbols test-api deps
