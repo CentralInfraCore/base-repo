@@ -1,4 +1,3 @@
-
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 MAKEFLAGS += --no-builtin-rules --warn-undefined-variables
@@ -63,6 +62,12 @@ infra-init: ## Initialize dockerized infra and dirs
 prepare: infra-init ## Prepare local/dev environment
 	@mkdir -p $(BUILD_DIR)
 	@sudo chown -R $(shell id -u):$(shell id -g) ./output
+
+# ---- Dependency Management ----
+deps: ## Tidy go module files
+	@echo "🧹 Tidying go module files..."
+	@$(call GO_FIXER, go mod tidy)
+
 # ---- Quality gate ----
 fmt: ## Apply gofmt -s (and goimports if available)
 	$(call GO_FIXER, git config --global --add safe.directory /git-source && \
@@ -101,6 +106,15 @@ vet: ## Run go vet
 
 quality: fmt-check lint vet vuln ## Quality gate: all checks must pass
 
+# ---- Symbol generation ----
+symbols: ## Generate symbols documentation
+	@echo "🧬 Generating symbols..."
+	@$(call GO_FIXER, go run ./tools/symbolsgen)
+
+check-symbols: ## Check if symbols documentation is up-to-date
+	@echo "🔎 Checking for symbol drift..."
+	@$(call GO_FIXER, go run ./tools/symbolsgen && git diff --exit-code context/SYMBOLS.md)
+
 # ---- Tests & coverage ----
 test: ## Run unit tests (verbose, race)
 	mkdir -p $(BUILD_DIR) && $(call GO_EXEC, \
@@ -113,6 +127,10 @@ test: ## Run unit tests (verbose, race)
 		echo "Test on: $$PKGS"; \
 		GO111MODULE=on GOFLAGS="$(GOFLAGS)" go test $(GO_RACE) -v $$PKGS \
 	)
+
+test-api: ## Run instrumented API tests
+	@echo "🔬 Running instrumented API tests..."
+	@bash ./api_tests/test_endpoints.sh
 
 coverage: coverage-profile coverage-html ## Run tests with coverage (profile + HTML)
 	@echo "Coverage HTML: $(COVERAGE_HTML)"
@@ -281,9 +299,6 @@ mq-publish: ## Example publish step (override as needed)
 
 # ---- Phony ----
 .PHONY: help infra-init prepare fmt fmt-check lint vet quality \
-        test coverage coverage-threshold build verify manifest-src \
-        tdd cache-populate mq-publish verify-auto verify-debug \
-	manifest-verify manifest-update verify-full clean shell
 	test coverage coverage-threshold build verify manifest-src \
 	tdd cache-populate mq-publish verify-auto verify-debug \
 	manifest-verify manifest-update verify-full clean shell \
