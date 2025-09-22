@@ -113,7 +113,7 @@ symbols: ## Generate symbols documentation
 
 check-symbols: ## Check if symbols documentation is up-to-date
 	@echo "🔎 Checking for symbol drift..."
-	@$(call GO_FIXER, go run ./tools/symbolsgen && git diff --exit-code context/SYMBOLS.md)
+	@$(call GO_FIXER, go run ./tools/symbolsgen && (git diff --exit-code context/SYMBOLS.md)
 
 # ---- Tests & coverage ----
 test: ## Run unit tests (verbose, race)
@@ -237,7 +237,7 @@ manifest-verify: ##manifest-verify
 # Frissítés (újra-generálás) – kizárjuk .git és output mappákat
 manifest-update: ##manifest-update
 	docker compose exec builder sh -c 'cd /git-source && \
-		git ls-files -z  \
+		git ls-files -z \
 		| xargs -0 sha256sum' | grep -v "MANIFEST.sha256" | LC_ALL=C sort > MANIFEST.sha256 ; \
 	echo "MANIFEST.sha256 updated"
 
@@ -249,7 +249,6 @@ verify-full: ##verify-full
 COVERAGE_FILE ?= /output/$(COMMIT)/coverage.out
 # Coverage HTML report
 COVERAGE_HTML ?= /output/$(COMMIT)/coverage.html
-
 
 
 # Build the application
