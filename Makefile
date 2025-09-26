@@ -80,7 +80,7 @@ fmt-check: ## Fail if formatting differs
 	$(call GO_EXEC, M="$$(git ls-files -z -- "*.go" | xargs -0 gofmt -s -l)"; \
 		test -z "$$M" || { printf "%s\n" "$$M"; echo "Code not formatted. Run make fmt"; exit 1; })
 
-lint: ## Run static linters (staticcheck, ineffassign)
+lint: ## Run static linters (staticcheck, //ineffassign)
 	mkdir -p $BUILD_DIR && $(call GO_EXEC, \
 		set -euo pipefail; \
 		PKGS="$$(go list ./... | grep -v /vendor/)"; \
@@ -113,7 +113,7 @@ symbols: ## Generate symbols documentation
 
 check-symbols: ## Check if symbols documentation is up-to-date
 	@echo "🔎 Checking for symbol drift..."
-	@$(call GO_FIXER, go run ./tools/symbolsgen && (git diff --exit-code context/SYMBOLS.md)
+	@$(call GO_FIXER, go run ./tools/symbolsgen && (git diff --exit-code context/SYMBOLS.md))
 
 # ---- Tests & coverage ----
 test: ## Run unit tests (verbose, race)
