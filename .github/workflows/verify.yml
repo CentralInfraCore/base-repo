@@ -1,0 +1,72 @@
+name: verify
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+
+      - name: Go mod download (best-effort)
+        run: |
+          go mod download || true
+
+      - name: Go Vet
+        run: go vet ./...
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Staticcheck
+        run: staticcheck ./...
+
+      - name: Check for symbol drift
+        run: |
+          go run ./tools/symbolsgen
+          git diff --exit-code context/SYMBOLS.md
+
+      - name: Build canonicalize (local, no Docker)
+        run: |
+          mkdir -p output/dev
+          go build -trimpath -o output/dev/canonicalize ./tools/canonicalize
+
+      - name: Golden verify
+        run: |
+          BINARY=./output/dev/canonicalize make verify
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+
+      - name: Go mod download (best-effort)
+        run: |
+          go mod download || true
+
+      - name: Generate coverage report
+        run: |
+          go test -race -covermode=atomic -coverprofile=coverage.out ./...
+          go tool cover -html=coverage.out -o coverage.html
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.html
