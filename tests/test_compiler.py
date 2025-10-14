@@ -70,6 +70,36 @@ class FixedDateTime(datetime):
     def now(cls, tz=None):
         return datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc if tz is None else tz)
 
+def test_load_yaml_valid(tmp_path):
+    """Test that load_yaml correctly loads a valid YAML file."""
+    # 1️⃣ létrehozunk egy ideiglenes YAML fájlt
+    data = {"name": "test", "version": "1.0.0"}
+    yaml_path = tmp_path / "schema.yaml"
+    yaml_path.write_text(yaml.safe_dump(data))
+
+    # 2️⃣ meghívjuk a függvényt
+    result = compiler.load_yaml(yaml_path)
+
+    # 3️⃣ elvárás: visszatér ugyanazzal az adattal
+    assert result == data
+
+
+def test_load_yaml_file_not_found(tmp_path):
+    """Test that load_yaml raises FileNotFoundError if file does not exist."""
+    missing_file = tmp_path / "missing.yaml"
+    with pytest.raises(FileNotFoundError):
+        compiler.load_yaml(missing_file)
+
+
+def test_load_yaml_invalid_yaml(tmp_path):
+    """Test that load_yaml raises yaml.YAMLError if YAML is invalid."""
+    bad_yaml = "name: test: version: 1.0.0"  # szintaktikailag hibás
+    yaml_path = tmp_path / "invalid.yaml"
+    yaml_path.write_text(bad_yaml)
+
+    with pytest.raises(yaml.YAMLError):
+        compiler.load_yaml(yaml_path)
+
 def test_placeholder():
     """A placeholder test to ensure pytest is running correctly."""
     assert True
