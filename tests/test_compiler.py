@@ -3,6 +3,8 @@ from tools import compiler
 import os
 from datetime import datetime, timezone
 import yaml
+import sys
+from jsonschema import ValidationError
 
 # Dummy schema data for testing run_release
 DUMMY_SCHEMA_DATA = {
@@ -40,19 +42,68 @@ def test_placeholder():
     """A placeholder test to ensure pytest is running correctly."""
     assert True
 
-def test_compiler_validation_runs():
+def test_compiler_validation_runs(mocker):
     """Test that the compiler's validation function can be called without error."""
-    # This test will call the validation function. For a real test, you'd want
-    # to mock file system operations or provide dummy schema files.
+    mocker.patch('glob.glob', return_value=['schemas/test-schema.yaml'])
+    mock_load_yaml = mocker.patch('tools.compiler.load_yaml')
+    mock_load_yaml.side_effect = [
+        # Meta-schema
+        {
+            "type": "object",
+            "properties": {"metadata": {"type": "object"}, "spec": {"type": "object"}}
+        },
+        # Dummy schema
+        DUMMY_SCHEMA_DATA
+    ]
+    mocker.patch('tools.compiler.validate', return_value=None)
+
     try:
         compiler.run_validation()
     except SystemExit as e:
-        # SystemExit is raised by sys.exit() in compiler.py on validation failure
-        # We expect it to pass, so if it exits with 1, it's a failure.
         if e.code == 1:
             pytest.fail(f"Validation failed with SystemExit: {e}")
     except Exception as e:
         pytest.fail(f"An unexpected error occurred during validation: {e}")
+
+def test_run_validation_meta_schema_load_failure(mocker):
+    """Test that run_validation exits with code 1 if meta-schema loading fails."""
+    mocker.patch('tools.compiler.load_yaml', side_effect=IOError("File not found"))
+    with pytest.raises(SystemExit) as excinfo:
+        compiler.run_validation()
+    assert excinfo.value.code == 1
+
+def test_run_validation_schema_validation_failure(mocker):
+    """Test that run_validation exits with code 1 if a schema fails validation."""
+    mocker.patch('glob.glob', return_value=['schemas/test-schema.yaml'])
+    mock_load_yaml = mocker.patch('tools.compiler.load_yaml')
+    mock_load_yaml.side_effect = [
+        # Meta-schema
+        {
+            "type": "object",
+            "properties": {"metadata": {"type": "object"}, "spec": {"type": "object"}}
+        },
+        # Dummy schema
+        DUMMY_SCHEMA_DATA
+    ]
+    mocker.patch('tools.compiler.validate', side_effect=ValidationError("Schema invalid"))
+
+    with pytest.raises(SystemExit) as excinfo:
+        compiler.run_validation()
+    assert excinfo.value.code == 1
+
+def test_main_no_arguments(mocker):
+    """Test that main exits with code 1 if no arguments are provided."""
+    mocker.patch.object(sys, 'argv', ['compiler.py'])
+    with pytest.raises(SystemExit) as excinfo:
+        compiler.main()
+    assert excinfo.value.code == 1
+
+def test_main_unknown_command(mocker):
+    """Test that main exits with code 1 if an unknown command is provided."""
+    mocker.patch.object(sys, 'argv', ['compiler.py', 'unknown_command'])
+    with pytest.raises(SystemExit) as excinfo:
+        compiler.main()
+    assert excinfo.value.code == 1
 
 def test_run_release_success(mocker):
     """Test that the run_release function executes successfully with valid data."""
