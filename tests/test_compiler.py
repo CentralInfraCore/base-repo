@@ -6,6 +6,8 @@ import yaml
 import sys
 from jsonschema import ValidationError
 import requests
+import hashlib
+import base64
 
 # Dummy schema data for testing run_release
 DUMMY_SCHEMA_DATA = {
@@ -455,3 +457,54 @@ list_key:
 - 3
 """
     assert content == expected_content
+
+def test_get_sha256_hex():
+    """Test that get_sha256_hex correctly calculates the SHA256 hash."""
+    data = "test_string".encode('utf-8')
+    expected_hash = hashlib.sha256(data).hexdigest()
+    assert compiler.get_sha256_hex(data) == expected_hash
+
+def test_get_sha256_b64():
+    """Test that get_sha256_b64 correctly calculates the SHA256 hash and base64 encodes it."""
+    data = "test_string".encode('utf-8')
+    expected_hash_bytes = hashlib.sha256(data).digest()
+    expected_b64_hash = base64.b64encode(expected_hash_bytes).decode('utf-8')
+    assert compiler.get_sha256_b64(data) == expected_b64_hash
+
+def test_run_release_with_vault_cacert(mocker):
+    """Test that run_release uses VAULT_CACERT for TLS verification if provided."""
+    mock_vault_cacert_path = "/path/to/ca.pem"
+    mocker.patch.object(os, 'getenv', side_effect=lambda x: {
+        'VAULT_ADDR': 'http://localhost:8200',
+        'VAULT_TOKEN': 'test_token',
+        'VAULT_CACERT': mock_vault_cacert_path
+    }.get(x))
+    mocker.patch('glob.glob', return_value=['schemas/test-schema.yaml'])
+    mock_load_yaml = mocker.patch('tools.compiler.load_yaml')
+    mock_load_yaml.side_effect = [
+        # Meta-schema
+        {
+            "type": "object",
+            "required": ["metadata", "spec"],
+            "properties": {
+                "metadata": {"type": "object", "required": ["name", "version", "createdBy"]},
+                "spec": {"type": "object"}
+            }
+        },
+        # Dummy schema
+        DUMMY_SCHEMA_DATA
+    ]
+    mock_requests_post = mocker.patch('requests.post')
+    mock_requests_post.return_value.json.return_value = VAULT_SIGNATURE_RESPONSE
+    mock_requests_post.return_value.raise_for_status.return_value = None
+    mocker.patch.object(os.path, 'exists', return_value=True)
+    mocker.patch.object(os, 'makedirs')
+    mocker.patch('tools.compiler.datetime.datetime', FixedDateTime)
+    mocker.patch('tools.compiler.validate', return_value=None)
+    mocker.patch('tools.compiler.write_yaml')
+
+    compiler.run_release()
+
+    # Assert that requests.post was called with the correct verify argument
+    mock_requests_post.assert_called_once()
+    assert mock_requests_post.call_args[1]['verify'] == mock_vault_cacert_path
