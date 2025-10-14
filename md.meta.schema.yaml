@@ -1,3 +1,4 @@
+---
 type: object
 required:
   - tags
@@ -9,7 +10,7 @@ required:
 properties:
   tags:
     type: array
-    description: "Thematic tags for the module, helping AI integration into context. The following values are allowed:"
+    description: "Thematic tags for AI integration. Allowed values:"
     items:
       type: string
       enum:
@@ -45,10 +46,10 @@ properties:
     type: array
     items:
       type: string
-    description: References to other concepts or modules (e.g., 'concept/relay_flow').
+    description: "References to concepts/modules (e.g., 'concept/relay_flow')."
   category:
     type: array
-    description: "The functional role(s) of the document. The following values are allowed:"
+    description: "Functional role(s) of the document. Allowed values:"
     items:
       type: string
       enum:
@@ -63,7 +64,7 @@ properties:
     description: Indicates whether this document can act as an entry point.
   used_in:
     type: array
-    description: "Workflows or processes where this module is used. Choose from the following values:"
+    description: "Workflows/processes using this module. Choose from:"
     items:
       type: string
       enum:
@@ -74,4 +75,4 @@ properties:
         - fallback_process  # Fallback handling path
   description:
     type: string
-    description: Human-readable summary of the document purpose (can be in Hungarian or English).
+    description: Human-readable summary of document purpose (Hu/En).

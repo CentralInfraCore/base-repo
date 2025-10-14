@@ -85,7 +85,7 @@ def run_validation():
 
 
 def run_release():
-    """Runs the full release process: validation, checksum, signing, output."""
+    """Runs the full release process: validation, checksum, signing."""
     print("--- Running Schema Release ---")
     vault_addr = os.getenv('VAULT_ADDR')
     vault_token = os.getenv('VAULT_TOKEN')
