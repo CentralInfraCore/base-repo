@@ -2,6 +2,7 @@ import pytest
 from tools import compiler
 import os
 from datetime import datetime, timezone
+import yaml
 
 # Dummy schema data for testing run_release
 DUMMY_SCHEMA_DATA = {
@@ -158,3 +159,36 @@ def test_run_release_success(mocker):
     assert 'sign' in written_data['metadata']
     assert written_data['metadata']['sign'] == VAULT_SIGNATURE_RESPONSE['data']['signature']
     assert written_data['metadata']['build_timestamp'] == '2025-10-26T10:00:00+00:00'
+
+def test_write_yaml(tmp_path):
+    """Test that write_yaml correctly writes data to a YAML file."""
+    test_file = tmp_path / "test_output.yaml"
+    test_data = {
+        "key1": "value1",
+        "key2": {
+            "nested_key": "nested_value"
+        },
+        "list_key": [1, 2, 3]
+    }
+
+    compiler.write_yaml(str(test_file), test_data)
+
+    assert test_file.exists()
+    
+    with open(test_file, 'r') as f:
+        content = f.read()
+    
+    # Verify content by loading it back with yaml
+    loaded_data = yaml.safe_load(content)
+    assert loaded_data == test_data
+
+    # Verify content as string (indent=2, sort_keys=False)
+    expected_content = """key1: value1
+key2:
+  nested_key: nested_value
+list_key:
+- 1
+- 2
+- 3
+"""
+    assert content == expected_content
