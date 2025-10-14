@@ -281,44 +281,6 @@ def test_run_release_final_validation_failure(mocker):
     assert excinfo.value.code == 1
 
 def test_run_release_create_source_dir(mocker):
-    # környezet – lásd kétparaméteres getenv vagy patch.dict
-    mocker.patch.object(
-        os, 'getenv',
-        side_effect=lambda k, d=None: {
-            'VAULT_ADDR': 'http://localhost:8200',
-            'VAULT_TOKEN': 'test_token',
-            'VAULT_CACERT': None,
-        }.get(k, d),
-    )
-
-    mocker.patch('glob.glob', return_value=['schemas/test-schema.yaml'])
-    mock_load_yaml = mocker.patch('tools.compiler.load_yaml')
-    mock_load_yaml.side_effect = [
-        {"type": "object","required": ["metadata","spec"],
-         "properties": {"metadata": {"type":"object","required":["name","version","createdBy"]},
-                        "spec":{"type":"object"}}},
-        DUMMY_SCHEMA_DATA,
-    ]
-
-    mocker.patch('requests.post').return_value.json.return_value = VAULT_SIGNATURE_RESPONSE
-    mocker.patch('requests.post').return_value.raise_for_status.return_value = None
-
-    mocker.patch.object(os.path, 'exists', return_value=False)
-    mocker.patch.object(os, 'makedirs')
-
-    # ⬇️ Itt a lényeg: a modulon belüli 'datetime' név lecserélése az alosztályra
-    mocker.patch('tools.compiler.datetime.datetime', FixedDateTime)
-
-    mocker.patch('tools.compiler.validate', return_value=None)
-    mocker.patch('tools.compiler.write_yaml')
-
-    compiler.run_release()
-
-    # Assert that requests.post was called with the correct verify argument
-    mock_requests_post.assert_called_once()
-    assert mock_requests_post.call_args[1]['verify'] == mock_vault_cacert_path
-
-def test_run_release_create_source_dir(mocker):
     """Test that run_release creates the SOURCE_DIR if it doesn't exist."""
     mocker.patch.object(os, 'getenv', side_effect=lambda x: {
         'VAULT_ADDR': 'http://localhost:8200',

@@ -7,6 +7,7 @@ import hashlib
 import requests
 import datetime
 from jsonschema import validate
+import base64
 
 
 # --- Configuration ---
@@ -45,8 +46,7 @@ def get_sha256_hex(data_bytes):
 
 def get_sha256_b64(data_bytes):
     """Calculates the SHA256 hash and returns it as a base64 encoded string."""
-    # Note: This returns hex digest, not base64. Corrected to return hex.
-    return hashlib.sha256(data_bytes).hexdigest()
+    return base64.b64encode(hashlib.sha256(data_bytes).digest()).decode('utf-8')
 
 
 # --- Core Logic ---
@@ -138,9 +138,6 @@ def run_release():
         metadata_for_signing['checksum'] = checksum
 
         # 3. Get signature from Vault
-        # Corrected to use base64.b64encode for actual base64 encoding
-        # and then decode to string for JSON payload
-        import base64
         digest_bytes = hashlib.sha256(to_canonical_json(
             metadata_for_signing)).digest()
         digest_to_sign_b64 = base64.b64encode(digest_bytes).decode('utf-8')
