@@ -1,0 +1,12 @@
+pyyaml
+jsonschema
+requests
+cryptography
+
+# Testing
+pytest
+pytest-mock
+
+# Linting
+flake8
+yamllint
