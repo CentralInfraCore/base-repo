@@ -11,15 +11,15 @@ all: help
 
 up:
 	@echo "--- Starting development environment in the background ---"
-	@docker-compose up -d builder
+	@docker compose up -d builder
 
 down:
 	@echo "--- Stopping development environment ---"
-	@docker-compose down -v
+	@docker compose down -v
 
 shell:
 	@echo "--- Opening a shell into the running builder container ---"
-	@docker-compose exec builder bash
+	@docker compose exec builder bash
 
 # =============================================================================
 # Main Development Tasks
@@ -27,7 +27,7 @@ shell:
 
 validate:
 	@echo "--- Validating all schemas against the meta-schema ---"
-	@docker-compose exec builder /app/p_venv/bin/python tools/compiler.py validate
+	@docker compose exec builder python tools/compiler.py validate
 
 release:
 	@echo "--- Building and signing release schemas ---"
@@ -35,11 +35,11 @@ release:
 		echo "[ERROR] VAULT_TOKEN environment variable is not set."; \
 		exit 1; \
 	fi
-	@docker-compose exec builder /app/p_venv/bin/python tools/compiler.py release
+	@docker compose exec builder python tools/compiler.py release
 
 test:
 	@echo "--- Running pytest for the compiler infrastructure ---"
-	@docker-compose exec builder /app/p_venv/bin/python -m pytest
+	@docker compose exec builder python -m pytest
 
 # =============================================================================
 # Repository Setup
@@ -55,18 +55,18 @@ repo.init:
 
 infra.deps:
 	@echo "--- Initializing Python dependencies into ./p_venv cache ---"
-	@docker-compose run --rm setup
+	@docker compose run --rm setup
 
 infra.lint:
 	@echo "--- Running linters on infrastructure code ---"
 	@echo "--> Linting Python code with flake8..."
-	@docker-compose exec builder /app/p_venv/bin/flake8 tools/
+	@docker compose exec builder python -m flake8 tools/
 	@echo "--> Linting YAML files with yamllint..."
-	@docker-compose exec builder /app/p_venv/bin/yamllint .
+	@docker compose exec builder python -m yamllint .
 
 infra.clean:
 	@echo "--- Cleaning up all generated files and caches ---"
-	@docker-compose down -v --remove-orphans
+	@docker compose down -v --remove-orphans
 	@rm -rf ./p_venv
 	@rm -f ./requirements.txt
 

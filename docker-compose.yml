@@ -33,6 +33,7 @@ services:
       - "host.docker.internal:host-gateway"
     # Pass through environment variables for the release process
     environment:
+      - PYTHONPATH=/app/p_venv
       - VAULT_ADDR=${VAULT_ADDR}
       - VAULT_TOKEN=${VAULT_TOKEN}
     # Keep the container running in the background
