@@ -1,6 +1,6 @@
 # Makefile for Schema Development Environment
 
-.PHONY: all help up down shell validate release test repo.init infra.deps infra.lint infra.clean
+.PHONY: all help up down shell validate release test repo.init infra.deps infra.lint infra.clean infra.coverage
 
 # Default to showing help
 all: help
@@ -39,7 +39,7 @@ release:
 
 test:
 	@echo "--- Running pytest for the compiler infrastructure ---"
-	@docker compose exec builder python -m pytest
+	@docker compose exec builder python -m pytest --cov=tools.compiler --cov-report=term-missing tests/
 
 # =============================================================================
 # Repository Setup
@@ -64,11 +64,17 @@ infra.lint:
 	@echo "--> Linting YAML files with yamllint..."
 	@docker compose exec builder python -m yamllint .
 
+infra.coverage:
+	@echo "--- Generating HTML coverage report ---"
+	@docker compose exec builder python -m pytest --cov=tools.compiler --cov-report=html
+	@echo "HTML coverage report generated in ./htmlcov/index.html"
+
 infra.clean:
 	@echo "--- Cleaning up all generated files and caches ---"
 	@docker compose down -v --remove-orphans
 	@rm -rf ./p_venv
 	@rm -f ./requirements.txt
+	@rm -rf ./htmlcov
 
 # =============================================================================
 # Help
@@ -93,4 +99,5 @@ help:
 	@echo "Infrastructure & Maintenance:"
 	@echo "  infra.deps    (Re)generate requirements.txt and install dependencies into the cache."
 	@echo "  infra.lint    Run static analysis and linting on the infrastructure code."
+	@echo "  infra.coverage Generate HTML coverage report."
 	@echo "  infra.clean   Remove all generated files, caches, and stopped containers."

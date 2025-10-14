@@ -5,12 +5,12 @@ import yaml
 import json
 import hashlib
 import requests
-from datetime import datetime, timezone
+import datetime
 from jsonschema import validate
 
 
 # --- Configuration ---
-SCHEMAS_DIR = 'schema'
+SCHEMAS_DIR = 'schemas'
 SOURCE_DIR = 'source'
 META_SCHEMA_FILE = os.path.join(SCHEMAS_DIR, 'index.yaml')
 VAULT_KEY_NAME = "cic-my-sign-key"  # Default key name for signing
@@ -72,9 +72,9 @@ def run_validation():
         try:
             schema_instance = load_yaml(schema_file)
             validate(instance=schema_instance, schema=meta_schema)
-            print("  \033[92m✓ OK\033[0m")
+            print("  [92m✓ OK[0m")
         except Exception as e:
-            print(f"  \033[91m✗ ERROR: {e}\033[0m")
+            print(f"  [91m✗ ERROR: {e}[0m")
             all_valid = False
 
     if not all_valid:
@@ -102,8 +102,8 @@ def run_release():
               f" {vault_cacert}")
     else:
         verify_tls = False
-        print("\033[93m[WARNING] Vault TLS verification is disabled. "
-              "Do not use in production.\033[0m")
+        print("[93m[WARNING] Vault TLS verification is disabled. "
+              "Do not use in production.[0m")
 
     meta_schema = load_yaml(META_SCHEMA_FILE)
     schema_files = glob.glob(os.path.join(SCHEMAS_DIR, '*.yaml'))
@@ -133,8 +133,8 @@ def run_release():
         metadata_for_signing = schema_data['metadata'].copy()
         metadata_for_signing.pop('checksum', None)
         metadata_for_signing.pop('sign', None)
-        metadata_for_signing['build_timestamp'] = datetime.now(
-            timezone.utc).isoformat()
+        metadata_for_signing['build_timestamp'] = datetime.datetime.now(
+            datetime.timezone.utc).isoformat()
         metadata_for_signing['checksum'] = checksum
 
         # 3. Get signature from Vault
@@ -161,7 +161,7 @@ def run_release():
             signature = response.json()['data']['signature']
             print("  - Signature received successfully.")
         except requests.exceptions.RequestException as e:
-            print(f"  \\033[91m✗ ERROR: Vault signing failed: {e}\\033[0m")
+            print(f"  [91m✗ ERROR: Vault signing failed: {e}[0m")
             sys.exit(1)
 
         # 4. Assemble final schema
@@ -175,9 +175,9 @@ def run_release():
         print("  - Performing final validation on signed schema...")
         try:
             validate(instance=final_schema, schema=meta_schema)
-            print("  - \\033[92m✓ Final validation passed.\\033[0m")
+            print("  - [92m✓ Final validation passed.[0m")
         except Exception as e:
-            print(f"  \\033[91m✗ ERROR: Final validation failed: {e}\\033[0m")
+            print(f"  [91m✗ ERROR: Final validation failed: {e}[0m")
             sys.exit(1)
 
         # 6. Write to source directory
@@ -186,9 +186,9 @@ def run_release():
         print(f"  - Signed schema written to {output_path}")
 
     if release_count == 0:
-        print("\\nNo non-dev schemas found to release.")
+        print("\nNo non-dev schemas found to release.")
     else:
-        print(f"\\nSuccessfully processed {release_count} schemas.")
+        print(f"\nSuccessfully processed {release_count} schemas.")
 
 
 def main():
