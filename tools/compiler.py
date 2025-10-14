@@ -85,7 +85,7 @@ def run_validation():
 
 
 def run_release():
-    """Runs the full release process: validation, checksum, signing, and output."""
+    """Runs the full release process: validation, checksum, signing, output."""
     print("--- Running Schema Release ---")
     vault_addr = os.getenv('VAULT_ADDR')
     vault_token = os.getenv('VAULT_TOKEN')
@@ -150,8 +150,11 @@ def run_release():
             response = requests.post(
                 f"{vault_addr}/v1/transit/sign/{VAULT_KEY_NAME}",
                 headers={"X-Vault-Token": vault_token},
-                json={"input": digest_to_sign_b64, "prehashed": True,
-                      "hash_algorithm": "sha2-256"},
+                json={
+                    "input": digest_to_sign_b64,
+                    "prehashed": True,
+                    "hash_algorithm": "sha2-256"
+                },
                 verify=verify_tls
             )
             response.raise_for_status()
