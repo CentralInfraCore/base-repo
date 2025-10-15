@@ -1,3 +1,4 @@
+---
 tags:
   - doc
   - workflow
@@ -17,4 +18,10 @@ used_in:
   - onboarding
   - generation
 description: |
-  Ez a dokumentum a CIC Relay projekt Git-alapú fejlesztési szabályait, branch-kezelési elveit, merge-stratégiáit és CI-visszacsatolási folyamatait rögzíti. Séma-alapú megközelítést ad a feature, hotfix és release branch-ek kezeléséhez, részletezi a törlési, merge- és visszacsatolási szabályokat, támogatva az automatizált validációt és onboardingot.
+  Ez a dokumentum a CIC Relay projekt Git-alapú
+  fejlesztési szabályait, branch-kezelési elveit,
+  merge-stratégiáit és CI-visszacsatolási folyamatait
+  rögzíti. Séma-alapú megközelítést ad a feature, hotfix
+  és release branch-ek kezeléséhez, részletezi a törlési,
+  merge- és visszacsatolási szabályokat, támogatva az
+  automatizált validációt és onboardingot.
