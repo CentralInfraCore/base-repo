@@ -61,33 +61,6 @@ Your environment is now ready!
 
 ---
 
-## Creating a New Project from this Template
-
-This repository includes a script to help you initialize a new project based on a specific branch or tag of this template. The script will clone the template, set up your new repository's remote, and clean up the temporary branches.
-
-### Usage
-
-1.  Navigate to a directory where you want to create your new project (do **not** run this inside the template repository itself).
-2.  Run the `init_from_template.sh` script with the required parameters:
-
-```sh
-/path/to/this_template_repo/tools/init_from_template.sh <source_repo_url> <source_branch_or_tag> <your_new_repo_url>
-```
-
-**Example:**
-
-To create a new project from the `feature-A` branch of the template:
-
-```sh
-# Assuming you are in your ~/projects directory
-# and this template repo is at ~/git/base-repo
-~/git/base-repo/tools/init_from_template.sh https://github.com/felhasznalo/repo.git feature-A https://github.com/XXX/YYY.git
-```
-
-The script will create a `YYY` directory, initialize it as a Git repository, push the `main` branch to your new remote URL (`https://github.com/XXX/YYY.git`), and configure the original template repository as a remote named `base` for future updates.
-
----
-
 ## Usage
 
 All commands are run from the project root.
