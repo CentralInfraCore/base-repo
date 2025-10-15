@@ -23,6 +23,16 @@ Follow these steps to set up your local development environment.
 - `make`
 - A running HashiCorp Vault instance for the `release` command (can be the one from `tools/vault-sign-agent.sh`).
 
+### Quickstart (60 seconds)
+
+Get up and running with these three commands:
+
+```sh
+make repo.init   # Initialize repository hooks
+make up          # Start the development container
+make test        # Run tests
+```
+
 ### 1. Install Dependencies
 
 This command will create a local cache for Python packages in a `./p_venv` directory. It only needs to be run once, or after updating `requirements.in`.
@@ -51,63 +61,60 @@ Your environment is now ready!
 
 ---
 
+## Creating a New Project from this Template
+
+This repository includes a script to help you initialize a new project based on a specific branch or tag of this template. The script will clone the template, set up your new repository's remote, and clean up the temporary branches.
+
+### Usage
+
+1.  Navigate to a directory where you want to create your new project (do **not** run this inside the template repository itself).
+2.  Run the `init_from_template.sh` script with the required parameters:
+
+```sh
+/path/to/this_template_repo/tools/init_from_template.sh <source_repo_url> <source_branch_or_tag> <your_new_repo_url>
+```
+
+**Example:**
+
+To create a new project from the `feature-A` branch of the template:
+
+```sh
+# Assuming you are in your ~/projects directory
+# and this template repo is at ~/git/base-repo
+~/git/base-repo/tools/init_from_template.sh https://github.com/felhasznalo/repo.git feature-A https://github.com/XXX/YYY.git
+```
+
+The script will create a `YYY` directory, initialize it as a Git repository, push the `main` branch to your new remote URL (`https://github.com/XXX/YYY.git`), and configure the original template repository as a remote named `base` for future updates.
+
+---
+
 ## Usage
 
 All commands are run from the project root.
 
-### Validate Schemas
+### Container Lifecycle
 
-Run a fast, offline validation of all schema files in the `schema/` directory against the meta-schema.
+- `make up`: Start the development container in the background.
+- `make down`: Stop and remove the development container.
+- `make shell`: Open an interactive shell into the running container.
+- `make build`: Build Docker images.
 
-```sh
-make validate
-```
+### Main Development Tasks
 
-### Run Tests
+- `make validate`: Run fast, offline validation of all schemas.
+- `make release`: Build, checksum, and sign all non-dev schemas (requires Vault).
+- `make test`: Run pytest for the compiler infrastructure code.
+- `make fmt`: Format Python code with Black and Isort.
+- `make lint`: Lint Python code with Ruff and YAML files with yamllint.
+- `make typecheck`: Run static type checking with MyPy.
+- `make check`: Run all code quality checks (fmt, lint, typecheck).
 
-Run the `pytest` suite for the compiler infrastructure itself.
+### Repository Setup
 
-```sh
-make test
-```
+- `make repo.init`: Set up the Git hooks for this repository (pre-commit, commit-msg).
 
-### Create a Release
+### Infrastructure & Maintenance
 
-This command processes all non-`.dev` schemas, calculates their checksums, gets them signed by Vault, and outputs the final, signed artifacts to the `source/` directory.
-
-**Before running, ensure the Vault service is running and you have set the required environment variables:**
-
-```sh
-# Example for the local vault-sign-agent
-export VAULT_ADDR="https://host.docker.internal:18200"
-export VAULT_TOKEN=$(cat $XDG_RUNTIME_DIR/vault/sign-token)
-
-# For a production Vault with a proper CA, also set this:
-# export VAULT_CACERT=/path/to/vault_ca.pem
-
-make release
-```
-
-### Open a Shell in the Container
-
-For debugging or running commands manually, you can open an interactive shell inside the running `builder` container.
-
-```sh
-make shell
-```
-
-### Stop the Environment
-
-When you are finished with your work, stop the development container.
-
-```sh
-make down
-```
-
-### Clean Everything
-
-To remove all generated files, caches, and stopped containers, run:
-
-```sh
-make infra.clean
-```
+- `make infra.deps`: (Re)generate requirements.txt and install dependencies into the cache.
+- `make infra.coverage`: Generate HTML coverage report.
+- `make infra.clean`: Remove all generated files, caches, and stopped containers.

@@ -1,6 +1,6 @@
 # Makefile for Schema Development Environment
 
-.PHONY: all help up down shell validate release test repo.init infra.deps infra.lint infra.clean infra.coverage
+.PHONY: all help up down shell validate release test repo.init infra.deps infra.coverage infra.clean fmt lint check typecheck build
 
 # Default to showing help
 all: help
@@ -20,6 +20,10 @@ down:
 shell:
 	@echo "--- Opening a shell into the running builder container ---"
 	@docker compose exec builder bash
+
+build:
+	@echo "--- Building Docker images ---"
+	@docker compose build
 
 # =============================================================================
 # Main Development Tasks
@@ -41,6 +45,24 @@ test:
 	@echo "--- Running pytest for the compiler infrastructure ---"
 	@docker compose exec builder python -m pytest --cov=tools.compiler --cov-report=term-missing tests/
 
+fmt:
+	@echo "--- Formatting Python code with Black and Isort ---"
+	@docker compose exec builder python -m black .
+	@docker compose exec builder python -m isort .
+
+lint:
+	@echo "--- Linting Python code with Ruff ---"
+	@docker compose exec builder python -m ruff check .
+	@echo "--- Linting YAML files with yamllint ---"
+	@docker compose exec builder python -m yamllint .
+
+typecheck:
+	@echo "--- Running static type checking with MyPy ---"
+	@docker compose exec builder python -m mypy .
+
+check: fmt lint typecheck
+	@echo "--- Running all code quality checks (format, lint, typecheck) ---"
+
 # =============================================================================
 # Repository Setup
 # =============================================================================
@@ -56,13 +78,6 @@ repo.init:
 infra.deps:
 	@echo "--- Initializing Python dependencies into ./p_venv cache ---"
 	@docker compose run --rm setup
-
-infra.lint:
-	@echo "--- Running linters on infrastructure code ---"
-	@echo "--> Linting Python code with flake8..."
-	@docker compose exec builder python -m flake8 tools/
-	@echo "--> Linting YAML files with yamllint..."
-	@docker compose exec builder python -m yamllint .
 
 infra.coverage:
 	@echo "--- Generating HTML coverage report ---"
@@ -87,17 +102,21 @@ help:
 	@echo "  up            Start the development container in the background."
 	@echo "  down          Stop and remove the development container."
 	@echo "  shell         Open an interactive shell into the running container."
+	@echo "  build         Build Docker images."
 	@echo ""
 	@echo "Main Tasks:"
 	@echo "  validate      Run fast, offline validation of all schemas."
 	@echo "  release       Build, checksum, and sign all non-dev schemas (requires Vault)."
 	@echo "  test          Run pytest for the compiler infrastructure code."
+	@echo "  fmt           Format Python code with Black and Isort."
+	@echo "  lint          Lint Python code with Ruff and YAML files with yamllint."
+	@echo "  typecheck     Run static type checking with MyPy."
+	@echo "  check         Run all code quality checks (fmt, lint, typecheck)."
 	@echo ""
 	@echo "Repository Setup:"
 	@echo "  repo.init     Set up the Git hooks for this repository (pre-commit, commit-msg)."
 	@echo ""
 	@echo "Infrastructure & Maintenance:"
 	@echo "  infra.deps    (Re)generate requirements.txt and install dependencies into the cache."
-	@echo "  infra.lint    Run static analysis and linting on the infrastructure code."
 	@echo "  infra.coverage Generate HTML coverage report."
 	@echo "  infra.clean   Remove all generated files, caches, and stopped containers."

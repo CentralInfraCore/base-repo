@@ -8,6 +8,9 @@ pytest
 pytest-mock
 pytest-cov
 
-# Linting
-flake8
+# Linting and Formatting
+ruff
+black
+isort
+mypy
 yamllint
