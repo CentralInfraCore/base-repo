@@ -1,0 +1,16 @@
+pyyaml
+jsonschema
+requests
+cryptography
+
+# Testing
+pytest
+pytest-mock
+pytest-cov
+
+# Linting and Formatting
+ruff
+black
+isort
+mypy
+yamllint

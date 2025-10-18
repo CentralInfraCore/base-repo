@@ -58,6 +58,9 @@ properties:
         - belépési      # Entry point (user or system)
         - meta          # Internal meta structures or logic
         - elemző        # Evaluation or analysis logic
+        - legal         # Legal documents like licenses
+        - concept       # High-level concept
+        - architecture  # Architectural blueprint
   entrypoint:
     type: boolean
     description: Indicates whether this document can act as an entry point.
@@ -72,6 +75,10 @@ properties:
         - generation        # Generative or build pipeline
         - onboarding        # Loading or initializing into system
         - fallback_process  # Fallback handling path
+        - distribution      # Software distribution process
+        - publishing        # Content or release publishing
+        - development-process # Part of the core development process
+        - architecture-review # Architecture review process
   description:
     type: string
     description: Human-readable summary of the document purpose (can be in Hungarian or English).
