@@ -41,6 +41,11 @@ properties:
         - storage       # Manages storage or persistence
         - loader        # Loads configs or other modules
         - renderer      # Generates output (text, code, HTML etc.)
+        - legal         # Legal documents like licenses
+        - license
+        - platform-engineering
+        - ci-cd         # CI/CD related document
+        - ecosystem
   related_nodes:
     type: array
     items:
@@ -61,6 +66,7 @@ properties:
         - legal         # Legal documents like licenses
         - concept       # High-level concept
         - architecture  # Architectural blueprint
+        - ci-cd         # CI/CD related document
   entrypoint:
     type: boolean
     description: Indicates whether this document can act as an entry point.

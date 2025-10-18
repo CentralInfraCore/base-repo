@@ -79,12 +79,12 @@ properties:
     type: object
     description: "Configuration for the build and release tools."
     required:
-      - schemas_dir
+      - meta_schemas_dir
       - source_dir
       - meta_schema_file
       - vault_key_name
     properties:
-      schemas_dir:
+      meta_schemas_dir:
         type: string
       source_dir:
         type: string

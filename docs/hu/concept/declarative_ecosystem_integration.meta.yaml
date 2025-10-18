@@ -7,8 +7,8 @@ tags:
 related_nodes:
   - concept/git-managment
 category:
-  - koncepció
-  - architektúra
+  - concept
+  - architecture
   - ci-cd
 entrypoint: false
 used_in:
