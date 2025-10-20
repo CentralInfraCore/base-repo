@@ -40,6 +40,8 @@ release:
 		exit 1; \
 	fi
 	@docker compose exec builder python tools/compiler.py release
+	@tools/release.sh project.yaml
+	@git add project.yaml
 
 test:
 	@echo "--- Running pytest for the compiler infrastructure ---"

@@ -1,38 +1,21 @@
----
-# ==============================================================================
-# Project Definition & Build Configuration
-# This is the single source of truth for the repository's metadata and
-# the configuration for the compiler and release tools.
-# ==============================================================================
-
 project:
   name: "CIC Schema Template"
+  description: Schema Compiler & Signing Infrastructure Template
   main_branch: "schemas" # This is used as a prefix for release branches and tags
-  description: "Schema Compiler & Signing Infrastructure Template"
-  # The version field is intentionally left blank during development.
-  # It will be populated by the CI/CD pipeline during the release process.
-  # version: "1.0.0"
-  license: "CC-BY-NC-SA-4.0"
-  owner: "Gábor Zoltán Sinkó"
+  license: CC-BY-NC-SA-4.0
+  owner: Gabor Zoltan Sinko
   maintenance:
-    status: "active"
-    supported_until: "2026-12-31"
+    status: active
+    supported_until: '2026-12-31'
   contacts:
-    - type: "email"
-      value: "sgz@centralinfracore.hu"
-    - type: "slack"
-      value: "#cic-core-dev"
+    - type: email
+      value: sgz@centralinfracore.hu
   links:
-    - name: "repository"
-      url: "https://github.com/CentralInfraCore/base-repo.git"
-    - name: "documentation"
-      url: "/docs"
-
-# ------------------------------------------------------------------------------
-# Settings for the compiler.py script
-# ------------------------------------------------------------------------------
+    - name: repository
+      url: https://github.com/CentralInfraCore/base-repo.git
+    - name: documentation
+      url: /docs
 compiler_settings:
-  schemas_dir: "schemas"
-  source_dir: "source"
-  meta_schema_file: "schemas/index.yaml"
-  vault_key_name: "cic-my-sign-key"
+    meta_schemas_dir: ./
+    meta_schema_file: md.meta.schema.yaml
+    vault_key_name: cic-my-sign-key
