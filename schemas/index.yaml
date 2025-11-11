@@ -23,6 +23,14 @@ properties:
       description:
         type: string
         description: "A brief description of the schema's purpose."
+      owner:
+        type: string
+        description: "The team or entity responsible for maintaining this schema (e.g., platform-engineering)."
+      tags:
+        type: array
+        description: "A list of tags for categorization and discovery."
+        items:
+          type: string
       createdBy:
         type: object
         description: |
@@ -100,6 +108,7 @@ properties:
       - name
       - version
       - description
+      - owner
       - createdBy
     # Conditional requirements for non-dev versions
     allOf:
