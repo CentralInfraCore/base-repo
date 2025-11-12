@@ -10,6 +10,8 @@ import argparse
 from jsonschema import validate, ValidationError
 from jsonref import JsonRef
 import base64
+from OpenSSL import crypto
+from OpenSSL.SSL import Error as OpenSSLError
 
 
 # --- Configuration ---
@@ -69,6 +71,39 @@ def get_sha256_hex(data_bytes):
 def get_sha256_b64(data_bytes):
     """Calculates the SHA256 hash and returns it as a base64 encoded string."""
     return base64.b64encode(hashlib.sha256(data_bytes).digest()).decode('utf-8')
+
+
+def _parse_certificate_info(pem_cert_data):
+    """
+    Parses a PEM-encoded certificate to extract Common Name and Email.
+    Returns (name, email).
+    """
+    try:
+        cert = crypto.load_certificate(crypto.FILETYPE_PEM, pem_cert_data.encode('utf-8'))
+        subject = cert.get_subject()
+        name = subject.CN
+        email = None
+
+        # Try to get email from subjectAltName
+        for i in range(cert.get_extension_count()):
+            ext = cert.get_extension(i)
+            if ext.get_short_name() == b'subjectAltName':
+                alt_names = str(ext).split(', ')
+                for alt_name in alt_names:
+                    if alt_name.startswith('email:'):
+                        email = alt_name[len('email:'):]
+                        break
+
+        if not email:
+            email = subject.emailAddress
+
+        return name, email
+    except OpenSSLError as e:
+        print(f"[WARNING] Could not parse certificate with pyOpenSSL: {e}")
+        return "Unknown", "unknown@example.com"
+    except Exception as e:
+        print(f"[WARNING] An unexpected error occurred while parsing certificate: {e}")
+        return "Unknown", "unknown@example.com"
 
 
 # --- Core Logic ---
@@ -167,17 +202,14 @@ def _generate_signed_artifact(source_data, target_version, output_dir):
     # 5. Get signature from Vault
     vault_addr = os.getenv('VAULT_ADDR')
     vault_token = os.getenv('VAULT_TOKEN')
-    vault_cacert = os.getenv('VAULT_CACERT')
+    vault_skip_verify = os.getenv('VAULT_SKIP_VERIFY', 'false').lower() in ('true', '1', 't')
 
     if not vault_addr or not vault_token:
         raise RuntimeError("[FATAL] VAULT_ADDR and VAULT_TOKEN must be set for release.")
 
-    verify_tls = vault_cacert if vault_cacert else False
+    verify_tls = not vault_skip_verify
     if not verify_tls:
         print("[93m[WARNING] Vault TLS verification is disabled. Do not use in production.[0m")
-
-    # TODO: Extract createdBy (name, email, cert, issuer_cert) from Vault response or a separate mechanism
-    # For now, we'll just sign the digest.
 
     digest_bytes = hashlib.sha256(to_canonical_json(metadata_for_signing)).digest()
     digest_to_sign_b64 = base64.b64encode(digest_bytes).decode('utf-8')
@@ -200,17 +232,59 @@ def _generate_signed_artifact(source_data, target_version, output_dir):
     except requests.exceptions.RequestException as e:
         raise RuntimeError(f"Vault signing failed: {e}")
 
-    # 6. Assemble final artifact
+    # 6. Get certificate info from Vault to populate 'createdBy'
+    print("  - Fetching signing certificate from Vault...")
+    try:
+        # Fetch main certificate
+        cert_response = requests.get(
+            f"{vault_addr}/v1/{VAULT_KEY_NAME}/data/crt", # Assuming KV v2 mount at VAULT_KEY_NAME, secret 'crt'
+            headers={"X-Vault-Token": vault_token},
+            verify=verify_tls
+        )
+        cert_response.raise_for_status()
+        certificate_pem = cert_response.json()['data']['data'].get('bar') # Assuming PEM data is under 'bar' key
+
+        if not certificate_pem:
+            raise RuntimeError("Certificate PEM data not found in Vault response for 'crt'.")
+
+        # Fetch issuer certificate (assuming a separate secret 'issuer_crt')
+        issuer_cert_response = requests.get(
+            f"{vault_addr}/v1/{VAULT_KEY_NAME}/data/issuer_crt", # Assuming KV v2 mount at VAULT_KEY_NAME, secret 'issuer_crt'
+            headers={"X-Vault-Token": vault_token},
+            verify=verify_tls
+        )
+        issuer_cert_response.raise_for_status()
+        issuer_certificate_pem = issuer_cert_response.json()['data']['data'].get('bar') # Assuming PEM data is under 'bar' key
+
+        if not issuer_certificate_pem:
+            raise RuntimeError("Issuer Certificate PEM data not found in Vault response for 'issuer_crt'.")
+
+        # Parse certificate to get name and email
+        name, email = _parse_certificate_info(certificate_pem)
+
+        created_by = {
+            "name": name,
+            "email": email,
+            "certificate": certificate_pem,
+            "issuer_certificate": issuer_certificate_pem
+        }
+        print("  - Certificate fetched and parsed successfully.")
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Failed to fetch certificate from Vault: {e}")
+    except (KeyError, TypeError) as e:
+        raise RuntimeError(f"Could not parse certificate data from Vault KV response: {e}. Check Vault path and key names.")
+    except RuntimeError as e:
+        raise e # Re-raise custom runtime errors
+
+
+    # 7. Assemble final artifact
     final_artifact = artifact_data.copy()
     final_artifact['metadata']['checksum'] = checksum
     final_artifact['metadata']['sign'] = signature
     final_artifact['metadata']['build_timestamp'] = metadata_for_signing['build_timestamp']
+    final_artifact['metadata']['createdBy'] = created_by
 
-    # TODO: Populate createdBy block here using Vault's signing certificate info
-    # For now, it's omitted as per our discussion for dev versions.
-    # The meta-schema will enforce its presence for non-dev versions.
-
-    # 7. Final validation of the completed artifact against the meta-meta-schema
+    # 8. Final validation of the completed artifact against the meta-meta-schema
     print("  - Performing final validation on signed artifact...")
     try:
         meta_meta_schema = load_and_resolve_schema(META_META_SCHEMA_FILE)

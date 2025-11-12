@@ -2,6 +2,7 @@ pyyaml
 jsonschema
 requests
 cryptography
+pyopenssl
 jsonref
 
 # Testing
