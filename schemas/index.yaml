@@ -67,6 +67,11 @@ spec:
             Identifies the entity responsible for the schema and provides
             the cryptographic proof of identity. This block is auto-generated
             during the release process and should not be present in .dev versions.
+          required:
+            - name
+            - email
+            - certificate
+            - issuer_certificate
           properties:
             name:
               type: string
@@ -91,11 +96,6 @@ spec:
                 A data block containing the PEM-encoded Issuing Authority (CA)
                 that signed the entity in the 'certificate' field.
               pattern: '-----BEGIN [A-Z0-9 ]+-----(.|\n|\r)+-----END [A-Z0-9 ]+-----.?'
-            required:
-              - name
-              - email
-              - certificate
-              - issuer_certificate
           additionalProperties: false
         build_timestamp:
           type: string
