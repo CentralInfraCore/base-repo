@@ -40,7 +40,7 @@ services:
     # Pass through environment variables for the release process
     environment:
       - PYTHONPATH=/app/p_venv
-      - VAULT_ADDR=${VAULT_ADDR}
+      - VAULT_ADDR=https://host.docker.internal:18200
       - VAULT_TOKEN=${VAULT_TOKEN}
       - VAULT_SKIP_VERIFY=1
     # Keep the container running in the background
