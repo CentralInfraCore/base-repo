@@ -19,7 +19,7 @@ services:
       - sh
       - -c
       - |
-        pip-compile -o requirements.txt requirements.in
+        pip-compile --cache-dir /app/.pip-cache -o requirements.txt requirements.in
         pip install --no-cache-dir -r requirements.txt --target /app/p_venv
 
   # Main service for running build, validation, and release tasks
