@@ -7,6 +7,9 @@ metadata:
   tags:
     - template
     - meta-schema
+  validatedBy:
+    name: "template-schema"
+    version: "v0.1.dev"
 
 spec:
   # JSON Schema for a SchemaFile, written in YAML
@@ -39,6 +42,25 @@ spec:
           description: "A list of tags for categorization and discovery."
           items:
             type: string
+        validatedBy:
+          type: object
+          description: |
+            A mandatory receipt proving which meta-schema was used for validation.
+            The 'checksum' field is auto-generated and required for released (non-dev) versions.
+          properties:
+            name:
+              type: string
+              description: "The name of the validating meta-schema."
+            version:
+              type: string
+              description: "The version of the validating meta-schema."
+            checksum:
+              type: string
+              description: "The checksum (SHA256) of the validating meta-schema's 'spec' block."
+          required:
+            - name
+            - version
+          additionalProperties: false
         createdBy:
           type: object
           description: |
@@ -117,6 +139,7 @@ spec:
         - version
         - description
         - owner
+        - validatedBy
       # Conditional requirements for non-dev versions
       allOf:
         - if:
@@ -131,6 +154,10 @@ spec:
               - validity
               - checksum
               - sign
+            properties:
+              validatedBy:
+                required:
+                  - checksum
     spec:
       type: object
       description: |

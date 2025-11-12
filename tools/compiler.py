@@ -6,28 +6,50 @@ import json
 import hashlib
 import requests
 import datetime
-from jsonschema import validate
+import argparse
+from jsonschema import validate, ValidationError
+from jsonref import JsonRef
 import base64
 
 
 # --- Configuration ---
 SCHEMAS_DIR = 'schemas'
-SOURCE_DIR = 'source'
-META_SCHEMA_FILE = os.path.join(SCHEMAS_DIR, 'index.yaml')
+SOURCES_DIR = 'sources'
+DEPENDENCIES_DIR = 'dependencies'
+RELEASES_DIR = 'release'
+META_META_SCHEMA_FILE = os.path.join(SCHEMAS_DIR, 'index.yaml')
+CANONICAL_SOURCE_FILE = os.path.join(SCHEMAS_DIR, 'index.yaml')
 VAULT_KEY_NAME = "cic-my-sign-key"  # Default key name for signing
 
 
 # --- Helper Functions ---
 
 
-def load_yaml(path):
-    """Loads a YAML file."""
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
+def load_and_resolve_schema(path):
+    """
+    Loads a YAML file and resolves all $ref references.
+    The base URI is the directory of the file, allowing for relative references.
+    """
+    try:
+        with open(path, 'r') as f:
+            # The base_uri is crucial for resolving relative file paths
+            base_uri = f'file://{os.path.dirname(os.path.abspath(path))}/'
+            unresolved_data = yaml.safe_load(f)
+
+            # JsonRef.replace_refs will recursively resolve all $ref fields
+            resolved_data = JsonRef.replace_refs(unresolved_data, base_uri=base_uri)
+            return resolved_data
+    except FileNotFoundError:
+        print(f"[FATAL] File not found: {path}")
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        print(f"[FATAL] YAML parsing error in {path}: {e}")
+        sys.exit(1)
 
 
 def write_yaml(path, data):
     """Writes data to a YAML file."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:
         yaml.dump(data, f, sort_keys=False, indent=2)
 
@@ -51,158 +73,323 @@ def get_sha256_b64(data_bytes):
 
 # --- Core Logic ---
 
+def _get_validator_schema(source_data):
+    """
+    Finds and loads the correct validator schema based on the source file's
+    'validatedBy' block.
+    """
+    validated_by = source_data.get('metadata', {}).get('validatedBy')
+    if not validated_by:
+        raise ValueError(
+            "Source schema is missing the 'metadata.validatedBy' block.")
 
-def run_validation():
-    """Runs offline validation on all schemas."""
-    print("--- Running Schema Validation ---")
+    validator_name = validated_by.get('name')
+    validator_version = validated_by.get('version')
+
+    if not validator_name or not validator_version:
+        raise ValueError(
+            "'validatedBy' block must contain 'name' and 'version'.")
+
+    # Bootstrap case: the meta-schema validates itself against the base rules.
+    if validator_name == 'template-schema':
+        print(f"[INFO] Bootstrapping: using meta-meta-schema for validation.")
+        return load_and_resolve_schema(META_META_SCHEMA_FILE)
+
+    # Standard case: find the validator in the dependencies directory.
+    validator_filename = f"{validator_name}-{validator_version}.yaml"
+    validator_path = os.path.join(DEPENDENCIES_DIR, validator_filename)
+    print(f"[INFO] Loading and resolving validator: {validator_path}")
+
+    validator_schema = load_and_resolve_schema(validator_path)
+
+    # --- Security Check: Verify the integrity of the validator itself ---
+    print("[INFO] Verifying integrity of the validator schema...")
+    # IMPORTANT: We calculate the checksum on the *resolved* spec block.
+    spec_bytes = to_canonical_json(validator_schema['spec'])
+    expected_checksum = validator_schema.get('metadata', {}).get('checksum')
+    actual_checksum = get_sha256_hex(spec_bytes)
+
+    if not expected_checksum or actual_checksum != expected_checksum:
+        raise RuntimeError(
+            f"FATAL: Validator schema {validator_path} is corrupt or has been"
+            f" tampered with! Checksum mismatch.")
+    print("  [92m✓ Validator integrity OK[0m")
+    # --- End Security Check ---
+
+    return validator_schema
+
+
+def _generate_signed_artifact(source_data, target_version, output_dir):
+    """
+    Generates a signed schema artifact from source data.
+    This includes validation, checksum calculation, Vault signing,
+    and filling in all release-specific metadata.
+    """
+    print(f"--- Generating Signed Artifact for {source_data['metadata']['name']}@{target_version} ---")
+
+    # 1. Validate the source data against its declared validator
+    print("[INFO] Validating source data...")
     try:
-        meta_schema = load_yaml(META_SCHEMA_FILE)
-        print(f"Meta-schema loaded from {META_SCHEMA_FILE}")
-    except Exception as e:
-        print(f"[FATAL] Could not load meta-schema: {e}")
+        validator_schema = _get_validator_schema(source_data)
+        validate(instance=source_data, schema=validator_schema['spec'])
+        print(f"  [92m✓ Source schema is valid against"
+              f" {validator_schema['metadata']['name']}@"
+              f"{validator_schema['metadata']['version']}[0m")
+    except (ValueError, RuntimeError, ValidationError) as e:
+        print(f"\n  [91m✗ SOURCE VALIDATION FAILED: {e}[0m")
         sys.exit(1)
 
-    schema_files = glob.glob(os.path.join(SCHEMAS_DIR, '*.yaml'))
-    if META_SCHEMA_FILE in schema_files:
-        schema_files.remove(META_SCHEMA_FILE)
+    # 2. Prepare the artifact data
+    artifact_data = source_data.copy()
+    artifact_data['metadata']['version'] = target_version
 
-    all_valid = True
-    for schema_file in schema_files:
-        print(f"  Validating {schema_file}...")
-        try:
-            schema_instance = load_yaml(schema_file)
-            validate(instance=schema_instance, schema=meta_schema)
-            print("  [92m✓ OK[0m")
-        except Exception as e:
-            print(f"  [91m✗ ERROR: {e}[0m")
-            all_valid = False
+    # Fill validatedBy.checksum
+    validator_spec_bytes = to_canonical_json(validator_schema['spec'])
+    artifact_data['metadata']['validatedBy']['checksum'] = get_sha256_hex(validator_spec_bytes)
 
-    if not all_valid:
-        print("\nValidation failed for one or more schemas.")
-        sys.exit(1)
-    else:
-        print("\nAll schemas are valid.")
+    # 3. Calculate checksum of the 'spec' block
+    spec_bytes = to_canonical_json(artifact_data['spec'])
+    checksum = get_sha256_hex(spec_bytes)
+    print(f"  - Calculated spec checksum: {checksum[:12]}...")
 
+    # 4. Prepare metadata for signing
+    metadata_for_signing = artifact_data['metadata'].copy()
+    metadata_for_signing.pop('checksum', None) # Ensure these are not part of the signed payload
+    metadata_for_signing.pop('sign', None)
 
-def run_release():
-    """Runs the full release process: validation, checksum, signing."""
-    print("--- Running Schema Release ---")
+    # Add build_timestamp
+    metadata_for_signing['build_timestamp'] = datetime.datetime.now(
+        datetime.timezone.utc).isoformat()
+
+    # Add checksum to the signed metadata
+    metadata_for_signing['checksum'] = checksum
+
+    # 5. Get signature from Vault
     vault_addr = os.getenv('VAULT_ADDR')
     vault_token = os.getenv('VAULT_TOKEN')
-    vault_cacert = os.getenv('VAULT_CACERT')  # For production TLS verification
+    vault_cacert = os.getenv('VAULT_CACERT')
 
     if not vault_addr or not vault_token:
-        print("[FATAL] VAULT_ADDR and VAULT_TOKEN must be set for release.")
+        raise RuntimeError("[FATAL] VAULT_ADDR and VAULT_TOKEN must be set for release.")
+
+    verify_tls = vault_cacert if vault_cacert else False
+    if not verify_tls:
+        print("[93m[WARNING] Vault TLS verification is disabled. Do not use in production.[0m")
+
+    # TODO: Extract createdBy (name, email, cert, issuer_cert) from Vault response or a separate mechanism
+    # For now, we'll just sign the digest.
+
+    digest_bytes = hashlib.sha256(to_canonical_json(metadata_for_signing)).digest()
+    digest_to_sign_b64 = base64.b64encode(digest_bytes).decode('utf-8')
+
+    print("  - Requesting signature from Vault...")
+    try:
+        response = requests.post(
+            f"{vault_addr}/v1/transit/sign/{VAULT_KEY_NAME}",
+            headers={"X-Vault-Token": vault_token},
+            json={
+                "input": digest_to_sign_b64,
+                "prehashed": True,
+                "hash_algorithm": "sha2-256"
+            },
+            verify=verify_tls
+        )
+        response.raise_for_status()
+        signature = response.json()['data']['signature']
+        print("  - Signature received successfully.")
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Vault signing failed: {e}")
+
+    # 6. Assemble final artifact
+    final_artifact = artifact_data.copy()
+    final_artifact['metadata']['checksum'] = checksum
+    final_artifact['metadata']['sign'] = signature
+    final_artifact['metadata']['build_timestamp'] = metadata_for_signing['build_timestamp']
+
+    # TODO: Populate createdBy block here using Vault's signing certificate info
+    # For now, it's omitted as per our discussion for dev versions.
+    # The meta-schema will enforce its presence for non-dev versions.
+
+    # 7. Final validation of the completed artifact against the meta-meta-schema
+    print("  - Performing final validation on signed artifact...")
+    try:
+        meta_meta_schema = load_and_resolve_schema(META_META_SCHEMA_FILE)
+        validate(instance=final_artifact, schema=meta_meta_schema['spec'])
+        print("  - [92m✓ Final artifact validation passed against meta-meta-schema.[0m")
+    except (ValueError, RuntimeError, ValidationError) as e:
+        raise RuntimeError(f"Final artifact validation failed against meta-meta-schema: {e}")
+
+    return final_artifact
+
+
+def run_validation(args):
+    """
+    Runs offline validation on a single source schema.
+    This command is for developers to check their work before release.
+    """
+    print("--- Running Schema Validation ---")
+    source_file = args.file if args.file else CANONICAL_SOURCE_FILE
+    print(f"  Validating and resolving {source_file}...")
+
+    try:
+        # Use the new 'smart' loader
+        source_data = load_and_resolve_schema(source_file)
+        validator_schema = _get_validator_schema(source_data)
+
+        # The actual validation happens against the 'spec' of the validator
+        validate(instance=source_data, schema=validator_schema['spec'])
+        print(f"\n  [92m✓ Schema is valid against"
+              f" {validator_schema['metadata']['name']}@"
+              f"{validator_schema['metadata']['version']}[0m")
+
+    except (ValueError, RuntimeError, ValidationError) as e:
+        print(f"\n  [91m✗ VALIDATION FAILED: {e}[0m")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n  [91m✗ UNEXPECTED ERROR: {e}[0m")
         sys.exit(1)
 
-    # Set TLS verification for Vault connection
-    if vault_cacert:
-        verify_tls = vault_cacert
-        print(f"[INFO] Using CA cert for Vault TLS verification:"
-              f" {vault_cacert}")
-    else:
-        verify_tls = False
-        print("[93m[WARNING] Vault TLS verification is disabled. "
-              "Do not use in production.[0m")
+    print("\nValidation successful.")
 
-    meta_schema = load_yaml(META_SCHEMA_FILE)
-    schema_files = glob.glob(os.path.join(SCHEMAS_DIR, '*.yaml'))
-    if META_SCHEMA_FILE in schema_files:
-        schema_files.remove(META_SCHEMA_FILE)
 
-    if not os.path.exists(SOURCE_DIR):
-        os.makedirs(SOURCE_DIR)
+def run_release_dependency(args):
+    """
+    Releases a meta-schema or shared library schema to the dependencies directory.
+    """
+    print("--- Releasing Dependency Schema ---")
+    source_file = args.source
+    target_version = args.version
 
-    release_count = 0
-    for schema_file in schema_files:
-        schema_data = load_yaml(schema_file)
-        version = schema_data.get('metadata', {}).get('version', '')
+    print(f"Processing source: {source_file} for version: {target_version}")
 
-        if version.endswith('.dev'):
-            continue
+    try:
+        source_data = load_and_resolve_schema(source_file)
 
-        release_count += 1
-        print(f"\nProcessing release for {schema_file} (version {version})...")
+        # Ensure the version in the source file is a .dev version
+        current_version = source_data.get('metadata', {}).get('version')
+        if not current_version or not current_version.endswith('.dev'):
+            raise ValueError(
+                f"Source schema {source_file} must have a '.dev' version "
+                f"in its metadata (e.g., v1.0.dev) to be released as a dependency.")
 
-        # 1. Calculate checksum of the 'spec' block
-        spec_bytes = to_canonical_json(schema_data['spec'])
-        checksum = get_sha256_hex(spec_bytes)
-        print(f"  - Calculated spec checksum: {checksum[:12]}...")
+        # Ensure the target version is not a .dev version
+        if target_version.endswith('.dev'):
+            raise ValueError(
+                f"Target version '{target_version}' cannot be a '.dev' version "
+                f"for a dependency release.")
 
-        # 2. Prepare metadata for signing
-        metadata_for_signing = schema_data['metadata'].copy()
-        metadata_for_signing.pop('checksum', None)
-        metadata_for_signing.pop('sign', None)
-        metadata_for_signing['build_timestamp'] = datetime.datetime.now(
-            datetime.timezone.utc).isoformat()
-        metadata_for_signing['checksum'] = checksum
+        # Ensure the source schema's name matches the expected output name
+        schema_name = source_data.get('metadata', {}).get('name')
+        if not schema_name:
+            raise ValueError("Source schema is missing 'metadata.name'.")
 
-        # 3. Get signature from Vault
-        digest_bytes = hashlib.sha256(to_canonical_json(
-            metadata_for_signing)).digest()
-        digest_to_sign_b64 = base64.b64encode(digest_bytes).decode('utf-8')
+        # Generate the signed artifact
+        signed_artifact = _generate_signed_artifact(source_data, target_version, DEPENDENCIES_DIR)
 
-        print("  - Requesting signature from Vault...")
-        try:
-            response = requests.post(
-                f"{vault_addr}/v1/transit/sign/{VAULT_KEY_NAME}",
-                headers={"X-Vault-Token": vault_token},
-                json={
-                    "input": digest_to_sign_b64,
-                    "prehashed": True,
-                    "hash_algorithm": "sha2-256"
-                },
-                verify=verify_tls
-            )
-            response.raise_for_status()
-            signature = response.json()['data']['signature']
-            print("  - Signature received successfully.")
-        except requests.exceptions.RequestException as e:
-            print(f"  [91m✗ ERROR: Vault signing failed: {e}[0m")
-            sys.exit(1)
+        # Write the signed artifact to the dependencies directory
+        output_filename = f"{schema_name}-{target_version}.yaml"
+        output_path = os.path.join(DEPENDENCIES_DIR, output_filename)
+        write_yaml(output_path, signed_artifact)
+        print(f"\n[92m✓ Successfully released dependency schema to {output_path}[0m")
 
-        # 4. Assemble final schema
-        final_schema = schema_data.copy()
-        final_schema['metadata']['checksum'] = checksum
-        final_schema['metadata']['sign'] = signature
-        final_schema['metadata']['build_timestamp'] = \
-            metadata_for_signing['build_timestamp']
+    except (ValueError, RuntimeError, ValidationError) as e:
+        print(f"\n  [91m✗ RELEASE FAILED: {e}[0m")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n  [91m✗ UNEXPECTED ERROR: {e}[0m")
+        sys.exit(1)
 
-        # 5. Final validation of the completed schema
-        print("  - Performing final validation on signed schema...")
-        try:
-            validate(instance=final_schema, schema=meta_schema)
-            print("  - [92m✓ Final validation passed.[0m")
-        except Exception as e:
-            print(f"  [91m✗ ERROR: Final validation failed: {e}[0m")
-            sys.exit(1)
 
-        # 6. Write to source directory
-        output_path = os.path.join(SOURCE_DIR, os.path.basename(schema_file))
-        write_yaml(output_path, final_schema)
-        print(f"  - Signed schema written to {output_path}")
+def run_release_schema(args):
+    """
+    Releases an application-specific schema to the release directory.
+    """
+    print("--- Releasing Application Schema ---")
+    source_file = args.source
+    target_version = args.version
 
-    if release_count == 0:
-        print("\nNo non-dev schemas found to release.")
-    else:
-        print(f"\nSuccessfully processed {release_count} schemas.")
+    print(f"Processing source: {source_file} for version: {target_version}")
+
+    try:
+        source_data = load_and_resolve_schema(source_file)
+
+        # Ensure the version in the source file is a .dev version
+        current_version = source_data.get('metadata', {}).get('version')
+        if not current_version or not current_version.endswith('.dev'):
+            raise ValueError(
+                f"Source schema {source_file} must have a '.dev' version "
+                f"in its metadata (e.g., v1.0.dev) to be released as an application schema.")
+
+        # Ensure the target version is not a .dev version
+        if target_version.endswith('.dev'):
+            raise ValueError(
+                f"Target version '{target_version}' cannot be a '.dev' version "
+                f"for an application schema release.")
+
+        # Ensure the source schema's name matches the expected output name
+        schema_name = source_data.get('metadata', {}).get('name')
+        if not schema_name:
+            raise ValueError("Source schema is missing 'metadata.name'.")
+
+        # Generate the signed artifact
+        signed_artifact = _generate_signed_artifact(source_data, target_version, RELEASES_DIR)
+
+        # Write the signed artifact to the releases directory
+        output_filename = f"{schema_name}-{target_version}.yaml"
+        output_path = os.path.join(RELEASES_DIR, output_filename)
+        write_yaml(output_path, signed_artifact)
+        print(f"\n[92m✓ Successfully released application schema to {output_path}[0m")
+
+    except (ValueError, RuntimeError, ValidationError) as e:
+        print(f"\n  [91m✗ RELEASE FAILED: {e}[0m")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n  [91m✗ UNEXPECTED ERROR: {e}[0m")
+        sys.exit(1)
 
 
 def main():
     """Main entrypoint for the script."""
-    if len(sys.argv) < 2:
-        print("Usage: python tools/compiler.py [validate|release]")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Schema Compiler & Toolkit")
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    command = sys.argv[1]
+    # --- 'validate' command ---
+    validate_parser = subparsers.add_parser(
+        'validate',
+        help="Validates a source schema against the validator specified in"
+             " its 'validatedBy' block.")
+    validate_parser.add_argument(
+        'file', nargs='?', default=CANONICAL_SOURCE_FILE,
+        help=f"Path to the source schema file to validate. "
+             f"Defaults to '{CANONICAL_SOURCE_FILE}'.")
+    validate_parser.set_defaults(func=run_validation)
 
-    if command == 'validate':
-        run_validation()
-    elif command == 'release':
-        run_release()
-    else:
-        print(f"Unknown command: {command}")
-        sys.exit(1)
+    # --- 'release-dependency' command ---
+    release_dep_parser = subparsers.add_parser(
+        'release-dependency',
+        help="Releases a meta-schema or shared library schema to the dependencies directory.")
+    release_dep_parser.add_argument(
+        '--source', required=True,
+        help="Path to the source schema file (e.g., sources/cic-meta-schema.yaml).")
+    release_dep_parser.add_argument(
+        '--version', required=True,
+        help="The target release version (e.g., v1.0.0). Must not be a '.dev' version.")
+    release_dep_parser.set_defaults(func=run_release_dependency)
+
+    # --- 'release-schema' command ---
+    release_schema_parser = subparsers.add_parser(
+        'release-schema',
+        help="Releases an application-specific schema to the release directory.")
+    release_schema_parser.add_argument(
+        '--source', required=True,
+        help="Path to the source schema file (e.g., sources/postgres.yaml).")
+    release_schema_parser.add_argument(
+        '--version', required=True,
+        help="The target release version (e.g., v1.2.0). Must not be a '.dev' version.")
+    release_schema_parser.set_defaults(func=run_release_schema)
+
+    args = parser.parse_args()
+    args.func(args)
 
 
 if __name__ == "__main__":
