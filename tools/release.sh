@@ -53,7 +53,7 @@ echo "  - Schema name: $SCHEMA_NAME"
 
 # --- Git Operations ---
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-RELEASE_BRANCH="releases/${SCHEMA_NAME}@${VERSION}"
+RELEASE_BRANCH="${SCHEMA_NAME}/releases/${VERSION}"
 TAG_NAME="${SCHEMA_NAME}@${VERSION}"
 
 echo "--- Starting Release Process for ${TAG_NAME} ---"

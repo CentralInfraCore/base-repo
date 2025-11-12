@@ -348,6 +348,21 @@ def run_release_schema(args):
         sys.exit(1)
 
 
+def run_get_name(args):
+    """
+    Prints the schema name from the canonical source file.
+    """
+    try:
+        source_data = load_and_resolve_schema(CANONICAL_SOURCE_FILE)
+        schema_name = source_data.get('metadata', {}).get('name')
+        if schema_name:
+            print(schema_name)
+        else:
+            sys.exit(1)
+    except Exception:
+        sys.exit(1)
+
+
 def main():
     """Main entrypoint for the script."""
     parser = argparse.ArgumentParser(description="Schema Compiler & Toolkit")
@@ -387,6 +402,12 @@ def main():
         '--version', required=True,
         help="The target release version (e.g., v1.2.0). Must not be a '.dev' version.")
     release_schema_parser.set_defaults(func=run_release_schema)
+
+    # --- 'get-name' command ---
+    get_name_parser = subparsers.add_parser(
+        'get-name',
+        help="Prints the schema name from the canonical source file.")
+    get_name_parser.set_defaults(func=run_get_name)
 
     args = parser.parse_args()
     args.func(args)
