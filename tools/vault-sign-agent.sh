@@ -105,7 +105,7 @@ openssl req -x509 -nodes -newkey rsa:2048 -keyout "$VAULT_KEY" -out "$VAULT_CERT
 echo "[*] Starting Vault server..."
 cat > "$TMPDIR/vault-config.hcl" <<EOF
 listener "tcp" {
-  address     = "127.0.0.1:$VAULT_PORT"
+  address     = "0.0.0.0:$VAULT_PORT"
   tls_disable = 0
   tls_cert_file = "$VAULT_CERT"
   tls_key_file  = "$VAULT_KEY"
