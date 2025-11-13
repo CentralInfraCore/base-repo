@@ -90,12 +90,18 @@ rpds-py==0.27.1
     #   referencing
 ruff==0.14.4
     # via -r requirements.in
+types-pyyaml==6.0.12.20250915
+    # via -r requirements.in
+types-requests==2.32.4.20250913
+    # via -r requirements.in
 typing-extensions==4.15.0
     # via
     #   mypy
     #   pyopenssl
     #   referencing
 urllib3==2.5.0
-    # via requests
+    # via
+    #   requests
+    #   types-requests
 yamllint==1.37.1
     # via -r requirements.in

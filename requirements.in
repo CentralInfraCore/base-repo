@@ -1,6 +1,8 @@
 pyyaml
+types-PyYAML
 jsonschema
 requests
+types-requests
 cryptography
 pyopenssl
 jsonref

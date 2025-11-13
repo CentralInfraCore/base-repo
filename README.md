@@ -1,93 +1,59 @@
 # Schema Compiler & Signing Infrastructure
 
-This repository serves as a template and a toolkit for creating, validating, and cryptographically signing versioned schema definitions. It provides a robust, containerized development environment to ensure consistency, security, and reproducibility.
+This repository provides a robust, containerized development environment for creating, validating, and cryptographically signing versioned schema definitions.
 
-## Core Concepts
+## Overview
 
-- **Meta-Schema:** The `schema/index.yaml` file is the heart of the system. It's a JSON Schema that defines the rules for all other schema files, including required metadata, versioning formats, and the structure of the `createdBy` and `validity` fields.
-- **Compiler Script:** The `tools/compiler.py` script is the engine. It validates schemas against the meta-schema and handles the "release" process, which includes calculating checksums and interacting with a Vault server to get cryptographic signatures.
-- **Containerized Environment:** All development tasks are run inside a Docker container defined by `Dockerfile` and orchestrated by `docker-compose.yml`. This guarantees that the environment is identical for all developers and in CI/CD pipelines.
-- **Makefile Interface:** The `Makefile` provides a simple, high-level interface for interacting with the complex underlying system.
-- **Secure Signing:** The release process uses HashiCorp Vault for signing, ensuring that private keys are never directly handled by the script.
+The primary goal of this framework is to establish a governed, secure, and reproducible workflow for managing schemas. It ensures that every schema is validated and its integrity is verifiable through cryptographic signatures.
+
+- **Governance:** All schemas must conform to a central meta-schema.
+- **Security:** Signing is handled by HashiCorp Vault, ensuring private keys are never exposed.
+- **Reproducibility:** The entire environment is containerized with Docker.
+
+For a detailed explanation of the system's architecture and the release process, please see the **[Architecture Overview](docs/en/architecture.md)**.
 
 ---
 
 ## Getting Started
 
-Follow these steps to set up your local development environment.
+This section will guide you through the initial setup of the project.
 
 ### Prerequisites
 
 - `docker`
 - `docker-compose`
 - `make`
-- A running HashiCorp Vault instance for the `release` command (can be the one from `tools/vault-sign-agent.sh`).
+- `git`
 
-### Quickstart (60 seconds)
+### Quick Start
 
-Get up and running with these three commands:
+1.  **Start the Vault Signing Agent:**
+    A helper script is provided to run a local Vault server for development. This must be running in a separate terminal.
+    ```sh
+    # See the script's --help for all options
+    ./tools/vault-sign-agent.sh -k <key.pem> -c <cert.crt> --root-ca-file <root.pem>
+    ```
 
-```sh
-make repo.init   # Initialize repository hooks
-make up          # Start the development container
-make test        # Run tests
-```
+2.  **Initialize the Environment:**
+    These commands will install dependencies, build the Docker image, start the container, and set up Git hooks.
+    ```sh
+    make infra.deps
+    make build
+    make up
+    make repo.init
+    ```
 
-### 1. Install Dependencies
-
-This command will create a local cache for Python packages in a `./p_venv` directory. It only needs to be run once, or after updating `requirements.in`.
-
-```sh
-make infra.deps
-```
-
-### 2. Start the Development Container
-
-This will start the `builder` container in the background. It will remain running until you stop it.
-
-```sh
-make up
-```
-
-### 3. Initialize the Repository
-
-This step sets up the necessary Git hooks for automated validation and commit message signing. It should be run once per new clone of the repository.
-
-```sh
-make repo.init
-```
-
-Your environment is now ready!
+Your environment is now ready. For a detailed guide on day-to-day development and creating releases, please see the **[Developer Workflow](docs/en/workflow.md)**.
 
 ---
 
-## Usage
+## Makefile Commands
 
-All commands are run from the project root.
+A `Makefile` provides a simple interface for all common tasks.
 
-### Container Lifecycle
+- `make validate`: Validate your local schema changes.
+- `make test`: Run the Python test suite.
+- `make check`: Run all code quality checks (linting, formatting, type-checking).
+- `make release-dependency VERSION=v1.2.3`: Create a new signed release of a dependency schema.
 
-- `make up`: Start the development container in the background.
-- `make down`: Stop and remove the development container.
-- `make shell`: Open an interactive shell into the running container.
-- `make build`: Build Docker images.
-
-### Main Development Tasks
-
-- `make validate`: Run fast, offline validation of all schemas.
-- `make release`: Build, checksum, and sign all non-dev schemas (requires Vault).
-- `make test`: Run pytest for the compiler infrastructure code.
-- `make fmt`: Format Python code with Black and Isort.
-- `make lint`: Lint Python code with Ruff and YAML files with yamllint.
-- `make typecheck`: Run static type checking with MyPy.
-- `make check`: Run all code quality checks (fmt, lint, typecheck).
-
-### Repository Setup
-
-- `make repo.init`: Set up the Git hooks for this repository (pre-commit, commit-msg).
-
-### Infrastructure & Maintenance
-
-- `make infra.deps`: (Re)generate requirements.txt and install dependencies into the cache.
-- `make infra.coverage`: Generate HTML coverage report.
-- `make infra.clean`: Remove all generated files, caches, and stopped containers.
+For a complete list and description of all available commands, please see the **[Makefile Cheatsheet](docs/en/makefile-cheatsheet.md)**.

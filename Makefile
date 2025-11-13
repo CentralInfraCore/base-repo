@@ -43,9 +43,8 @@ test:
 
 fmt:
 	@echo "--- Formatting Python code with Black and Isort ---"
-	@docker compose exec builder python3 -m black .
-	@echo "--- Formatting Python code with Isort ---"
-	@docker compose exec builder python3 -m isort .
+	@docker compose exec builder python3 -m black --exclude p_venv .
+	@docker compose exec builder python3 -m isort --skip-glob "p_venv/*" .
 
 lint:
 	@echo "--- Linting Python code with Ruff ---"
@@ -55,7 +54,7 @@ lint:
 
 typecheck:
 	@echo "--- Running static type checking with MyPy ---"
-	@docker compose exec builder python3 -m mypy .
+	@docker compose exec builder python3 -m mypy --exclude p_venv .
 
 check: fmt lint typecheck
 	@echo "--- Running all code quality checks (format, lint, typecheck) ---"
