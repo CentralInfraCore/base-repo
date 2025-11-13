@@ -433,7 +433,15 @@ def test_generate_signed_artifact_no_vault_ca(mocker):
     mock_root_ca_response.json.return_value = VAULT_ROOT_CA_RESPONSE
     mock_get.side_effect = [mock_cert_response, mock_root_ca_response]
 
-    mocker.patch("tools.compiler._parse_certificate_info", return_value=("Test User", "test@example.com"))
+    # Mock the OpenSSL part to avoid real crypto operations
+    mock_cert_obj = mocker.Mock()
+    mock_subject = mocker.Mock()
+    mock_subject.CN = "Test User"
+    mock_subject.emailAddress = "test@example.com"
+    mock_cert_obj.get_subject.return_value = mock_subject
+    mock_cert_obj.get_extension_count.return_value = 0
+    mocker.patch("OpenSSL.crypto.load_certificate", return_value=mock_cert_obj)
+
     mocker.patch.object(os.path, "exists", return_value=False)  # Simulate missing CA file
 
     compiler._generate_signed_artifact(copy.deepcopy(DUMMY_SCHEMA_DATA), "v1.0.0", "release")
