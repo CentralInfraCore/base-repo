@@ -34,6 +34,10 @@ services:
       - ./p_venv:/app/p_venv:ro
       # Mount the project root to access schemas and write to source
       - ./:/app:rw
+      # Mount the host's Vault token file for scripts to use
+      - "${XDG_RUNTIME_DIR}/vault/sign-token:/var/run/secrets/vault-token:ro"
+      # Mount the host's Vault server CA certificate for TLS verification
+      - "${XDG_RUNTIME_DIR}/vault/server.crt:/var/run/secrets/vault-ca.crt:ro"
     # Allows the container to reach the host machine (for Vault)
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -41,7 +45,5 @@ services:
     environment:
       - PYTHONPATH=/app/p_venv
       - VAULT_ADDR=https://host.docker.internal:18200
-      - VAULT_TOKEN=${VAULT_TOKEN}
-      - VAULT_SKIP_VERIFY=1
     # Keep the container running in the background
     command: ["tail", "-f", "/dev/null"]

@@ -22,6 +22,8 @@ RELEASES_DIR = 'release'
 META_META_SCHEMA_FILE = os.path.join(SCHEMAS_DIR, 'index.yaml')
 CANONICAL_SOURCE_FILE = os.path.join(SCHEMAS_DIR, 'index.yaml')
 VAULT_KEY_NAME = "cic-my-sign-key"  # Default key name for signing
+VAULT_TOKEN_FILE = "/var/run/secrets/vault-token"
+VAULT_CA_CERT_FILE = "/var/run/secrets/vault-ca.crt"
 
 
 # --- Helper Functions ---
@@ -160,6 +162,22 @@ def _generate_signed_artifact(source_data, target_version, output_dir):
     This includes validation, checksum calculation, Vault signing,
     and filling in all release-specific metadata.
     """
+    vault_addr = os.getenv('VAULT_ADDR')
+
+    try:
+        with open(VAULT_TOKEN_FILE, 'r') as f:
+            vault_token = f.read().strip()
+    except FileNotFoundError:
+        raise RuntimeError(f"Vault token file not found at {VAULT_TOKEN_FILE}")
+
+    if not vault_addr:
+        raise RuntimeError("[FATAL] VAULT_ADDR must be set for release.")
+
+    verify_param = VAULT_CA_CERT_FILE if os.path.exists(VAULT_CA_CERT_FILE) else False
+    if not verify_param:
+        print("[93m[WARNING] Vault CA certificate not found. Proceeding without TLS verification.[0m")
+
+
     print(f"--- Generating Signed Artifact for {source_data['metadata']['name']}@{target_version} ---")
 
     # 1. Validate the source data against its declared validator
@@ -200,17 +218,6 @@ def _generate_signed_artifact(source_data, target_version, output_dir):
     metadata_for_signing['checksum'] = checksum
 
     # 5. Get signature from Vault
-    vault_addr = os.getenv('VAULT_ADDR')
-    vault_token = os.getenv('VAULT_TOKEN')
-    vault_skip_verify = os.getenv('VAULT_SKIP_VERIFY', 'false').lower() in ('true', '1', 't')
-
-    if not vault_addr or not vault_token:
-        raise RuntimeError("[FATAL] VAULT_ADDR and VAULT_TOKEN must be set for release.")
-
-    verify_tls = not vault_skip_verify
-    if not verify_tls:
-        print("[93m[WARNING] Vault TLS verification is disabled. Do not use in production.[0m")
-
     digest_bytes = hashlib.sha256(to_canonical_json(metadata_for_signing)).digest()
     digest_to_sign_b64 = base64.b64encode(digest_bytes).decode('utf-8')
 
@@ -224,7 +231,7 @@ def _generate_signed_artifact(source_data, target_version, output_dir):
                 "prehashed": True,
                 "hash_algorithm": "sha2-256"
             },
-            verify=verify_tls
+            verify=verify_param
         )
         response.raise_for_status()
         signature = response.json()['data']['signature']
@@ -239,13 +246,25 @@ def _generate_signed_artifact(source_data, target_version, output_dir):
         cert_response = requests.get(
             f"{vault_addr}/v1/{VAULT_KEY_NAME}/data/crt", # Assuming KV v2 mount at VAULT_KEY_NAME, secret 'crt'
             headers={"X-Vault-Token": vault_token},
-            verify=verify_tls
+            verify=verify_param
         )
         cert_response.raise_for_status()
         certificate_pem = cert_response.json()['data']['data'].get('bar') # Assuming PEM data is under 'bar' key
 
         if not certificate_pem:
             raise RuntimeError("Certificate PEM data not found in Vault response for 'crt'.")
+
+        # Fetch Root CA certificate
+        root_ca_response = requests.get(
+            f"{vault_addr}/v1/{VAULT_KEY_NAME}/data/CICRootCA", # Assuming KV v2 mount at VAULT_KEY_NAME, secret 'CICRootCA'
+            headers={"X-Vault-Token": vault_token},
+            verify=verify_param
+        )
+        root_ca_response.raise_for_status()
+        root_ca_pem = root_ca_response.json()['data']['data'].get('bar') # Assuming PEM data is under 'bar' key
+
+        if not root_ca_pem:
+            raise RuntimeError("Root CA PEM data not found in Vault response for 'CICRootCA'.")
 
         # Parse certificate to get name and email
         name, email = _parse_certificate_info(certificate_pem)
@@ -254,7 +273,7 @@ def _generate_signed_artifact(source_data, target_version, output_dir):
             "name": name,
             "email": email,
             "certificate": certificate_pem,
-            "issuer_certificate": certificate_pem # Use the same cert for issuer, as per the hook's logic
+            "issuer_certificate": root_ca_pem
         }
         print("  - Certificate fetched and parsed successfully.")
     except requests.exceptions.RequestException as e:

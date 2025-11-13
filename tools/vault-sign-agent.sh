@@ -8,12 +8,14 @@
 set -e
 
 KEYFILE=""
+ROOT_CA_FILE=""
 KEY_NAME="cic-my-sign-key"
 
 show_help() {
   echo "Usage: $0 [OPTIONS]"
   echo "  -k, --keyfile <file>      Encrypted private key file"
   echo "  -c, --crtfile <file>      Public certificate file (crt format)"
+  echo "  --root-ca-file <file>   Public Root CA certificate file (crt format)"
   echo "  -n, --name <key-name>     Vault key name (default: cic-my-sign-key)"
   echo "  -s, --stop                Stop the running Vault server"
   echo "  -h, --help                Display this help message"
@@ -29,6 +31,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -c|--crtfile)
       CRTFILE="$2"
+      shift 2
+      ;;
+    --root-ca-file)
+      ROOT_CA_FILE="$2"
       shift 2
       ;;
     -n|--name)
@@ -67,16 +73,16 @@ fi
 TMPDIR=$(mktemp -d)
 VAULT_PORT=18200
 TOKEN_FILE="$XDG_RUNTIME_DIR/vault/sign-token"
+SERVER_CA_FILE="$XDG_RUNTIME_DIR/vault/server.crt" # New file for server CA cert
 VAULT_KEY="$TMPDIR/vault-key.pem"
 VAULT_CERT="$TMPDIR/vault-cert.pem"
 PIDFILE="vault.pid"
 export VAULT_API_ADDR="https://127.0.0.1:$VAULT_PORT"
 export VAULT_ADDR="https://127.0.0.1:$VAULT_PORT"
-export VAULT_SKIP_VERIFY=1
 mkdir -p $XDG_RUNTIME_DIR/vault
 
-if [[ -z "$KEYFILE" || -z "$CRTFILE" ]]; then
-  echo "[!] Key file and certificate file must both be specified."
+if [[ -z "$KEYFILE" || -z "$CRTFILE" || -z "$ROOT_CA_FILE" ]]; then
+  echo "[!] Key file, certificate file, and Root CA file must all be specified."
   show_help
 fi
 
@@ -99,7 +105,11 @@ EOF
 
 # Generate self-signed certificate
 echo "[*] Generating Vault HTTPS certificate..."
-openssl req -x509 -nodes -newkey rsa:2048 -keyout "$VAULT_KEY" -out "$VAULT_CERT" -days 365 -config $TMPDIR/san.cnf -extensions SAN
+openssl req -x509 -nodes -newkey rsa:2048 -keyout "$VAULT_KEY" -out "$VAULT_CERT" -days 365 -config "$TMPDIR/san.cnf" -extensions SAN
+
+# Copy the generated server certificate to the well-known location for Docker mounting
+cp "$VAULT_CERT" "$SERVER_CA_FILE"
+echo "[*] Vault server CA certificate saved to: $SERVER_CA_FILE"
 
 # Create Vault config and start server
 echo "[*] Starting Vault server..."
@@ -142,12 +152,18 @@ vault secrets enable -path=$KEY_NAME -version=2 kv
 echo "[*] Storing public certificate in Vault..."
 cat "$CRTFILE" | vault kv put -mount=$KEY_NAME crt bar=-
 
+echo "[*] Storing Root CA certificate in Vault..."
+cat "$ROOT_CA_FILE" | vault kv put -mount=$KEY_NAME CICRootCA bar=-
+
 # Create sign policy
 cat > "$TMPDIR/sign-policy.hcl" <<EOF
 path "transit/sign/$KEY_NAME" {
   capabilities = ["update"]
 }
 path "$KEY_NAME/data/crt" {
+  capabilities = ["read"]
+}
+path "$KEY_NAME/data/CICRootCA" {
   capabilities = ["read"]
 }
 EOF
@@ -158,9 +174,9 @@ SIGN_TOKEN=$(vault token create -policy="sign-policy" -format=json | jq -r .auth
 echo "$SIGN_TOKEN" > "$TOKEN_FILE"
 
 echo "[*] Signing token created: $TOKEN_FILE"
+echo "[*] Vault server CA certificate saved to: $SERVER_CA_FILE"
 echo "[*] VAULT_ADDR: $VAULT_ADDR"
 echo "[*] Vault PID: $VAULT_PID"
-echo "[*] Certificate: $VAULT_CERT"
 echo "[*] Stop Vault: $0 --stop"
 
 #trap "rm -rf $TMPDIR" EXIT

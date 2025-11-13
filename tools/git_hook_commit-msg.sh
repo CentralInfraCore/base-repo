@@ -4,14 +4,27 @@ set -euo pipefail
 # Commit message fájl (Git adja paraméterként)
 COMMIT_MSG_FILE="$1"
 
-# --- Vault Configuration (from environment) ---
-# VAULT_ADDR, VAULT_TOKEN, VAULT_SKIP_VERIFY are expected to be set in the environment.
-# KEY_NAME for transit signing and KV mount is hardcoded here.
+# --- Vault Configuration ---
+# Use environment variables for paths if they exist, otherwise use local defaults.
+# This allows the script to run both locally and inside a Docker container.
+VAULT_TOKEN_FILE="${CIC_VAULT_TOKEN_FILE:-$XDG_RUNTIME_DIR/vault/sign-token}"
+VAULT_CA_CERT_FILE="${CIC_VAULT_CA_FILE:-$XDG_RUNTIME_DIR/vault/server.crt}"
+VAULT_ADDR="${VAULT_ADDR:-https://127.0.0.1:18200}" # Default to local dev server
 KEY_NAME="cic-my-sign-key"
+
+# --- Load Vault Token from file ---
+if [ ! -f "$VAULT_TOKEN_FILE" ]; then
+    echo "[!] Vault token file not found at $VAULT_TOKEN_FILE"
+    exit 1
+fi
+export VAULT_TOKEN=$(cat "$VAULT_TOKEN_FILE")
 
 # --- Helper for curl ---
 CURL_OPTS=""
-if [[ "${VAULT_SKIP_VERIFY:-}" == "1" ]]; then
+if [ -f "$VAULT_CA_CERT_FILE" ]; then
+  CURL_OPTS="--cacert $VAULT_CA_CERT_FILE"
+else
+  echo "[WARNING] Vault CA certificate not found. Proceeding without TLS verification."
   CURL_OPTS="-k"
 fi
 
