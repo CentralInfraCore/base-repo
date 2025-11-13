@@ -80,10 +80,6 @@ fi
 echo "[INFO] Adding generated file to Git: $OUTPUT_FILE"
 git add "$OUTPUT_FILE"
 
-# Set Git user config from environment variables passed by Makefile
-git config user.name "${GIT_AUTHOR_NAME:-"CIC-Bot"}"
-git config user.email "${GIT_AUTHOR_EMAIL:-"cic-bot@example.com"}"
-
 echo "[INFO] Committing release..."
 git commit -m "Release ${TAG_NAME}"
 
