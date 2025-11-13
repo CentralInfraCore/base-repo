@@ -86,8 +86,8 @@ git add "$OUTPUT_FILE"
 echo "[INFO] Committing release (skipping commit-msg hook)..."
 git commit --no-verify -m "Release ${TAG_NAME}"
 
-echo "[INFO] Creating signed tag: ${TAG_NAME}"
-git tag -s "$TAG_NAME" -m "Release ${TAG_NAME}"
+echo "[INFO] Creating annotated tag: ${TAG_NAME}"
+git tag -a "$TAG_NAME" -m "Release ${TAG_NAME}"
 
 echo "[INFO] Switching back to original branch: $CURRENT_BRANCH"
 git checkout "$CURRENT_BRANCH"
