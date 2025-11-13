@@ -1,5 +1,6 @@
 import argparse
 import base64
+import copy
 import hashlib
 import os
 import sys
@@ -56,6 +57,15 @@ VAULT_CERT_RESPONSE = {
     }
 }
 
+# Mock Root CA data from Vault
+VAULT_ROOT_CA_RESPONSE = {
+    "data": {
+        "data": {
+            "bar": "-----BEGIN CERTIFICATE-----\nMIIC... (dummy root ca content) ...END CERTIFICATE-----\n"
+        }
+    }
+}
+
 
 class FixedDateTime(datetime):
     @classmethod
@@ -95,7 +105,10 @@ def test_run_validation_success(mocker):
     args = argparse.Namespace(file="dummy.yaml")
     mocker.patch(
         "tools.compiler.load_and_resolve_schema",
-        side_effect=[DUMMY_SCHEMA_DATA, DUMMY_META_SCHEMA_DATA],
+        side_effect=[
+            copy.deepcopy(DUMMY_SCHEMA_DATA),
+            copy.deepcopy(DUMMY_META_SCHEMA_DATA),
+        ],
     )
     mocker.patch(
         "tools.compiler.get_sha256_hex", return_value="d41d8cd98f00b204e9800998ecf8427e"
@@ -111,7 +124,10 @@ def test_run_validation_schema_validation_failure(mocker):
     args = argparse.Namespace(file="dummy.yaml")
     mocker.patch(
         "tools.compiler.load_and_resolve_schema",
-        side_effect=[DUMMY_SCHEMA_DATA, DUMMY_META_SCHEMA_DATA],
+        side_effect=[
+            copy.deepcopy(DUMMY_SCHEMA_DATA),
+            copy.deepcopy(DUMMY_META_SCHEMA_DATA),
+        ],
     )
     mocker.patch(
         "tools.compiler.get_sha256_hex", return_value="d41d8cd98f00b204e9800998ecf8427e"
@@ -158,10 +174,12 @@ def test_run_release_dependency_vault_signing_failure(mocker):
     mocker.patch.object(os, "getenv", return_value="http://localhost:8200")
     mocker.patch("builtins.open", mocker.mock_open(read_data="test_token"))
     mocker.patch(
-        "tools.compiler.load_and_resolve_schema", return_value=DUMMY_SCHEMA_DATA
+        "tools.compiler.load_and_resolve_schema",
+        return_value=copy.deepcopy(DUMMY_SCHEMA_DATA),
     )
     mocker.patch(
-        "tools.compiler._get_validator_schema", return_value=DUMMY_META_SCHEMA_DATA
+        "tools.compiler._get_validator_schema",
+        return_value=copy.deepcopy(DUMMY_META_SCHEMA_DATA),
     )
     mocker.patch(
         "requests.post",
@@ -180,10 +198,11 @@ def test_run_release_dependency_final_validation_failure(mocker):
     mocker.patch("builtins.open", mocker.mock_open(read_data="test_token"))
     mocker.patch(
         "tools.compiler.load_and_resolve_schema",
-        return_value=DUMMY_SCHEMA_DATA,
+        return_value=copy.deepcopy(DUMMY_SCHEMA_DATA),
     )
     mocker.patch(
-        "tools.compiler._get_validator_schema", return_value=DUMMY_META_SCHEMA_DATA
+        "tools.compiler._get_validator_schema",
+        return_value=copy.deepcopy(DUMMY_META_SCHEMA_DATA),
     )
 
     mock_requests_post = mocker.patch("requests.post")
@@ -191,8 +210,13 @@ def test_run_release_dependency_final_validation_failure(mocker):
     mock_requests_post.return_value.json.return_value = VAULT_SIGNATURE_RESPONSE
 
     mock_requests_get = mocker.patch("requests.get")
-    mock_requests_get.return_value.raise_for_status.return_value = None
-    mock_requests_get.return_value.json.return_value = VAULT_CERT_RESPONSE
+    mock_cert_response = mocker.Mock()
+    mock_cert_response.raise_for_status.return_value = None
+    mock_cert_response.json.return_value = VAULT_CERT_RESPONSE
+    mock_root_ca_response = mocker.Mock()
+    mock_root_ca_response.raise_for_status.return_value = None
+    mock_root_ca_response.json.return_value = VAULT_ROOT_CA_RESPONSE
+    mock_requests_get.side_effect = [mock_cert_response, mock_root_ca_response]
 
     mocker.patch(
         "tools.compiler._parse_certificate_info",
@@ -215,12 +239,13 @@ def test_run_release_dependency_success(mocker):
     args = argparse.Namespace(source="dummy.yaml", version="v1.0.0")
     mocker.patch.object(os, "getenv", return_value="http://localhost:8200")
     mocker.patch("builtins.open", mocker.mock_open(read_data="test_token"))
-    mocker.patch(
+    mock_load = mocker.patch(
         "tools.compiler.load_and_resolve_schema",
-        return_value=DUMMY_SCHEMA_DATA,
+        return_value=copy.deepcopy(DUMMY_SCHEMA_DATA),
     )
     mocker.patch(
-        "tools.compiler._get_validator_schema", return_value=DUMMY_META_SCHEMA_DATA
+        "tools.compiler._get_validator_schema",
+        return_value=copy.deepcopy(DUMMY_META_SCHEMA_DATA),
     )
 
     mock_requests_post = mocker.patch("requests.post")
@@ -228,8 +253,13 @@ def test_run_release_dependency_success(mocker):
     mock_requests_post.return_value.json.return_value = VAULT_SIGNATURE_RESPONSE
 
     mock_requests_get = mocker.patch("requests.get")
-    mock_requests_get.return_value.raise_for_status.return_value = None
-    mock_requests_get.return_value.json.return_value = VAULT_CERT_RESPONSE
+    mock_cert_response = mocker.Mock()
+    mock_cert_response.raise_for_status.return_value = None
+    mock_cert_response.json.return_value = VAULT_CERT_RESPONSE
+    mock_root_ca_response = mocker.Mock()
+    mock_root_ca_response.raise_for_status.return_value = None
+    mock_root_ca_response.json.return_value = VAULT_ROOT_CA_RESPONSE
+    mock_requests_get.side_effect = [mock_cert_response, mock_root_ca_response]
 
     mocker.patch(
         "tools.compiler._parse_certificate_info",
@@ -239,6 +269,7 @@ def test_run_release_dependency_success(mocker):
     mock_write_yaml = mocker.patch("tools.compiler.write_yaml")
     mocker.patch("tools.compiler.datetime.datetime", FixedDateTime)
 
+    print(f"Mocked load_and_resolve_schema will return: {mock_load.return_value}")
     compiler.run_release_dependency(args)
 
     # Assertions
