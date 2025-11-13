@@ -476,3 +476,62 @@ def test_generate_signed_artifact_missing_cert_data(mocker):
 
     with pytest.raises(RuntimeError, match="Certificate PEM data not found in Vault response for 'crt'."):
         compiler._generate_signed_artifact(copy.deepcopy(DUMMY_SCHEMA_DATA), "v1.0.0", "release")
+
+
+def test_parse_certificate_info_with_san(mocker):
+    """Test that _parse_certificate_info correctly extracts email from SubjectAltName."""
+    mock_cert = mocker.Mock()
+    mock_subject = mocker.Mock()
+    mock_subject.CN = "Test User"
+    mock_subject.emailAddress = "wrong@example.com"
+    mock_cert.get_subject.return_value = mock_subject
+
+    mock_ext = mocker.MagicMock()
+    mock_ext.get_short_name.return_value = b"subjectAltName"
+    mock_ext.__str__.return_value = "DNS:example.com, email:correct@example.com"
+    mock_cert.get_extension_count.return_value = 1
+    mock_cert.get_extension.return_value = mock_ext
+
+    mocker.patch("OpenSSL.crypto.load_certificate", return_value=mock_cert)
+    name, email = compiler._parse_certificate_info("dummy_cert_data")
+    assert name == "Test User"
+    assert email == "correct@example.com"
+
+
+def test_get_validator_schema_bootstrap_case(mocker):
+    """Test _get_validator_schema for the self-validation bootstrap case."""
+    schema_data = copy.deepcopy(DUMMY_SCHEMA_DATA)
+    schema_data["metadata"]["validatedBy"]["name"] = "template-schema"
+    mock_load = mocker.patch("tools.compiler.load_and_resolve_schema", return_value={"spec": {}})
+
+    compiler._get_validator_schema(schema_data)
+
+    mock_load.assert_called_once_with(compiler.META_META_SCHEMA_FILE)
+
+
+def test_run_get_name_exception(mocker):
+    """Test that run_get_name exits on a generic exception."""
+    mocker.patch("tools.compiler.load_and_resolve_schema", side_effect=Exception("Unexpected error"))
+    with pytest.raises(SystemExit) as excinfo:
+        compiler.run_get_name(argparse.Namespace())
+    assert excinfo.value.code == 1
+
+
+def test_main_release_schema_command(mocker):
+    """Test that main correctly calls run_release_schema."""
+    mocker.patch.object(sys, "argv", ["compiler.py", "release-schema", "--source", "s.yaml", "--version", "v1"])
+    mock_run = mocker.patch("tools.compiler.run_release_schema")
+    compiler.main()
+    mock_run.assert_called_once()
+    # We can also check the arguments if needed
+    call_args = mock_run.call_args[0][0]
+    assert call_args.source == "s.yaml"
+    assert call_args.version == "v1"
+
+
+def test_main_get_name_command(mocker):
+    """Test that main correctly calls run_get_name."""
+    mocker.patch.object(sys, "argv", ["compiler.py", "get-name"])
+    mock_run = mocker.patch("tools.compiler.run_get_name")
+    compiler.main()
+    mock_run.assert_called_once()
