@@ -100,7 +100,7 @@ prompt=no
 CN=localhost
 
 [SAN]
-subjectAltName=DNS:localhost,IP:127.0.0.1
+subjectAltName=DNS:localhost,IP:127.0.0.1,DNS:host.docker.internal
 EOF
 
 # Generate self-signed certificate
@@ -110,6 +110,9 @@ openssl req -x509 -nodes -newkey rsa:2048 -keyout "$VAULT_KEY" -out "$VAULT_CERT
 # Copy the generated server certificate to the well-known location for Docker mounting
 cp "$VAULT_CERT" "$SERVER_CA_FILE"
 echo "[*] Vault server CA certificate saved to: $SERVER_CA_FILE"
+
+# Set VAULT_CACERT for the vault CLI to trust the self-signed cert
+export VAULT_CACERT="$SERVER_CA_FILE"
 
 # Create Vault config and start server
 echo "[*] Starting Vault server..."
