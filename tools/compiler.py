@@ -247,18 +247,6 @@ def _generate_signed_artifact(source_data, target_version, output_dir):
         if not certificate_pem:
             raise RuntimeError("Certificate PEM data not found in Vault response for 'crt'.")
 
-        # Fetch issuer certificate (assuming a separate secret 'issuer_crt')
-        issuer_cert_response = requests.get(
-            f"{vault_addr}/v1/{VAULT_KEY_NAME}/data/issuer_crt", # Assuming KV v2 mount at VAULT_KEY_NAME, secret 'issuer_crt'
-            headers={"X-Vault-Token": vault_token},
-            verify=verify_tls
-        )
-        issuer_cert_response.raise_for_status()
-        issuer_certificate_pem = issuer_cert_response.json()['data']['data'].get('bar') # Assuming PEM data is under 'bar' key
-
-        if not issuer_certificate_pem:
-            raise RuntimeError("Issuer Certificate PEM data not found in Vault response for 'issuer_crt'.")
-
         # Parse certificate to get name and email
         name, email = _parse_certificate_info(certificate_pem)
 
@@ -266,7 +254,7 @@ def _generate_signed_artifact(source_data, target_version, output_dir):
             "name": name,
             "email": email,
             "certificate": certificate_pem,
-            "issuer_certificate": issuer_certificate_pem
+            "issuer_certificate": certificate_pem # Use the same cert for issuer, as per the hook's logic
         }
         print("  - Certificate fetched and parsed successfully.")
     except requests.exceptions.RequestException as e:
