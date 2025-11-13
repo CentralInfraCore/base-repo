@@ -44,6 +44,7 @@ test:
 fmt:
 	@echo "--- Formatting Python code with Black and Isort ---"
 	@docker compose exec builder python3 -m black .
+	@echo "--- Formatting Python code with Isort ---"
 	@docker compose exec builder python3 -m isort .
 
 lint:
@@ -66,12 +67,12 @@ check: fmt lint typecheck
 release-dependency:
 	@if [ -z "$(VERSION)" ]; then echo "[ERROR] VERSION is required. Usage: make release-dependency VERSION=v1.0.0"; exit 1; fi
 	@echo "--- Releasing Dependency Schema version $(VERSION) ---"
-	@docker compose exec builder bash tools/release.sh dependency $(VERSION)
+	@GIT_AUTHOR_NAME="$(shell git config user.name)" GIT_AUTHOR_EMAIL="$(shell git config user.email)" docker compose exec builder bash tools/release.sh dependency $(VERSION)
 
 release-schema:
 	@if [ -z "$(VERSION)" ]; then echo "[ERROR] VERSION is required. Usage: make release-schema VERSION=v1.0.0"; exit 1; fi
 	@echo "--- Releasing Application Schema version $(VERSION) ---"
-	@docker compose exec builder bash tools/release.sh schema $(VERSION)
+	@GIT_AUTHOR_NAME="$(shell git config user.name)" GIT_AUTHOR_EMAIL="$(shell git config user.email)" docker compose exec builder bash tools/release.sh schema $(VERSION)
 
 # =============================================================================
 # Repository Setup
