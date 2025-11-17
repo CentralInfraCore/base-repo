@@ -9,6 +9,9 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
+    git \
+    curl \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pip-tools globally in the container for the setup service to use

@@ -8,7 +8,7 @@ attrs==25.4.0
     # via
     #   jsonschema
     #   referencing
-black==25.9.0
+black==25.11.0
     # via -r requirements.in
 certifi==2025.10.5
     # via requests
@@ -21,12 +21,16 @@ click==8.3.0
 coverage[toml]==7.10.7
     # via pytest-cov
 cryptography==46.0.2
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   pyopenssl
 idna==3.11
     # via requests
 iniconfig==2.1.0
     # via pytest
 isort==7.0.0
+    # via -r requirements.in
+jsonref==1.1.0
     # via -r requirements.in
 jsonschema==4.25.1
     # via -r requirements.in
@@ -57,6 +61,8 @@ pycparser==2.23
     # via cffi
 pygments==2.19.2
     # via pytest
+pyopenssl==25.3.0
+    # via -r requirements.in
 pytest==8.4.2
     # via
     #   -r requirements.in
@@ -66,7 +72,7 @@ pytest-cov==7.0.0
     # via -r requirements.in
 pytest-mock==3.15.1
     # via -r requirements.in
-pytokens==0.2.0
+pytokens==0.3.0
     # via black
 pyyaml==6.0.3
     # via
@@ -82,15 +88,20 @@ rpds-py==0.27.1
     # via
     #   jsonschema
     #   referencing
-ruff==0.14.1
+ruff==0.14.4
     # via -r requirements.in
-semver==3.0.4
+types-pyyaml==6.0.12.20250915
+    # via -r requirements.in
+types-requests==2.32.4.20250913
     # via -r requirements.in
 typing-extensions==4.15.0
     # via
     #   mypy
+    #   pyopenssl
     #   referencing
 urllib3==2.5.0
-    # via requests
+    # via
+    #   requests
+    #   types-requests
 yamllint==1.37.1
     # via -r requirements.in

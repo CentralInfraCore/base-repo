@@ -1,9 +1,13 @@
 # Makefile for Schema Development Environment
 
-.PHONY: all help up down shell validate release test repo.init infra.deps infra.coverage infra.clean fmt lint check typecheck build
+.PHONY: all help up down shell validate test repo.init infra.deps infra.coverage infra.clean fmt lint check typecheck build release-dependency release-schema
 
 # Default to showing help
 all: help
+
+# --- Configuration Variables ---
+# The Python command to be executed inside the container
+PYTHON_CMD = python3 tools/compiler.py
 
 # =============================================================================
 # Container Lifecycle Management
@@ -30,40 +34,44 @@ build:
 # =============================================================================
 
 validate:
-	@echo "--- Validating all schemas against the meta-schema ---"
-	@docker compose exec builder python tools/compiler.py validate
-
-release:
-	@echo "--- Building and signing release schemas ---"
-	@if [ -z "$(VAULT_TOKEN)" ]; then \
-		echo "[ERROR] VAULT_TOKEN environment variable is not set."; \
-		exit 1; \
-	fi
-	@docker compose exec builder python tools/compiler.py release
-	@tools/release.sh project.yaml
-	@git add project.yaml
+	@echo "--- Validating current schema against its declared validator ---"
+	@docker compose exec builder $(PYTHON_CMD) validate
 
 test:
 	@echo "--- Running pytest for the compiler infrastructure ---"
-	@docker compose exec builder python -m pytest --cov=tools.compiler --cov-report=term-missing tests/
+	@docker compose exec builder python3 -m pytest --cov=tools --cov-report=term-missing tests/
 
 fmt:
 	@echo "--- Formatting Python code with Black and Isort ---"
-	@docker compose exec builder python -m black .
-	@docker compose exec builder python -m isort .
+	@docker compose exec builder python3 -m black --exclude p_venv .
+	@docker compose exec builder python3 -m isort --skip-glob "p_venv/*" .
 
 lint:
 	@echo "--- Linting Python code with Ruff ---"
-	@docker compose exec builder python -m ruff check .
+	@docker compose exec builder python3 -m ruff check .
 	@echo "--- Linting YAML files with yamllint ---"
-	@docker compose exec builder python -m yamllint .
+	@docker compose exec builder python3 -m yamllint .
 
 typecheck:
 	@echo "--- Running static type checking with MyPy ---"
-	@docker compose exec builder python -m mypy .
+	@docker compose exec builder python3 -m mypy --exclude p_venv .
 
 check: fmt lint typecheck
 	@echo "--- Running all code quality checks (format, lint, typecheck) ---"
+
+# =============================================================================
+# Release Management
+# =============================================================================
+
+release-dependency:
+	@if [ -z "$(VERSION)" ]; then echo "[ERROR] VERSION is required. Usage: make release-dependency VERSION=v1.0.0"; exit 1; fi
+	@echo "--- Releasing Dependency Schema version $(VERSION) ---"
+	@GIT_AUTHOR_NAME="$(shell git config user.name)" GIT_AUTHOR_EMAIL="$(shell git config user.email)" docker compose exec builder bash tools/release.sh dependency $(VERSION)
+
+release-schema:
+	@if [ -z "$(VERSION)" ]; then echo "[ERROR] VERSION is required. Usage: make release-schema VERSION=v1.0.0"; exit 1; fi
+	@echo "--- Releasing Application Schema version $(VERSION) ---"
+	@GIT_AUTHOR_NAME="$(shell git config user.name)" GIT_AUTHOR_EMAIL="$(shell git config user.email)" docker compose exec builder bash tools/release.sh schema $(VERSION)
 
 # =============================================================================
 # Repository Setup
@@ -83,7 +91,7 @@ infra.deps:
 
 infra.coverage:
 	@echo "--- Generating HTML coverage report ---"
-	@docker compose exec builder python -m pytest --cov=tools.compiler --cov-report=html
+	@docker compose exec builder python3 -m pytest --cov=tools --cov-report=html
 	@echo "HTML coverage report generated in ./htmlcov/index.html"
 
 infra.clean:
@@ -107,13 +115,16 @@ help:
 	@echo "  build         Build Docker images."
 	@echo ""
 	@echo "Main Tasks:"
-	@echo "  validate      Run fast, offline validation of all schemas."
-	@echo "  release       Build, checksum, and sign all non-dev schemas (requires Vault)."
+	@echo "  validate      Validate current schema (schemas/index.yaml) against its declared validator."
 	@echo "  test          Run pytest for the compiler infrastructure code."
 	@echo "  fmt           Format Python code with Black and Isort."
 	@echo "  lint          Lint Python code with Ruff and YAML files with yamllint."
 	@echo "  typecheck     Run static type checking with MyPy."
 	@echo "  check         Run all code quality checks (fmt, lint, typecheck)."
+	@echo ""
+	@echo "Release Management:"
+	@echo "  release-dependency VERSION=<version>  Release a meta-schema or shared library to the 'dependencies' directory."
+	@echo "  release-schema VERSION=<version>      Release an application-specific schema to the 'release' directory."
 	@echo ""
 	@echo "Repository Setup:"
 	@echo "  repo.init     Set up the Git hooks for this repository (pre-commit, commit-msg)."
