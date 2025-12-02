@@ -86,24 +86,25 @@ def main():
     This function acts as a "wrapper" around the ReleaseManager class,
     handling user interaction, output, and error handling.
     """
-    parser = argparse.ArgumentParser(description="Schema Compiler & Release Tool")
+    # Create a parent parser for common arguments
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument("--dry-run", action="store_true", help="Perform a trial run without making any changes.")
+    parent_parser.add_argument("--git-timeout", type=int, default=60, help="Timeout for Git commands in seconds.")
+    parent_parser.add_argument("--vault-timeout", type=int, default=10, help="Timeout for Vault API calls in seconds.")
+    parent_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output.")
+    parent_parser.add_argument("-d", "--debug", action="store_true", help="Enable debug output (most verbose).")
+
+    parser = argparse.ArgumentParser(description="Schema Compiler & Release Tool", parents=[parent_parser])
     
     # Create subparsers for commands
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
     # Validate command
-    validate_parser = subparsers.add_parser("validate", help="Run fast, offline validation of all schemas.")
+    validate_parser = subparsers.add_parser("validate", help="Run fast, offline validation of all schemas.", parents=[parent_parser])
     
     # Release command
-    release_parser = subparsers.add_parser("release", help="Build, checksum, and sign all non-dev schemas (requires Vault).")
+    release_parser = subparsers.add_parser("release", help="Build, checksum, and sign all non-dev schemas (requires Vault).", parents=[parent_parser])
     release_parser.add_argument("--version", required=True, help="The semantic version to release (e.g., 1.0.0).")
-
-    # Common arguments
-    parser.add_argument("--dry-run", action="store_true", help="Perform a trial run without making any changes.")
-    parser.add_argument("--git-timeout", type=int, default=60, help="Timeout for Git commands in seconds.")
-    parser.add_argument("--vault-timeout", type=int, default=10, help="Timeout for Vault API calls in seconds.")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output.")
-    parser.add_argument("-d", "--debug", action="store_true", help="Enable debug output (most verbose).")
     
     args = parser.parse_args()
     
@@ -164,18 +165,25 @@ def main():
             
             logger.info("[Phase 2/3] Running pre-flight checks...")
             # Pass the version from CLI args to the check
-            manager.run_release_check(release_version=args.version)
+            component_name, original_base_branch = manager.run_release_check(release_version=args.version)
             logger.info(f"✓ All checks passed for version {args.version}.")
             
             logger.info("[Phase 3/3] Closing release...")
             # Pass the version from CLI args to the close
-            release_version, component_name = manager.run_release_close(release_version=args.version)
+            release_version, component_name = manager.run_release_close(
+                release_version=args.version,
+                component_name=component_name,
+                original_base_branch=original_base_branch
+            )
 
             if args.dry_run:
                 logger.info("[DRY-RUN] Release process simulation complete. Vault signing was simulated.")
             else:
                 logger.info("✓ Release closed successfully. project.yaml has been finalized.")
-                logger.info(f"ACTION REQUIRED: Please push the changes and the tag: git push origin {component_name}/releases/v{release_version} && git push origin {component_name}@v{release_version}")
+                # The commit and tag are now handled by ReleaseManager.run_release_close()
+                # The push command is now constructed based on the actual component_name and release_version
+                release_branch_name = f"{component_name}/releases/v{release_version}" if component_name != "main" else f"releases/v{release_version}"
+                logger.info(f"ACTION REQUIRED: Please push the changes and the tag: git push origin {release_branch_name} && git push origin {component_name}@v{release_version}")
 
     except ReleaseError as e:
         logger.critical(f"[RELEASE FAILED] {e}")
