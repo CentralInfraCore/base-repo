@@ -8,6 +8,7 @@ import re
 from jsonschema import validate, ValidationError as JsonSchemaValidationError # Alias for clarity
 import base64
 import semver
+import tempfile
 
 from releaselib.exceptions import (
     ConfigurationError,
@@ -33,12 +34,26 @@ def load_yaml(path):
 
 
 def write_yaml(path, data):
-    """Writes data to a YAML file."""
+    """
+    Writes data to a YAML file atomically using a temporary file.
+    This prevents data corruption if the write operation is interrupted.
+    """
     try:
-        with open(path, 'w') as f:
-            yaml.dump(data, f, sort_keys=False, indent=2)
+        # Create a temporary file in the same directory as the target file
+        # This ensures that os.replace works across filesystems
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=os.path.dirname(path), encoding='utf-8') as tmp_file:
+            yaml.dump(data, tmp_file, sort_keys=False, indent=2)
+        
+        # Atomically replace the original file with the temporary file
+        os.replace(tmp_file.name, path)
     except IOError as e:
         raise ReleaseError(f"Failed to write YAML file to {path}: {e}") from e
+    except Exception as e:
+        # Clean up temp file if something went wrong before os.replace
+        if os.path.exists(tmp_file.name):
+            os.remove(tmp_file.name)
+        raise ReleaseError(f"An unexpected error occurred during atomic write to {path}: {e}") from e
+
 
 def get_reproducible_repo_hash(git_service, tree_id):
     """
@@ -173,55 +188,72 @@ class ReleaseManager:
             raise VaultServiceError("VaultService is not initialized. Cannot sign release.")
 
         project_yaml_path = self._path('project.yaml')
-        
-        # 1. Create preliminary release block (without signature/tree_hash yet)
-        preliminary_release_block = {
-            "version": self.release_version,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }
+        original_project_config = None # To store original content for rollback
 
-        # 2. Write preliminary block to project.yaml (or simulate in dry-run)
-        if self.dry_run:
-            print("[96m[DRY-RUN] Simulating write of preliminary release block to project.yaml.[0m")
-            print(yaml.dump({'release': preliminary_release_block}, sort_keys=False, indent=2))
-        else:
-            full_project_config = load_yaml(project_yaml_path)
-            full_project_config['release'] = preliminary_release_block
-            write_yaml(project_yaml_path, full_project_config)
-            self.git_service.add(project_yaml_path) # Stage the modified project.yaml
-
-        # 3. Get tree_id that includes the preliminary release block
-        tree_id = self.git_service.write_tree()
-        digest_b64 = get_reproducible_repo_hash(self.git_service, tree_id)
-        
-        # 4. Sign the digest of the repository state.
-        key_name = self.config.get('vault_key_name', 'cic-my-sign-key')
         try:
-            signature = self.vault_service.sign(digest_b64, key_name)
-        except Exception as e:
-            raise SigningError(f"Failed to get signature from Vault: {e}") from e
+            # Store original content for potential rollback
+            if os.path.exists(project_yaml_path):
+                with open(project_yaml_path, 'r') as f:
+                    original_project_config = f.read()
+            
+            # 1. Create preliminary release block (without signature/tree_hash yet)
+            preliminary_release_block = {
+                "version": self.release_version,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            }
 
-        # 5. Build the complete, final release block in memory.
-        final_release_block = preliminary_release_block.copy()
-        final_release_block['repository_tree_hash'] = tree_id
-        final_release_block['signing_metadata'] = {
+            # 2. Write preliminary block to project.yaml (or simulate in dry-run)
+            if self.dry_run:
+                print("[96m[DRY-RUN] Simulating write of preliminary release block to project.yaml.[0m")
+                print(yaml.dump({'release': preliminary_release_block}, sort_keys=False, indent=2))
+            else:
+                full_project_config = load_yaml(project_yaml_path)
+                full_project_config['release'] = preliminary_release_block
+                write_yaml(project_yaml_path, full_project_config)
+                self.git_service.add(project_yaml_path) # Stage the modified project.yaml
+
+            # 3. Get tree_id that includes the preliminary release block
+            tree_id = self.git_service.write_tree()
+            digest_b64 = get_reproducible_repo_hash(self.git_service, tree_id)
+            
+            # 4. Sign the digest of the repository state.
+            key_name = self.config.get('vault_key_name', 'cic-my-sign-key')
+            signature = self.vault_service.sign(digest_b64, key_name)
+
+            # 5. Build the complete, final release block in memory.
+            final_release_block = preliminary_release_block.copy()
+            final_release_block['repository_tree_hash'] = tree_id
+            final_release_block['signing_metadata'] = {
                 'key': key_name,
                 'signature': signature,
                 'hash_algorithm': 'sha256',
                 'digest': digest_b64
             }
 
-        # 6. Write the final release block to project.yaml (or simulate in dry-run)
-        if self.dry_run:
-            print("[96m[DRY-RUN] Skipping final write to project.yaml.[0m")
-            print("[96m[DRY-RUN] Final release block would be:[0m")
-            print(yaml.dump({'release': final_release_block}, sort_keys=False, indent=2))
-        else:
-            full_project_config = load_yaml(project_yaml_path) # Reload to ensure we have the latest state
-            full_project_config['release'] = final_release_block
-            write_yaml(project_yaml_path, full_project_config)
-            # Note: We do NOT git add project.yaml again here. The tree_id was calculated
-            # based on the state *after* the preliminary write and add. The final write
-            # is just to update the file with the signature. The user will commit this.
-        
-        return self.release_version, self.component_name
+            # 6. Write the final release block to project.yaml (or simulate in dry-run)
+            if self.dry_run:
+                print("[96m[DRY-RUN] Skipping final write to project.yaml.[0m")
+                print("[96m[DRY-RUN] Final release block would be:[0m")
+                print(yaml.dump({'release': final_release_block}, sort_keys=False, indent=2))
+            else:
+                full_project_config = load_yaml(project_yaml_path) # Reload to ensure we have the latest state
+                full_project_config['release'] = final_release_block
+                write_yaml(project_yaml_path, full_project_config)
+                # Note: We do NOT git add project.yaml again here. The tree_id was calculated
+                # based on the state *after* the preliminary write and add. The final write
+                # is just to update the file with the signature. The user will commit this.
+            
+            return self.release_version, self.component_name
+        except Exception as e:
+            # Rollback project.yaml if an error occurred after initial write
+            if not self.dry_run and original_project_config is not None:
+                print(f"[91m[ERROR] Release failed, attempting to rollback project.yaml...[0m")
+                try:
+                    with open(project_yaml_path, 'w') as f:
+                        f.write(original_project_config)
+                    self.git_service.add(project_yaml_path) # Stage the restored file
+                    print(f"[92m✓ project.yaml restored to original state.[0m")
+                except Exception as rollback_e:
+                    print(f"[91m[CRITICAL ERROR] Failed to rollback project.yaml: {rollback_e}[0m")
+                    print(f"[91m[CRITICAL ERROR] project.yaml might be in an inconsistent state. Manual intervention required![0m")
+            raise ReleaseError(f"Release process failed: {e}") from e
