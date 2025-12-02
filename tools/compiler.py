@@ -127,8 +127,22 @@ def main():
         vault_service = None
         if args.command == 'release':
             vault_addr = os.getenv('VAULT_ADDR')
+            
+            # Try to get VAULT_TOKEN from environment, then from mounted file
             vault_token = os.getenv('VAULT_TOKEN')
+            vault_token_file = '/var/run/secrets/vault-token'
+            if not vault_token and os.path.exists(vault_token_file):
+                try:
+                    with open(vault_token_file, 'r') as f:
+                        vault_token = f.read().strip()
+                except IOError as e:
+                    logger.warning(f"Could not read Vault token from {vault_token_file}: {e}")
+
+            # Try to get VAULT_CACERT from environment, then from mounted file
             vault_cacert = os.getenv('VAULT_CACERT')
+            vault_cacert_file = '/var/run/secrets/vault-ca.crt'
+            if not vault_cacert and os.path.exists(vault_cacert_file):
+                vault_cacert = vault_cacert_file # Pass the path directly, VaultService will check existence
 
             # TLS warning is now handled by VaultService constructor if not dry-run
             
