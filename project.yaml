@@ -1,5 +1,5 @@
 project:
-  component_name: base
+  name: base
   description: Schema Compiler & Signing Infrastructure Template
   license: CC-BY-NC-SA-4.0
   main_branch: main
@@ -16,6 +16,7 @@ project:
   - name: documentation
     url: /docs
 compiler_settings:
+  component_name: base
   meta_schemas_dir: ./
   meta_schema_file: md.meta.schema.yaml
   vault_key_name: cic-my-sign-key

@@ -7,6 +7,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # Run as the current host user to avoid file permission issues on mounted volumes.
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
       # Mount the project root to access requirements files
       - ./:/app
@@ -17,7 +19,7 @@ services:
       - sh
       - -c
       - |
-        pip-compile -o requirements.txt requirements.in
+        pip-compile --cache-dir /app/.pip-cache -o requirements.txt requirements.in
         pip install --no-cache-dir -r requirements.txt --target /app/p_venv
 
   # Main service for running build, validation, and release tasks
@@ -25,18 +27,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # Run as the current host user to avoid file permission issues on mounted volumes.
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
       # Mount the populated venv directory as a read-only cache
       - ./p_venv:/app/p_venv:ro
       # Mount the project root to access schemas and write to source
       - ./:/app:rw
+      # Mount the host's Vault token file for scripts to use
+      - "${XDG_RUNTIME_DIR}/vault/sign-token:/var/run/secrets/vault-token:ro"
+      # Mount the host's Vault server CA certificate for TLS verification
+      - "${XDG_RUNTIME_DIR}/vault/server.crt:/var/run/secrets/vault-ca.crt:ro"
     # Allows the container to reach the host machine (for Vault)
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Pass through environment variables for the release process
     environment:
       - PYTHONPATH=/app/p_venv
-      - VAULT_ADDR=${VAULT_ADDR}
-      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_ADDR=https://host.docker.internal:18200
     # Keep the container running in the background
     command: ["tail", "-f", "/dev/null"]

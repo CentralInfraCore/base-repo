@@ -149,6 +149,8 @@ class ReleaseManager:
         """Internal method to check git state, branch, and version."""
         try:
             component_name = self.config['component_name']
+            if not component_name: # Check for None, empty string, or other falsy values
+                raise ConfigurationError("The 'component_name' in compiler_settings of project.yaml cannot be empty or null.")
         except KeyError as e:
             # This should ideally be caught by the constructor's config validation
             raise ConfigurationError("Missing 'component_name' in compiler_settings of project.yaml. This is required for release.") from e
@@ -225,6 +227,7 @@ class ReleaseManager:
         4. Signs the tree_id.
         5. Creates the final release block with signing metadata.
         6. Writes the final release block to project.yaml.
+        7. Commits the project.yaml and creates a Git tag (if not dry-run).
         """
         if not self.release_version or not self.component_name:
             raise ReleaseError("run_release_check() must be successfully run before closing the release.")
@@ -289,6 +292,21 @@ class ReleaseManager:
                 write_yaml(project_yaml_path, full_project_config)
                 # Stage the project.yaml file after the final write to ensure the user commits the signed state.
                 self.git_service.add(str(project_yaml_path))
+            
+            # 7. Commit the project.yaml and create a Git tag (if not dry-run)
+            commit_message = f"release: {self.component_name} v{self.release_version}"
+            tag_name = f"{self.component_name}@v{self.release_version}"
+            tag_message = f"Release {self.component_name} v{self.release_version}"
+
+            if self.dry_run:
+                self.logger.info(f"[DRY-RUN] Would have committed with message: '{commit_message}'")
+                self.logger.info(f"[DRY-RUN] Would have created annotated tag: '{tag_name}' with message: '{tag_message}'")
+            else:
+                self.logger.info(f"Committing changes with message: '{commit_message}'")
+                self.git_service.run(['git', 'commit', '-m', commit_message])
+                self.logger.info(f"Creating annotated tag: '{tag_name}'")
+                self.git_service.run(['git', 'tag', '-a', tag_name, '-m', tag_message])
+                self.logger.info(f"✓ Release commit and tag created successfully.")
             
             return self.release_version, self.component_name
         except Exception as e:

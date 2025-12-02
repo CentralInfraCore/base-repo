@@ -14,6 +14,7 @@ all: help
 # =============================================================================
 VERBOSE ?=
 DEBUG ?=
+DRY_RUN ?=
 GIT_TIMEOUT ?= 60
 VAULT_TIMEOUT ?= 10
 
@@ -24,6 +25,9 @@ ifeq ($(VERBOSE),1)
 endif
 ifeq ($(DEBUG),1)
     COMPILER_CLI_ARGS += --debug
+endif
+ifeq ($(DRY_RUN),1)
+    COMPILER_CLI_ARGS += --dry-run
 endif
 COMPILER_CLI_ARGS += --git-timeout $(GIT_TIMEOUT)
 COMPILER_CLI_ARGS += --vault-timeout $(VAULT_TIMEOUT)
@@ -49,8 +53,9 @@ validate:
 release:
 	@echo "--- Building and signing release schemas ---"
 	@docker compose exec builder python tools/compiler.py release $(COMPILER_CLI_ARGS)
-	@tools/release.sh project.yaml
-	@git add project.yaml
+	# The release.sh script is no longer needed as its functionality has been integrated into compiler.py
+	# @tools/release.sh project.yaml
+	# @git add project.yaml # This is now handled by compiler.py
 
 test:
 	@echo "--- Running pytest for the compiler infrastructure ---"
@@ -93,6 +98,7 @@ help:
 	@echo "Options for validate/release:"
 	@echo "  VERBOSE=1     Enable verbose output."
 	@echo "  DEBUG=1       Enable debug output (most verbose)."
+	@echo "  DRY_RUN=1     Perform a trial run without making any changes."
 	@echo "  GIT_TIMEOUT=N Set Git command timeout in seconds (default: 60)."
 	@echo "  VAULT_TIMEOUT=N Set Vault API call timeout in seconds (default: 10)."
 	@echo ""
