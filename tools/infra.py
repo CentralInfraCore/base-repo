@@ -17,7 +17,7 @@ from releaselib.exceptions import (
     GitStateError,
     VersionMismatchError,
     ValidationFailureError,
-    SigningError,
+    # SigningError, # Removed as it's not used
     ReleaseError,
     VaultServiceError # Import VaultServiceError
 )

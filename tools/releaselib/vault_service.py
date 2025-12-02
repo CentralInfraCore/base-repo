@@ -53,6 +53,7 @@ class VaultService:
         except (TypeError, ValueError) as e:
             raise VaultServiceError(f"Invalid Base64 digest format: {e}") from e
 
+        response = None # Initialize response to None
         try:
             self.logger.debug(f"Requesting signature from Vault at {self.vault_addr} for key {key_name}...")
             response = requests.post(
