@@ -5,7 +5,7 @@ import argparse
 from infra import ReleaseManager
 from releaselib.git_service import GitService
 from releaselib.vault_service import VaultService
-from releaselib.exceptions import ReleaseError
+from releaselib.exceptions import ReleaseError, VaultServiceError
 
 # --- Configuration Loader ---
 
@@ -44,11 +44,17 @@ def main():
         
         vault_service = None
         if args.command == 'release':
-            # This instantiation is now inside the try-block
+            vault_addr = os.getenv('VAULT_ADDR')
+            vault_token = os.getenv('VAULT_TOKEN')
+            vault_cacert = os.getenv('VAULT_CACERT')
+
+            if not args.dry_run and not vault_cacert:
+                print("[93m[WARNING] Vault CA certificate not found. Proceeding without TLS verification.[0m")
+            
             vault_service = VaultService(
-                vault_addr=os.getenv('VAULT_ADDR'),
-                vault_token=os.getenv('VAULT_TOKEN'),
-                vault_cacert=os.getenv('VAULT_CACERT'),
+                vault_addr=vault_addr,
+                vault_token=vault_token,
+                vault_cacert=vault_cacert,
                 dry_run=args.dry_run
             )
 
@@ -86,7 +92,6 @@ def main():
                 print(f"\n[93mACTION REQUIRED: Please commit the changes and create the tag: git tag {component_name}@v{release_version}[0m")
 
     except ReleaseError as e:
-        # 3. Catch all our custom, expected exceptions and display them nicely
         print(f"\n[91m[RELEASE FAILED] {e}[0m")
         sys.exit(1)
 

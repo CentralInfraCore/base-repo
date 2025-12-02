@@ -22,11 +22,9 @@ class VaultService:
         In dry-run mode, returns a placeholder signature without making a network call.
         """
         if self.dry_run:
-            print("[96m[DRY-RUN] Skipping Vault signing. Returning a placeholder signature.[0m")
             return "vault:v1:dry-run-placeholder-signature"
 
-        if not self.verify_tls:
-            print("[93m[WARNING] Vault TLS verification is disabled. Do not use in production.[0m")
+        # Removed the print statement for TLS warning. This should be handled by the caller (CLI).
 
         try:
             response = requests.post(

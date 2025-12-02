@@ -2,9 +2,7 @@ import os
 import sys
 import glob
 import yaml
-import json
 import hashlib
-import subprocess
 import datetime
 import re
 from jsonschema import validate
@@ -17,7 +15,8 @@ from releaselib.exceptions import (
     VersionMismatchError,
     ValidationFailureError,
     SigningError,
-    ReleaseError
+    ReleaseError,
+    VaultServiceError # Import VaultServiceError
 )
 
 # --- Helper Functions (can be considered a utility module) ---
@@ -38,32 +37,36 @@ def write_yaml(path, data):
     with open(path, 'w') as f:
         yaml.dump(data, f, sort_keys=False, indent=2)
 
-def to_canonical_json(data):
-    """Converts a Python object to a canonical (sorted, no whitespace) JSON string."""
-    return json.dumps(data, sort_keys=True, separators=(',', ':')).encode('utf-8')
-
-def get_reproducible_repo_hash(tree_id):
-    """Calculates a reproducible SHA256 hash of a given git tree object."""
+def get_reproducible_repo_hash(git_service, tree_id):
+    """
+    Calculates a reproducible SHA256 hash of a given git tree object
+    by hashing the deterministic tar archive provided by 'git archive'.
+    This version is now pure Python for hashing, removing the openssl dependency.
+    """
     try:
-        archive_proc = subprocess.Popen(['git', 'archive', '--format=tar', tree_id], stdout=subprocess.PIPE)
-        digest_proc = subprocess.Popen(['openssl', 'dgst', '-sha256', '-binary'], stdin=archive_proc.stdout, stdout=subprocess.PIPE)
-        b64_proc = subprocess.Popen(['openssl', 'base64', '-A'], stdin=digest_proc.stdout, stdout=subprocess.PIPE, text=True)
-        archive_proc.stdout.close()
-        repo_hash_b64 = b64_proc.communicate()[0].strip()
-        if b64_proc.returncode != 0:
-            raise ReleaseError("Failed to calculate reproducible repository hash.")
-        return repo_hash_b64
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        # Get the raw tar archive from the GitService
+        archive_bytes = git_service.archive_tree_bytes(tree_id)
+        
+        # The most straightforward and dependency-free way to hash in Python
+        hasher = hashlib.sha256()
+        hasher.update(archive_bytes)
+        digest = hasher.digest()
+        
+        return base64.b64encode(digest).decode('utf-8')
+        
+    except Exception as e:
+        # Wrap any unexpected error in our custom exception
         raise ReleaseError(f"Error during repo hash calculation: {e}")
 
 # --- Core Logic Class ---
 
 class ReleaseManager:
-    def __init__(self, config, git_service, vault_service, project_root='.'):
+    def __init__(self, config, git_service, vault_service, project_root='.', dry_run=False):
         self.config = config
         self.git_service = git_service
         self.vault_service = vault_service
         self.project_root = os.path.abspath(project_root)
+        self.dry_run = dry_run
         self.release_version = None
         self.component_name = None
 
@@ -141,44 +144,48 @@ class ReleaseManager:
         return version, component
 
     def run_release_close(self):
-        """Executes the final steps of a release."""
+        """
+        Executes the final steps of a release: snapshots the current repo state,
+        signs it, and writes the complete release block to project.yaml in a
+        single operation.
+        """
         if not self.release_version or not self.component_name:
             raise ReleaseError("run_release_check() must be successfully run before closing the release.")
-
-        project_yaml_path = self._path('project.yaml')
-        full_project_config = load_yaml(project_yaml_path)
-        if 'release' in full_project_config:
-            del full_project_config['release']
         
-        release_block = {
-            "version": self.release_version,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }
-        full_project_config['release'] = release_block
-        write_yaml(project_yaml_path, full_project_config)
+        # Guard against vault_service being None when signing is required
+        if not self.vault_service:
+            raise VaultServiceError("VaultService is not initialized. Cannot sign release.")
 
-        self.git_service.add(project_yaml_path)
         tree_id = self.git_service.write_tree()
-        digest_b64 = get_reproducible_repo_hash(tree_id)
-
-        key_name = self.config.get('vault_key_name', 'cic-my-sign-key')
+        digest_b64 = get_reproducible_repo_hash(self.git_service, tree_id)
         
+        key_name = self.config.get('vault_key_name', 'cic-my-sign-key')
         try:
             signature = self.vault_service.sign(digest_b64, key_name)
         except Exception as e:
-            # Wrap vault/network errors in our custom exception
             raise SigningError(f"Failed to get signature from Vault: {e}")
 
-        final_release_block = release_block.copy()
-        final_release_block['repository_tree_hash'] = tree_id
-        final_release_block['signing_metadata'] = {
-            'key': key_name,
-            'signature': signature,
-            'hash_algorithm': 'sha256',
-            'digest': digest_b64
+        final_release_block = {
+            "version": self.release_version,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "repository_tree_hash": tree_id,
+            "signing_metadata": {
+                'key': key_name,
+                'signature': signature,
+                'hash_algorithm': 'sha256',
+                'digest': digest_b64
+            }
         }
 
-        full_project_config['release'] = final_release_block
-        write_yaml(project_yaml_path, full_project_config)
-
+        project_yaml_path = self._path('project.yaml')
+        
+        if self.dry_run:
+            print("[96m[DRY-RUN] Skipping final write to project.yaml.[0m")
+            print("[96m[DRY-RUN] Final release block would be:[0m")
+            print(yaml.dump({'release': final_release_block}, sort_keys=False, indent=2))
+        else:
+            full_project_config = load_yaml(project_yaml_path)
+            full_project_config['release'] = final_release_block
+            write_yaml(project_yaml_path, full_project_config)
+        
         return self.release_version, self.component_name
