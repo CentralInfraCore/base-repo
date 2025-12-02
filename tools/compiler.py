@@ -171,9 +171,7 @@ def main():
             logger.info("[Phase 3/3] Closing release...")
             # Pass the version from CLI args to the close
             release_version, component_name = manager.run_release_close(
-                release_version=args.version,
-                component_name=component_name,
-                original_base_branch=original_base_branch
+                release_version=args.version
             )
 
             if args.dry_run:
