@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path # Import Path
 from .exceptions import GitServiceError
 
 class GitService:
@@ -7,26 +8,29 @@ class GitService:
     This makes the core logic testable by allowing this service to be mocked.
     """
     def __init__(self, cwd=None, timeout=60):
-        self.cwd = cwd
+        self.cwd = Path(cwd) if cwd else None # Store as Path object
         self.timeout = timeout
 
     def _run_raw(self, command):
         """Runs a command and returns raw stdout bytes."""
         try:
+            # Convert Path objects in command list to strings for subprocess
+            command_str = [str(c) if isinstance(c, Path) else c for c in command]
+            
             result = subprocess.run(
-                command,
+                command_str,
                 capture_output=True,
                 check=True,
-                cwd=self.cwd,
+                cwd=self.cwd, # cwd can be a Path object
                 timeout=self.timeout
             )
             return result.stdout
         except subprocess.CalledProcessError as e:
-            raise GitServiceError(f"Git command failed: {' '.join(command)}\n{e.stderr.decode('utf-8', errors='replace')}", cause=e)
+            raise GitServiceError(f"Git command failed: {' '.join(command_str)}\n{e.stderr.decode('utf-8', errors='replace')}", cause=e)
         except FileNotFoundError as e:
             raise GitServiceError("Git command not found. Is Git installed and in your PATH?", cause=e)
         except subprocess.TimeoutExpired as e:
-            raise GitServiceError(f"Git command timed out after {self.timeout} seconds: {' '.join(command)}", cause=e)
+            raise GitServiceError(f"Git command timed out after {self.timeout} seconds: {' '.join(command_str)}", cause=e)
 
 
     def run(self, command):
@@ -59,9 +63,9 @@ class GitService:
         """Runs 'git write-tree' and returns the tree ID."""
         return self.run(['git', 'write-tree'])
 
-    def add(self, file_path):
+    def add(self, file_path: Path):
         """Stages a specific file."""
-        return self.run(['git', 'add', file_path])
+        return self.run(['git', 'add', file_path]) # file_path will be converted to string by _run_raw
 
     def archive_tree_bytes(self, tree_id):
         """

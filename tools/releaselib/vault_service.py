@@ -1,15 +1,18 @@
 import os
 import requests
 import base64
+import logging # Import logging
+
 from .exceptions import VaultServiceError
 
 class VaultService:
     """
     A service class to abstract Vault operations, specifically signing.
     """
-    def __init__(self, vault_addr, vault_token, vault_cacert=None, dry_run=False, timeout=10):
+    def __init__(self, vault_addr, vault_token, vault_cacert=None, dry_run=False, timeout=10, logger=None):
         self.dry_run = dry_run
         self.timeout = timeout
+        self.logger = logger if logger else logging.getLogger(__name__) # Use provided logger or create a new one
         
         if not self.dry_run:
             if not vault_addr or not vault_token:
@@ -29,6 +32,7 @@ class VaultService:
         In dry-run mode, returns a placeholder signature without making a network call.
         """
         if self.dry_run:
+            self.logger.info("[DRY-RUN] Skipping Vault signing. Returning a placeholder signature.")
             return "vault:v1:dry-run-placeholder-signature"
 
         # Validate digest_b64 format
@@ -40,6 +44,7 @@ class VaultService:
             raise VaultServiceError(f"Invalid Base64 digest format: {e}") from e
 
         try:
+            self.logger.debug(f"Requesting signature from Vault at {self.vault_addr} for key {key_name}...")
             response = requests.post(
                 f"{self.vault_addr}/v1/transit/sign/{key_name}",
                 headers={"X-Vault-Token": self.vault_token},
@@ -58,6 +63,7 @@ class VaultService:
             
             if not signature or not isinstance(signature, str) or not signature.startswith("vault:v1:"):
                  raise VaultServiceError(f"Invalid or missing signature in Vault response: {response.text}")
+            self.logger.debug("Signature received successfully.")
             return signature
         except requests.exceptions.RequestException as e:
             raise VaultServiceError(f"Vault signing request failed: {e}") from e
