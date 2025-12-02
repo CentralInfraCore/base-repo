@@ -86,7 +86,7 @@ def main():
             release_version, component_name = manager.run_release_close()
 
             if args.dry_run:
-                print("[96m[DRY-RUN] Release process simulation complete.[0m")
+                print("[96m[DRY-RUN] Release process simulation complete. Vault signing was simulated.[0m")
             else:
                 print("[92m✓ Release closed successfully. project.yaml has been finalized.[0m")
                 print(f"\n[93mACTION REQUIRED: Please commit the changes and create the tag: git tag {component_name}@v{release_version}[0m")

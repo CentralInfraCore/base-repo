@@ -5,7 +5,7 @@ import yaml
 import hashlib
 import datetime
 import re
-from jsonschema import validate
+from jsonschema import validate, ValidationError as JsonSchemaValidationError # Alias for clarity
 import base64
 import semver
 
@@ -90,8 +90,12 @@ class ReleaseManager:
             try:
                 schema_instance = load_yaml(schema_file)
                 validate(instance=schema_instance, schema=meta_schema)
-            except Exception as e:
-                errors.append(f"  - {os.path.basename(schema_file)}: {e}")
+            except ConfigurationError as e: # Catch YAML/IO errors during schema loading
+                errors.append(f"  - {os.path.basename(schema_file)}: Configuration Error - {e}")
+            except JsonSchemaValidationError as e: # Catch actual JSON Schema validation errors
+                errors.append(f"  - {os.path.basename(schema_file)}: Schema Validation Error - {e.message}")
+            except Exception as e: # Catch any other unexpected errors
+                errors.append(f"  - {os.path.basename(schema_file)}: Unexpected Error - {e}")
 
         if errors:
             error_str = "\n".join(errors)
@@ -100,13 +104,10 @@ class ReleaseManager:
     def _validate_release_prerequisites(self):
         """Internal method to check git state, branch, and version."""
         try:
-            project_config = load_yaml(self._path('project.yaml'))['project']
-            raw_component_name = project_config.get('main_branch', 'main')
-        except (KeyError, ConfigurationError) as e:
-            raise ConfigurationError(f"Could not parse 'project' or 'main_branch' from project.yaml: {e}")
+            component_name = self.config['component_name']
+        except KeyError:
+            raise ConfigurationError("Missing 'component_name' in compiler_settings of project.yaml. This is required for release.")
             
-        component_name = re.sub(r'main$', '', raw_component_name)
-
         git_status = self.git_service.get_status_porcelain()
         if git_status:
             raise GitStateError("Uncommitted changes detected. Please commit or stash them before releasing.")
@@ -115,7 +116,7 @@ class ReleaseManager:
         release_branch_pattern = re.compile(rf"^{re.escape(component_name)}releases/v(\d+\.\d+\.\d+)$")
         match = release_branch_pattern.match(current_branch)
         if not match:
-            raise GitStateError(f"Not on a valid release branch. Expected format: '{component_name}releases/vX.Y.Z', found: '{current_branch}'")
+            raise GitStateError(f"Not on a valid release branch for component '{component_name}'. Expected format: '{component_name}releases/vX.Y.Z', found: '{current_branch}'")
 
         new_version_str = match.group(1)
         new_version = semver.Version.parse(new_version_str)
@@ -152,7 +153,6 @@ class ReleaseManager:
         if not self.release_version or not self.component_name:
             raise ReleaseError("run_release_check() must be successfully run before closing the release.")
         
-        # Guard against vault_service being None when signing is required
         if not self.vault_service:
             raise VaultServiceError("VaultService is not initialized. Cannot sign release.")
 
