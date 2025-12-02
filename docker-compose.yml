@@ -45,5 +45,7 @@ services:
     environment:
       - PYTHONPATH=/app/p_venv
       - VAULT_ADDR=https://host.docker.internal:18200
+      - CIC_VAULT_TOKEN_FILE=/var/run/secrets/vault-token
+      - CIC_VAULT_CA_FILE=/var/run/secrets/vault-ca.crt
     # Keep the container running in the background
     command: ["tail", "-f", "/dev/null"]
