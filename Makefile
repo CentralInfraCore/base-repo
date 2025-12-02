@@ -1,29 +1,22 @@
 # Makefile for Schema Development Environment
 
-.PHONY: all help up down shell validate release test repo.init infra.deps infra.coverage infra.clean fmt lint check typecheck build
+# ---- Includes ----
+include mk/infra.mk
+
+# ---- Phony ----
+.PHONY: all help validate release test up down shell build fmt lint check typecheck repo.init
 
 # Default to showing help
 all: help
 
 # =============================================================================
-# Container Lifecycle Management
+# Container Lifecycle Management (Aliases)
 # =============================================================================
 
-up:
-	@echo "--- Starting development environment in the background ---"
-	@docker compose up -d builder
-
-down:
-	@echo "--- Stopping development environment ---"
-	@docker compose down -v
-
-shell:
-	@echo "--- Opening a shell into the running builder container ---"
-	@docker compose exec builder bash
-
-build:
-	@echo "--- Building Docker images ---"
-	@docker compose build
+up: infra.up
+down: infra.down
+shell: infra.shell
+build: infra.build
 
 # =============================================================================
 # Main Development Tasks
@@ -43,51 +36,20 @@ test:
 	@echo "--- Running pytest for the compiler infrastructure ---"
 	@docker compose exec builder python -m pytest --cov=tools.compiler --cov-report=term-missing tests/
 
-fmt:
-	@echo "--- Formatting Python code with Black and Isort ---"
-	@docker compose exec builder python -m black .
-	@docker compose exec builder python -m isort .
-
-lint:
-	@echo "--- Linting Python code with Ruff ---"
-	@docker compose exec builder python -m ruff check .
-	@echo "--- Linting YAML files with yamllint ---"
-	@docker compose exec builder python -m yamllint .
-
-typecheck:
-	@echo "--- Running static type checking with MyPy ---"
-	@docker compose exec builder python -m mypy .
-
-check: fmt lint typecheck
-	@echo "--- Running all code quality checks (format, lint, typecheck) ---"
-
 # =============================================================================
-# Repository Setup
+# Code Quality & Formatting (Aliases)
 # =============================================================================
 
-repo.init:
-	@echo "--- Initializing repository hooks ---"
-	@sh tools/init-hooks.sh
+fmt: infra.fmt
+lint: infra.lint
+typecheck: infra.typecheck
+check: infra.check
 
 # =============================================================================
-# Infrastructure & Maintenance Tasks
+# Repository Setup (Aliases)
 # =============================================================================
 
-infra.deps:
-	@echo "--- Initializing Python dependencies into ./p_venv cache ---"
-	@docker compose run --rm setup
-
-infra.coverage:
-	@echo "--- Generating HTML coverage report ---"
-	@docker compose exec builder python -m pytest --cov=tools.compiler --cov-report=html
-	@echo "HTML coverage report generated in ./htmlcov/index.html"
-
-infra.clean:
-	@echo "--- Cleaning up all generated files and caches ---"
-	@docker compose down -v --remove-orphans
-	@rm -rf ./p_venv
-	@rm -f ./requirements.txt
-	@rm -rf ./htmlcov
+repo.init: infra.repo.init
 
 # =============================================================================
 # Help
@@ -96,25 +58,29 @@ infra.clean:
 help:
 	@echo "Usage: make [target]"
 	@echo ""
-	@echo "Container Lifecycle:"
-	@echo "  up            Start the development container in the background."
-	@echo "  down          Stop and remove the development container."
-	@echo "  shell         Open an interactive shell into the running container."
-	@echo "  build         Build Docker images."
+	@echo "--- High-Level Project Commands ---"
+	@echo "Development Environment:"
+	@echo "  up            Start the development environment."
+	@echo "  down          Stop and remove the development environment."
+	@echo "  shell         Open an interactive shell into the running environment."
+	@echo "  build         Build the development environment."
 	@echo ""
 	@echo "Main Tasks:"
 	@echo "  validate      Run fast, offline validation of all schemas."
 	@echo "  release       Build, checksum, and sign all non-dev schemas (requires Vault)."
 	@echo "  test          Run pytest for the compiler infrastructure code."
-	@echo "  fmt           Format Python code with Black and Isort."
-	@echo "  lint          Lint Python code with Ruff and YAML files with yamllint."
-	@echo "  typecheck     Run static type checking with MyPy."
+	@echo ""
+	@echo "Code Quality & Formatting:"
+	@echo "  fmt           Format all code."
+	@echo "  lint          Lint all code and files."
+	@echo "  typecheck     Run static type checking."
 	@echo "  check         Run all code quality checks (fmt, lint, typecheck)."
 	@echo ""
 	@echo "Repository Setup:"
-	@echo "  repo.init     Set up the Git hooks for this repository (pre-commit, commit-msg)."
+	@echo "  repo.init     Set up the Git hooks for this repository."
 	@echo ""
-	@echo "Infrastructure & Maintenance:"
-	@echo "  infra.deps    (Re)generate requirements.txt and install dependencies into the cache."
-	@echo "  infra.coverage Generate HTML coverage report."
-	@echo "  infra.clean   Remove all generated files, caches, and stopped containers."
+	@echo "Maintenance:"
+	@echo "  infra.deps    (Re)generate and install dependencies."
+	@echo "  infra.coverage Generate code coverage report."
+	@echo "  infra.clean   Remove all generated files and caches."
+	@$(MAKE) infra.help
