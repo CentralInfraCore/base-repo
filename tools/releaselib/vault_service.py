@@ -1,16 +1,23 @@
 import os
 import requests
+import base64
 from .exceptions import VaultServiceError
 
 class VaultService:
     """
     A service class to abstract Vault operations, specifically signing.
     """
-    def __init__(self, vault_addr, vault_token, vault_cacert=None, dry_run=False):
+    def __init__(self, vault_addr, vault_token, vault_cacert=None, dry_run=False, timeout=10):
         self.dry_run = dry_run
+        self.timeout = timeout
         
-        if not self.dry_run and (not vault_addr or not vault_token):
-            raise VaultServiceError("Vault address and token must be provided for a live run.")
+        if not self.dry_run:
+            if not vault_addr or not vault_token:
+                raise VaultServiceError("Vault address and token must be provided for a live run.")
+            
+            # Strict TLS enforcement: if not dry-run, CA cert is required.
+            if not vault_cacert or not os.path.exists(vault_cacert):
+                raise VaultServiceError("Vault CA certificate is required for TLS verification in a live run.")
             
         self.vault_addr = vault_addr
         self.vault_token = vault_token
@@ -22,12 +29,15 @@ class VaultService:
         In dry-run mode, returns a placeholder signature without making a network call.
         """
         if self.dry_run:
-            # Removed the print statement. This should be handled by the caller (CLI).
             return "vault:v1:dry-run-placeholder-signature"
 
-        if not self.verify_tls:
-            # This warning is now handled by the compiler.py CLI wrapper.
-            pass 
+        # Validate digest_b64 format
+        try:
+            decoded_digest = base64.b64decode(digest_b64, validate=True)
+            if len(decoded_digest) != 32: # SHA256 produces 32 bytes
+                raise VaultServiceError(f"Invalid digest length. Expected 32 bytes for SHA256, got {len(decoded_digest)}.")
+        except (TypeError, ValueError) as e:
+            raise VaultServiceError(f"Invalid Base64 digest format: {e}") from e
 
         try:
             response = requests.post(
@@ -39,14 +49,17 @@ class VaultService:
                     "hash_algorithm": "sha2-256",
                 },
                 verify=self.verify_tls,
-                timeout=10,
+                timeout=self.timeout,
             )
-            response.raise_for_status()
-            signature = response.json().get("data", {}).get("signature")
-            if not signature:
-                 raise VaultServiceError(f"Signature not found in Vault response: {response.text}")
+            response.raise_for_status() # Raises HTTPError for bad responses (4xx or 5xx)
+            
+            response_data = response.json()
+            signature = response_data.get("data", {}).get("signature")
+            
+            if not signature or not isinstance(signature, str) or not signature.startswith("vault:v1:"):
+                 raise VaultServiceError(f"Invalid or missing signature in Vault response: {response.text}")
             return signature
         except requests.exceptions.RequestException as e:
-            raise VaultServiceError(f"Vault signing request failed: {e}")
+            raise VaultServiceError(f"Vault signing request failed: {e}") from e
         except (KeyError, TypeError) as e:
-            raise VaultServiceError(f"Could not parse signature from Vault response: {e}")
+            raise VaultServiceError(f"Could not parse signature from Vault response: {e}. Response: {response.text}") from e

@@ -31,6 +31,8 @@ def main():
     parser = argparse.ArgumentParser(description="Schema Compiler & Release Tool")
     parser.add_argument("command", choices=['validate', 'release'], help="The command to execute.")
     parser.add_argument("--dry-run", action="store_true", help="Perform a trial run without making any changes.")
+    parser.add_argument("--git-timeout", type=int, default=60, help="Timeout for Git commands in seconds.")
+    parser.add_argument("--vault-timeout", type=int, default=10, help="Timeout for Vault API calls in seconds.")
     
     args = parser.parse_args()
     
@@ -40,7 +42,11 @@ def main():
 
         # 1. Load configuration and initialize services
         config = load_project_config()
-        git_service = GitService()
+        
+        # Determine project root for GitService
+        project_root = os.getcwd() # Assuming compiler.py is run from project root
+        
+        git_service = GitService(cwd=project_root, timeout=args.git_timeout)
         
         vault_service = None
         if args.command == 'release':
@@ -48,20 +54,21 @@ def main():
             vault_token = os.getenv('VAULT_TOKEN')
             vault_cacert = os.getenv('VAULT_CACERT')
 
-            if not args.dry_run and not vault_cacert:
-                print("[93m[WARNING] Vault CA certificate not found. Proceeding without TLS verification.[0m")
+            # TLS warning is now handled by VaultService constructor if not dry-run
             
             vault_service = VaultService(
                 vault_addr=vault_addr,
                 vault_token=vault_token,
                 vault_cacert=vault_cacert,
-                dry_run=args.dry_run
+                dry_run=args.dry_run,
+                timeout=args.vault_timeout
             )
 
         manager = ReleaseManager(
             config, 
             git_service=git_service, 
             vault_service=vault_service,
+            project_root=project_root, # Pass project_root to ReleaseManager
             dry_run=args.dry_run
         )
 
@@ -90,6 +97,10 @@ def main():
             else:
                 print("[92m✓ Release closed successfully. project.yaml has been finalized.[0m")
                 print(f"\n[93mACTION REQUIRED: Please commit the changes and create the tag: git tag {component_name}@v{release_version}[0m")
+
+        else:
+            print(f"Unknown command: {command}")
+            sys.exit(1)
 
     except ReleaseError as e:
         print(f"\n[91m[RELEASE FAILED] {e}[0m")

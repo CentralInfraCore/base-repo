@@ -1,6 +1,13 @@
 class ReleaseError(Exception):
     """Base class for all custom exceptions in the release process."""
-    pass
+    def __init__(self, message, cause=None):
+        super().__init__(message)
+        self.cause = cause
+
+    def __str__(self):
+        if self.cause:
+            return f"{self.args[0]} (Caused by: {self.cause.__class__.__name__}: {self.cause})"
+        return self.args[0]
 
 # --- Service-level Errors ---
 
