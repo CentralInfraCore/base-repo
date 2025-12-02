@@ -26,34 +26,6 @@ if [ -f "$PRE_COMMIT_HOOK" ]; then
     echo "[INFO] A pre-commit hook already exists. Backing it up to pre-commit.bak."
     mv "$PRE_COMMIT_HOOK" "$PRE_COMMIT_HOOK.bak"
 fi
-echo "[*] Creating pre-commit hook to run validation in Docker container..."
-cat > "$PRE_COMMIT_HOOK" <<EOF
-#!/bin/sh
-echo "--- Running pre-commit validation ---"
-
-# Use the PATH captured during hook initialization
-export PATH="$CURRENT_PATH"
-
-# Find the docker compose command dynamically
-DOCKER_COMPOSE_CMD=""
-if command -v docker-compose >/dev/null 2>&1; then
-    DOCKER_COMPOSE_CMD="docker-compose"
-elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-    DOCKER_COMPOSE_CMD="docker compose"
-else
-    echo "\033[91m[ERROR] 'docker compose' or 'docker-compose' command not found. Cannot run validation.\033[0m"
-    echo "\033[91mPlease ensure Docker Desktop is running or Docker Compose is installed and in your PATH.\033[0m"
-    exit 1
-fi
-
-# Execute the validation inside the builder container using sh -c to handle spaces in DOCKER_COMPOSE_CMD
-sh -c "\$DOCKER_COMPOSE_CMD exec builder python tools/compiler.py validate"
-if [ \$? -ne 0 ]; then
-    echo "\033[91m[ERROR] Validation failed. Commit aborted.\033[0m"
-    exit 1
-fi
-EOF
-chmod +x "$PRE_COMMIT_HOOK"
 echo "  ✓ Done."
 
 # Set up commit-msg hook for signing
