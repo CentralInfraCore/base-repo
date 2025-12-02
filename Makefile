@@ -56,7 +56,11 @@ ifeq ($(VERSION),)
 	$(error VERSION is required for the release command. Usage: make release VERSION=1.0.0)
 endif
 	@echo "--- Building and signing release schemas ---"
-	@docker compose exec builder python tools/compiler.py release --version $(VERSION) $(COMPILER_CLI_ARGS)
+	# Pass Git author identity from host to container for commit operations
+	@docker compose exec \
+		-e GIT_AUTHOR_NAME="$(shell git config user.name)" \
+		-e GIT_AUTHOR_EMAIL="$(shell git config user.email)" \
+		builder python tools/compiler.py release --version $(VERSION) $(COMPILER_CLI_ARGS)
 	# The release.sh script is no longer needed as its functionality has been integrated into compiler.py
 	# @tools/release.sh project.yaml
 	# @git add project.yaml # This is now handled by compiler.py
