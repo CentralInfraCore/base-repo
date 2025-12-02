@@ -1,8 +1,5 @@
 import subprocess
-
-class GitServiceError(Exception):
-    """Custom exception for Git service errors."""
-    pass
+from .exceptions import GitServiceError
 
 class GitService:
     """

@@ -1,6 +1,7 @@
 import os
 import sys
 import yaml
+import argparse
 from infra import ReleaseManager
 from releaselib.git_service import GitService
 from releaselib.vault_service import VaultService
@@ -14,10 +15,8 @@ def load_project_config():
     """
     try:
         with open('project.yaml', 'r') as f:
-            # We only need the compiler settings for the manager
             return yaml.safe_load(f)['compiler_settings']
     except (IOError, KeyError, TypeError, yaml.YAMLError) as e:
-        # Catching more specific errors for better feedback
         print(f"[91m[FATAL] Could not load or parse compiler settings from project.yaml: {e}[0m")
         sys.exit(1)
 
@@ -29,38 +28,44 @@ def main():
     This function acts as a "wrapper" around the ReleaseManager class,
     handling user interaction, output, and error handling.
     """
-    if len(sys.argv) < 2:
-        print("Usage: python tools/compiler.py [validate|release]")
-        sys.exit(1)
-
-    command = sys.argv[1]
+    parser = argparse.ArgumentParser(description="Schema Compiler & Release Tool")
+    parser.add_argument("command", choices=['validate', 'release'], help="The command to execute.")
+    parser.add_argument("--dry-run", action="store_true", help="Perform a trial run without making any changes.")
+    
+    args = parser.parse_args()
     
     try:
-        # 1. Load configuration and initialize services and the "engine"
+        if args.dry_run:
+            print("[96m--- Starting in DRY-RUN mode. No changes will be made. ---[0m")
+
+        # 1. Load configuration and initialize services
         config = load_project_config()
         git_service = GitService()
         
         vault_service = None
-        if command == 'release':
+        if args.command == 'release':
+            # This instantiation is now inside the try-block
             vault_service = VaultService(
                 vault_addr=os.getenv('VAULT_ADDR'),
                 vault_token=os.getenv('VAULT_TOKEN'),
-                vault_cacert=os.getenv('VAULT_CACERT')
+                vault_cacert=os.getenv('VAULT_CACERT'),
+                dry_run=args.dry_run
             )
 
         manager = ReleaseManager(
             config, 
             git_service=git_service, 
-            vault_service=vault_service
+            vault_service=vault_service,
+            dry_run=args.dry_run
         )
 
         # 2. Execute the requested command
-        if command == 'validate':
+        if args.command == 'validate':
             print("--- Running Schema Validation ---")
             manager.run_validation()
             print("\n[92m✓ All schemas are valid.[0m")
 
-        elif command == 'release':
+        elif args.command == 'release':
             print("--- Running Schema Release ---")
             
             print("\n[Phase 1/3] Validating schemas...")
@@ -73,19 +78,17 @@ def main():
             
             print("\n[Phase 3/3] Closing release...")
             release_version, component_name = manager.run_release_close()
-            print("[92m✓ Release closed successfully. project.yaml has been finalized.[0m")
-            print(f"\n[93mACTION REQUIRED: Please commit the changes and create the tag: git tag {component_name}@v{release_version}[0m")
 
-        else:
-            print(f"Unknown command: {command}")
-            sys.exit(1)
+            if args.dry_run:
+                print("[96m[DRY-RUN] Release process simulation complete.[0m")
+            else:
+                print("[92m✓ Release closed successfully. project.yaml has been finalized.[0m")
+                print(f"\n[93mACTION REQUIRED: Please commit the changes and create the tag: git tag {component_name}@v{release_version}[0m")
 
     except ReleaseError as e:
-        # 3. Catch our specific, expected exceptions and display them nicely
+        # 3. Catch all our custom, expected exceptions and display them nicely
         print(f"\n[91m[RELEASE FAILED] {e}[0m")
         sys.exit(1)
-    # Any other exception will now correctly produce a full stack trace for debugging
-
 
 if __name__ == "__main__":
     main()

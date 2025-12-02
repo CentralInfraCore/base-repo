@@ -1,17 +1,17 @@
 import os
 import requests
-
-class VaultServiceError(Exception):
-    """Custom exception for Vault service errors."""
-    pass
+from .exceptions import VaultServiceError
 
 class VaultService:
     """
     A service class to abstract Vault operations, specifically signing.
     """
-    def __init__(self, vault_addr, vault_token, vault_cacert=None):
-        if not vault_addr or not vault_token:
-            raise VaultServiceError("Vault address and token must be provided.")
+    def __init__(self, vault_addr, vault_token, vault_cacert=None, dry_run=False):
+        self.dry_run = dry_run
+        
+        if not self.dry_run and (not vault_addr or not vault_token):
+            raise VaultServiceError("Vault address and token must be provided for a live run.")
+            
         self.vault_addr = vault_addr
         self.vault_token = vault_token
         self.verify_tls = vault_cacert if vault_cacert and os.path.exists(vault_cacert) else False
@@ -19,9 +19,13 @@ class VaultService:
     def sign(self, digest_b64, key_name):
         """
         Signs a pre-hashed, base64-encoded digest using Vault's Transit Engine.
+        In dry-run mode, returns a placeholder signature without making a network call.
         """
+        if self.dry_run:
+            print("[96m[DRY-RUN] Skipping Vault signing. Returning a placeholder signature.[0m")
+            return "vault:v1:dry-run-placeholder-signature"
+
         if not self.verify_tls:
-            # This warning is better placed here than in the core logic
             print("[93m[WARNING] Vault TLS verification is disabled. Do not use in production.[0m")
 
         try:

@@ -2,6 +2,18 @@ class ReleaseError(Exception):
     """Base class for all custom exceptions in the release process."""
     pass
 
+# --- Service-level Errors ---
+
+class GitServiceError(ReleaseError):
+    """Indicates an error originating from the GitService."""
+    pass
+
+class VaultServiceError(ReleaseError):
+    """Indicates an error originating from the VaultService."""
+    pass
+
+# --- Workflow-level Errors ---
+
 class ConfigurationError(ReleaseError):
     """Indicates an error in the project's configuration (e.g., project.yaml)."""
     pass
