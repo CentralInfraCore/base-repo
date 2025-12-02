@@ -1,5 +1,5 @@
 project:
-  name: base
+  component_name: base
   description: Schema Compiler & Signing Infrastructure Template
   license: CC-BY-NC-SA-4.0
   main_branch: main
