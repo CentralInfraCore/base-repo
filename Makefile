@@ -10,6 +10,26 @@ include mk/infra.mk
 all: help
 
 # =============================================================================
+# Compiler Flags (can be overridden on command line, e.g., make release VERBOSE=1)
+# =============================================================================
+VERBOSE ?=
+DEBUG ?=
+GIT_TIMEOUT ?= 60
+VAULT_TIMEOUT ?= 10
+
+# Construct COMPILER_CLI_ARGS based on VERBOSE and DEBUG flags
+COMPILER_CLI_ARGS =
+ifeq ($(VERBOSE),1)
+    COMPILER_CLI_ARGS += --verbose
+endif
+ifeq ($(DEBUG),1)
+    COMPILER_CLI_ARGS += --debug
+endif
+COMPILER_CLI_ARGS += --git-timeout $(GIT_TIMEOUT)
+COMPILER_CLI_ARGS += --vault-timeout $(VAULT_TIMEOUT)
+
+
+# =============================================================================
 # Container Lifecycle Management (Aliases)
 # =============================================================================
 
@@ -24,11 +44,11 @@ build: infra.build
 
 validate:
 	@echo "--- Validating all schemas against the meta-schema ---"
-	@docker compose exec builder python tools/compiler.py validate
+	@docker compose exec builder python tools/compiler.py validate $(COMPILER_CLI_ARGS)
 
 release:
 	@echo "--- Building and signing release schemas ---"
-	@docker compose exec builder python tools/compiler.py release
+	@docker compose exec builder python tools/compiler.py release $(COMPILER_CLI_ARGS)
 	@tools/release.sh project.yaml
 	@git add project.yaml
 
@@ -56,7 +76,7 @@ repo.init: infra.repo.init
 # =============================================================================
 
 help:
-	@echo "Usage: make [target]"
+	@echo "Usage: make [target] [OPTIONS]"
 	@echo ""
 	@echo "--- High-Level Project Commands ---"
 	@echo "Development Environment:"
@@ -69,6 +89,12 @@ help:
 	@echo "  validate      Run fast, offline validation of all schemas."
 	@echo "  release       Build, checksum, and sign all non-dev schemas (requires Vault)."
 	@echo "  test          Run pytest for the compiler infrastructure code."
+	@echo ""
+	@echo "Options for validate/release:"
+	@echo "  VERBOSE=1     Enable verbose output."
+	@echo "  DEBUG=1       Enable debug output (most verbose)."
+	@echo "  GIT_TIMEOUT=N Set Git command timeout in seconds (default: 60)."
+	@echo "  VAULT_TIMEOUT=N Set Vault API call timeout in seconds (default: 10)."
 	@echo ""
 	@echo "Code Quality & Formatting:"
 	@echo "  fmt           Format all code."
