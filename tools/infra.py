@@ -42,14 +42,6 @@ def get_reproducible_repo_hash(tree_id):
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         raise RuntimeError(f"Error during repo hash calculation: {e}")
 
-def run_git_command(command):
-    """Runs a Git command and returns its output, raising an error on failure."""
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True, encoding='utf-8')
-        return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Git command failed: {' '.join(command)}\n{e.stderr}")
-
 def sign_with_vault(digest_b64, key_name, vault_addr, vault_token, vault_cacert):
     """Signs a pre-hashed, base64-encoded digest using Vault's Transit Engine."""
     if not vault_addr or not vault_token:
@@ -77,8 +69,9 @@ def sign_with_vault(digest_b64, key_name, vault_addr, vault_token, vault_cacert)
 # --- Core Logic Class ---
 
 class ReleaseManager:
-    def __init__(self, config, project_root='.'):
+    def __init__(self, config, git_service, project_root='.'):
         self.config = config
+        self.git_service = git_service
         self.project_root = os.path.abspath(project_root)
         self.release_version = None
         self.component_name = None
@@ -116,11 +109,11 @@ class ReleaseManager:
         raw_component_name = project_config.get('main_branch', 'main')
         component_name = re.sub(r'main$', '', raw_component_name)
 
-        git_status = run_git_command(['git', 'status', '--porcelain'])
+        git_status = self.git_service.get_status_porcelain()
         if git_status:
             raise RuntimeError("Uncommitted changes detected. Please commit or stash them before releasing.")
 
-        current_branch = run_git_command(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
+        current_branch = self.git_service.get_current_branch()
         release_branch_pattern = re.compile(rf"^{re.escape(component_name)}releases/v(\d+\.\d+\.\d+)$")
         match = release_branch_pattern.match(current_branch)
         if not match:
@@ -130,8 +123,7 @@ class ReleaseManager:
         new_version = semver.Version.parse(new_version_str)
 
         tag_pattern = f"{component_name}@v*.*.*"
-        git_tags_raw = run_git_command(['git', 'tag', '--list', tag_pattern])
-        existing_tags = git_tags_raw.split('\n') if git_tags_raw else []
+        existing_tags = self.git_service.get_tags(pattern=tag_pattern)
 
         if existing_tags:
             existing_versions = sorted([semver.Version.parse(tag.split('@v')[-1]) for tag in existing_tags])
@@ -172,8 +164,8 @@ class ReleaseManager:
         full_project_config['release'] = release_block
         write_yaml(project_yaml_path, full_project_config)
 
-        run_git_command(['git', 'add', project_yaml_path])
-        tree_id = run_git_command(['git', 'write-tree'])
+        self.git_service.add(project_yaml_path)
+        tree_id = self.git_service.write_tree()
         digest_b64 = get_reproducible_repo_hash(tree_id)
 
         key_name = self.config.get('vault_key_name', 'cic-my-sign-key')

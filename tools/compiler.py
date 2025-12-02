@@ -2,6 +2,7 @@ import os
 import sys
 import yaml
 from infra import ReleaseManager
+from releaselib.git_service import GitService
 
 # --- Configuration Loader ---
 
@@ -32,9 +33,10 @@ def main():
     command = sys.argv[1]
     
     try:
-        # 1. Load configuration and initialize the "engine"
+        # 1. Load configuration and initialize services and the "engine"
         config = load_project_config()
-        manager = ReleaseManager(config)
+        git_service = GitService()
+        manager = ReleaseManager(config, git_service=git_service)
 
         # 2. Execute the requested command
         if command == 'validate':
@@ -66,7 +68,7 @@ def main():
             sys.exit(1)
 
     except Exception as e:
-        # 3. Catch any exception from the manager and display it nicely
+        # 3. Catch any exception from the manager or services and display it nicely
         print(f"\n[91m[FATAL ERROR] {e}[0m")
         sys.exit(1)
 
