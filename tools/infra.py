@@ -205,11 +205,11 @@ class ReleaseManager:
         final_release_block = preliminary_release_block.copy()
         final_release_block['repository_tree_hash'] = tree_id
         final_release_block['signing_metadata'] = {
-            'key': key_name,
-            'signature': signature,
-            'hash_algorithm': 'sha256',
-            'digest': digest_b64
-        }
+                'key': key_name,
+                'signature': signature,
+                'hash_algorithm': 'sha256',
+                'digest': digest_b64
+            }
 
         # 6. Write the final release block to project.yaml (or simulate in dry-run)
         if self.dry_run:
