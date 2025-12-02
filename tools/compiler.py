@@ -3,6 +3,7 @@ import sys
 import yaml
 from infra import ReleaseManager
 from releaselib.git_service import GitService
+from releaselib.vault_service import VaultService
 
 # --- Configuration Loader ---
 
@@ -36,7 +37,21 @@ def main():
         # 1. Load configuration and initialize services and the "engine"
         config = load_project_config()
         git_service = GitService()
-        manager = ReleaseManager(config, git_service=git_service)
+        
+        # VaultService is only needed for the release command
+        vault_service = None
+        if command == 'release':
+            vault_service = VaultService(
+                vault_addr=os.getenv('VAULT_ADDR'),
+                vault_token=os.getenv('VAULT_TOKEN'),
+                vault_cacert=os.getenv('VAULT_CACERT')
+            )
+
+        manager = ReleaseManager(
+            config, 
+            git_service=git_service, 
+            vault_service=vault_service
+        )
 
         # 2. Execute the requested command
         if command == 'validate':

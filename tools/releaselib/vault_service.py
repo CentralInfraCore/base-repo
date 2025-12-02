@@ -1,0 +1,47 @@
+import os
+import requests
+
+class VaultServiceError(Exception):
+    """Custom exception for Vault service errors."""
+    pass
+
+class VaultService:
+    """
+    A service class to abstract Vault operations, specifically signing.
+    """
+    def __init__(self, vault_addr, vault_token, vault_cacert=None):
+        if not vault_addr or not vault_token:
+            raise VaultServiceError("Vault address and token must be provided.")
+        self.vault_addr = vault_addr
+        self.vault_token = vault_token
+        self.verify_tls = vault_cacert if vault_cacert and os.path.exists(vault_cacert) else False
+
+    def sign(self, digest_b64, key_name):
+        """
+        Signs a pre-hashed, base64-encoded digest using Vault's Transit Engine.
+        """
+        if not self.verify_tls:
+            # This warning is better placed here than in the core logic
+            print("[93m[WARNING] Vault TLS verification is disabled. Do not use in production.[0m")
+
+        try:
+            response = requests.post(
+                f"{self.vault_addr}/v1/transit/sign/{key_name}",
+                headers={"X-Vault-Token": self.vault_token},
+                json={
+                    "input": digest_b64,
+                    "prehashed": True,
+                    "hash_algorithm": "sha2-256",
+                },
+                verify=self.verify_tls,
+                timeout=10,
+            )
+            response.raise_for_status()
+            signature = response.json().get("data", {}).get("signature")
+            if not signature:
+                 raise VaultServiceError(f"Signature not found in Vault response: {response.text}")
+            return signature
+        except requests.exceptions.RequestException as e:
+            raise VaultServiceError(f"Vault signing request failed: {e}")
+        except (KeyError, TypeError) as e:
+            raise VaultServiceError(f"Could not parse signature from Vault response: {e}")

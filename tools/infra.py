@@ -4,7 +4,6 @@ import glob
 import yaml
 import json
 import hashlib
-import requests
 import subprocess
 import datetime
 import re
@@ -42,36 +41,13 @@ def get_reproducible_repo_hash(tree_id):
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         raise RuntimeError(f"Error during repo hash calculation: {e}")
 
-def sign_with_vault(digest_b64, key_name, vault_addr, vault_token, vault_cacert):
-    """Signs a pre-hashed, base64-encoded digest using Vault's Transit Engine."""
-    if not vault_addr or not vault_token:
-        raise ValueError("VAULT_ADDR and VAULT_TOKEN must be provided for signing.")
-
-    verify_tls = vault_cacert if vault_cacert and os.path.exists(vault_cacert) else False
-
-    try:
-        response = requests.post(
-            f"{vault_addr}/v1/transit/sign/{key_name}",
-            headers={"X-Vault-Token": vault_token},
-            json={"input": digest_b64, "prehashed": True, "hash_algorithm": "sha2-256"},
-            verify=verify_tls,
-            timeout=10,
-        )
-        response.raise_for_status()
-        signature = response.json()["data"]["signature"]
-        return signature
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"Vault signing failed: {e}")
-    except (KeyError, TypeError) as e:
-        raise RuntimeError(f"Could not parse signature from Vault response: {response.text}")
-
-
 # --- Core Logic Class ---
 
 class ReleaseManager:
-    def __init__(self, config, git_service, project_root='.'):
+    def __init__(self, config, git_service, vault_service, project_root='.'):
         self.config = config
         self.git_service = git_service
+        self.vault_service = vault_service
         self.project_root = os.path.abspath(project_root)
         self.release_version = None
         self.component_name = None
@@ -143,8 +119,7 @@ class ReleaseManager:
     def run_release_check(self):
         """Performs all pre-flight checks for a release."""
         version, component = self._validate_release_prerequisites()
-        if not os.getenv('VAULT_ADDR') or not os.getenv('VAULT_TOKEN'):
-            raise EnvironmentError("VAULT_ADDR and VAULT_TOKEN environment variables must be set.")
+        # The vault service constructor now handles this check.
         return version, component
 
     def run_release_close(self):
@@ -169,13 +144,7 @@ class ReleaseManager:
         digest_b64 = get_reproducible_repo_hash(tree_id)
 
         key_name = self.config.get('vault_key_name', 'cic-my-sign-key')
-        signature = sign_with_vault(
-            digest_b64, 
-            key_name,
-            os.getenv('VAULT_ADDR'),
-            os.getenv('VAULT_TOKEN'),
-            os.getenv('VAULT_CACERT')
-        )
+        signature = self.vault_service.sign(digest_b64, key_name)
 
         final_release_block = release_block.copy()
         final_release_block['repository_tree_hash'] = tree_id
