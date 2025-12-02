@@ -15,6 +15,7 @@ all: help
 VERBOSE ?=
 DEBUG ?=
 DRY_RUN ?=
+VERSION ?= # New: Version for release command
 GIT_TIMEOUT ?= 60
 VAULT_TIMEOUT ?= 10
 
@@ -51,8 +52,11 @@ validate:
 	@docker compose exec builder python tools/compiler.py validate $(COMPILER_CLI_ARGS)
 
 release:
+ifeq ($(VERSION),)
+	$(error VERSION is required for the release command. Usage: make release VERSION=1.0.0)
+endif
 	@echo "--- Building and signing release schemas ---"
-	@docker compose exec builder python tools/compiler.py release $(COMPILER_CLI_ARGS)
+	@docker compose exec builder python tools/compiler.py release --version $(VERSION) $(COMPILER_CLI_ARGS)
 	# The release.sh script is no longer needed as its functionality has been integrated into compiler.py
 	# @tools/release.sh project.yaml
 	# @git add project.yaml # This is now handled by compiler.py
@@ -99,6 +103,7 @@ help:
 	@echo "  VERBOSE=1     Enable verbose output."
 	@echo "  DEBUG=1       Enable debug output (most verbose)."
 	@echo "  DRY_RUN=1     Perform a trial run without making any changes."
+	@echo "  VERSION=X.Y.Z The semantic version to release (e.g., 1.0.0). Required for 'release' command."
 	@echo "  GIT_TIMEOUT=N Set Git command timeout in seconds (default: 60)."
 	@echo "  VAULT_TIMEOUT=N Set Vault API call timeout in seconds (default: 10)."
 	@echo ""

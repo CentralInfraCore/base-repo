@@ -87,7 +87,18 @@ def main():
     handling user interaction, output, and error handling.
     """
     parser = argparse.ArgumentParser(description="Schema Compiler & Release Tool")
-    parser.add_argument("command", choices=['validate', 'release'], help="The command to execute.")
+    
+    # Create subparsers for commands
+    subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
+
+    # Validate command
+    validate_parser = subparsers.add_parser("validate", help="Run fast, offline validation of all schemas.")
+    
+    # Release command
+    release_parser = subparsers.add_parser("release", help="Build, checksum, and sign all non-dev schemas (requires Vault).")
+    release_parser.add_argument("--version", required=True, help="The semantic version to release (e.g., 1.0.0).")
+
+    # Common arguments
     parser.add_argument("--dry-run", action="store_true", help="Perform a trial run without making any changes.")
     parser.add_argument("--git-timeout", type=int, default=60, help="Timeout for Git commands in seconds.")
     parser.add_argument("--vault-timeout", type=int, default=10, help="Timeout for Vault API calls in seconds.")
@@ -152,17 +163,19 @@ def main():
             logger.info("✓ Schemas are valid.")
             
             logger.info("[Phase 2/3] Running pre-flight checks...")
-            version, _ = manager.run_release_check()
-            logger.info(f"✓ All checks passed for version {version}.")
+            # Pass the version from CLI args to the check
+            manager.run_release_check(release_version=args.version)
+            logger.info(f"✓ All checks passed for version {args.version}.")
             
             logger.info("[Phase 3/3] Closing release...")
-            release_version, component_name = manager.run_release_close()
+            # Pass the version from CLI args to the close
+            release_version, component_name = manager.run_release_close(release_version=args.version)
 
             if args.dry_run:
                 logger.info("[DRY-RUN] Release process simulation complete. Vault signing was simulated.")
             else:
                 logger.info("✓ Release closed successfully. project.yaml has been finalized.")
-                logger.warning(f"ACTION REQUIRED: Please commit the changes and create the tag: git tag {component_name}@v{release_version}")
+                logger.info(f"ACTION REQUIRED: Please push the changes and the tag: git push origin {component_name}/releases/v{release_version} && git push origin {component_name}@v{release_version}")
 
     except ReleaseError as e:
         logger.critical(f"[RELEASE FAILED] {e}")

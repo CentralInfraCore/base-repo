@@ -116,3 +116,35 @@ class GitService:
         # Any other unexpected errors will now propagate as their original type,
         # which is generally better than wrapping them in a generic GitServiceError
         # with a potentially misleading message.
+
+    def checkout(self, branch_name: str, create_new: bool = False):
+        """Checks out a Git branch, optionally creating it."""
+        command = ['git', 'checkout']
+        if create_new:
+            command.append('-b')
+        command.append(branch_name)
+        return self.run(command)
+
+    def create_branch(self, branch_name: str):
+        """Creates a new Git branch."""
+        return self.run(['git', 'branch', branch_name])
+
+    def delete_branch(self, branch_name: str, force: bool = False):
+        """Deletes a Git branch."""
+        command = ['git', 'branch']
+        if force:
+            command.append('-D')
+        else:
+            command.append('-d')
+        command.append(branch_name)
+        return self.run(command)
+
+    def merge(self, branch_name: str, no_ff: bool = False, message: str = None):
+        """Merges a Git branch into the current branch."""
+        command = ['git', 'merge']
+        if no_ff:
+            command.append('--no-ff')
+        if message:
+            command.extend(['-m', message])
+        command.append(branch_name)
+        return self.run(command)

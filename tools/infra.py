@@ -16,10 +16,8 @@ from releaselib.exceptions import (
     ConfigurationError,
     GitStateError,
     VersionMismatchError,
-    ValidationFailureError,
-    # SigningError, # Removed as it's not used
     ReleaseError,
-    VaultServiceError # Import VaultServiceError
+    VaultServiceError
 )
 
 # --- Helper Functions (can be considered a utility module) ---
@@ -101,8 +99,7 @@ class ReleaseManager:
         self.project_root = project_root.resolve() # Store as resolved Path object
         self.dry_run = dry_run
         self.logger = logger if logger else logging.getLogger(__name__) # Use provided logger or create a new one
-        self.release_version = None
-        self.component_name = None
+        # self.release_version and self.component_name are now passed as arguments or derived within methods
 
     def _path(self, relative_path):
         # Return a Path object
@@ -145,14 +142,16 @@ class ReleaseManager:
             error_str = "\n".join(errors)
             raise ValidationFailureError(f"One or more schemas failed validation:\n{error_str}")
 
-    def _validate_release_prerequisites(self):
-        """Internal method to check git state, branch, and version."""
+    def _check_base_branch_and_version(self, release_version: str):
+        """
+        Internal method to check git clean state, base branch, and version increment.
+        This method is called from the original base branch (main or component/main).
+        """
         try:
             component_name = self.config['component_name']
-            if not component_name: # Check for None, empty string, or other falsy values
+            if not component_name:
                 raise ConfigurationError("The 'component_name' in compiler_settings of project.yaml cannot be empty or null.")
         except KeyError as e:
-            # This should ideally be caught by the constructor's config validation
             raise ConfigurationError("Missing 'component_name' in compiler_settings of project.yaml. This is required for release.") from e
             
         # Check for uncommitted changes in working directory
@@ -163,26 +162,26 @@ class ReleaseManager:
         # Check for staged changes (index is not empty)
         self.git_service.assert_clean_index()
 
-        current_branch = self.git_service.get_current_branch()
-        # Relaxed regex to allow more branching conventions, e.g., "releases/v1.2.3" or "component-releases/v1.2.3"
-        # The component_name is now optional at the beginning of the branch name.
-        release_branch_pattern = re.compile(rf"^(?:{re.escape(component_name)}[-_])?releases/v(\d+\.\d+\.\d+)$")
-        match = release_branch_pattern.match(current_branch)
-        if not match:
-            raise GitStateError(f"Not on a valid release branch for component '{component_name}'. Expected format: 'releases/vX.Y.Z' or '{component_name}-releases/vX.Y.Z', found: '{current_branch}'")
+        original_base_branch = self.git_service.get_current_branch()
+        
+        # Validate that we are on a valid base branch (main or component/main)
+        base_branch_pattern = re.compile(rf"^(?:{re.escape(component_name)}/)?main$")
+        if not base_branch_pattern.match(original_base_branch) and original_base_branch != "main":
+            raise GitStateError(f"Not on a valid base branch for component '{component_name}'. Expected 'main' or '{component_name}/main', found: '{original_base_branch}'")
+        
+        self.logger.info(f"✓ Currently on valid base branch: '{original_base_branch}'")
 
-        new_version_str = match.group(1)
+        # Validate the provided release_version
         try:
-            new_version = semver.Version.parse(new_version_str)
+            new_version = semver.Version.parse(release_version)
         except ValueError as e:
-            raise VersionMismatchError(f"Invalid version string '{new_version_str}' parsed from branch name: {e}") from e
+            raise VersionMismatchError(f"Invalid version string '{release_version}' provided: {e}") from e
 
         tag_pattern = f"{component_name}@v*.*.*"
         existing_tags = self.git_service.get_tags(pattern=tag_pattern)
 
         if existing_tags:
             try:
-                # Filter out tags that don't match the expected format before parsing
                 parsed_versions = []
                 for tag in existing_tags:
                     tag_match = re.match(rf"^{re.escape(component_name)}@v(\d+\.\d+\.\d+)$", tag)
@@ -193,10 +192,6 @@ class ReleaseManager:
                 
                 if not parsed_versions:
                     self.logger.info(f"No valid existing tags found for component '{component_name}'. Assuming first release.")
-                    # If no valid tags, then any version is valid as the first release
-                    # No need to check against latest_version, just ensure it's a valid semver.
-                    # This path should ideally not be reached if existing_tags was true,
-                    # but handles cases where all existing tags are malformed.
                 else:
                     latest_version = sorted(parsed_versions)[-1]
                     is_valid_next = (
@@ -205,32 +200,38 @@ class ReleaseManager:
                         new_version == latest_version.next_major()
                     )
                     if not is_valid_next:
-                        raise VersionMismatchError(f"Version '{new_version_str}' is not a valid increment. Latest is '{latest_version}'.")
+                        raise VersionMismatchError(f"Version '{release_version}' is not a valid increment. Latest is '{latest_version}'.")
             except ValueError as e:
                 raise VersionMismatchError(f"Could not parse existing tag versions: {e}") from e
+        else:
+            self.logger.info(f"No existing tags found for component '{component_name}'. Assuming first release.")
+            # For a first release, any valid semver is acceptable.
             
-        self.release_version = new_version_str
-        self.component_name = component_name
-        return new_version_str, component_name
+        self.logger.info(f"✓ New version '{release_version}' is a valid increment.")
 
-    def run_release_check(self):
+        return component_name, original_base_branch
+
+    def run_release_check(self, release_version: str):
         """Performs all pre-flight checks for a release."""
-        version, component = self._validate_release_prerequisites()
-        return version, component
+        component_name, original_base_branch = self._check_base_branch_and_version(release_version)
+        return component_name, original_base_branch
 
-    def run_release_close(self):
+    def run_release_close(self, release_version: str):
         """
-        Executes the final steps of a release:
-        1. Creates a preliminary release block.
-        2. Writes it to project.yaml.
-        3. Stages project.yaml and gets a tree_id that includes the preliminary block.
-        4. Signs the tree_id.
-        5. Creates the final release block with signing metadata.
-        6. Writes the final release block to project.yaml.
-        7. Commits the project.yaml and creates a Git tag (if not dry-run).
+        Executes the final steps of a release, orchestrating Git branches.
+        1. Checks base branch and version.
+        2. Creates a new release branch.
+        3. Creates a preliminary release block in project.yaml.
+        4. Stages project.yaml and gets a tree_id.
+        5. Signs the tree_id.
+        6. Creates the final release block with signing metadata.
+        7. Writes the final release block to project.yaml.
+        8. Commits the project.yaml and creates a Git tag (if not dry-run).
+        9. Checks out original base branch.
+        10. Merges release branch into original base branch.
+        11. Deletes the release branch.
         """
-        if not self.release_version or not self.component_name:
-            raise ReleaseError("run_release_check() must be successfully run before closing the release.")
+        component_name, original_base_branch = self._check_base_branch_and_version(release_version)
         
         if not self.vault_service:
             raise VaultServiceError("VaultService is not initialized. Cannot sign release.")
@@ -239,28 +240,43 @@ class ReleaseManager:
         original_project_config_content = None # To store original content for rollback
         project_yaml_existed_before = project_yaml_path.exists() # Use Path.exists()
 
+        release_branch_name = f"{component_name}/releases/v{release_version}" if component_name != "main" else f"releases/v{release_version}"
+        if component_name == "main": # Handle case where component_name is "main"
+             release_branch_name = f"releases/v{release_version}"
+        else:
+             release_branch_name = f"{component_name}/releases/v{release_version}"
+
+
+        # --- Git Orchestration Start ---
         try:
+            self.logger.info(f"Creating release branch: '{release_branch_name}' from '{original_base_branch}'")
+            if self.dry_run:
+                self.logger.info(f"[DRY-RUN] Would have created branch '{release_branch_name}' and checked it out.")
+            else:
+                self.git_service.checkout(release_branch_name, create_new=True)
+            self.logger.info(f"✓ Switched to release branch: '{release_branch_name}'")
+
+            # --- Core Release Logic (as before) ---
             # Store original content for potential rollback
             if project_yaml_existed_before:
-                original_project_config_content = project_yaml_path.read_text() # Use Path.read_text()
+                original_project_config_content = project_yaml_path.read_text()
             
-            # 1. Create preliminary release block (without signature/tree_hash yet)
+            # 1. Create preliminary release block
             preliminary_release_block = {
-                "version": self.release_version,
+                "version": release_version,
                 "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
             }
 
-            # 2. Write preliminary block to project.yaml (or simulate in dry-run)
+            # 2. Write preliminary block to project.yaml
             if self.dry_run:
                 self.logger.info("[DRY-RUN] Simulating write of preliminary release block to project.yaml.")
                 self.logger.debug(yaml.dump({'release': preliminary_release_block}, sort_keys=False, indent=2))
             else:
                 full_project_config = load_yaml(project_yaml_path)
-                if full_project_config is None: # Handle empty project.yaml
-                    full_project_config = {}
+                if full_project_config is None: full_project_config = {}
                 full_project_config['release'] = preliminary_release_block
                 write_yaml(project_yaml_path, full_project_config)
-                self.git_service.add(str(project_yaml_path)) # git add expects string path
+                self.git_service.add(str(project_yaml_path))
 
             # 3. Get tree_id that includes the preliminary release block
             tree_id = self.git_service.write_tree()
@@ -280,23 +296,21 @@ class ReleaseManager:
                 'digest': digest_b64
             }
 
-            # 6. Write the final release block to project.yaml (or simulate in dry-run)
+            # 6. Write the final release block to project.yaml
             if self.dry_run:
                 self.logger.info("[DRY-RUN] Skipping final write to project.yaml.")
                 self.logger.debug(yaml.dump({'release': final_release_block}, sort_keys=False, indent=2))
             else:
-                full_project_config = load_yaml(project_yaml_path) # Reload to ensure we have the latest state
-                if full_project_config is None: # Handle empty project.yaml
-                    full_project_config = {}
+                full_project_config = load_yaml(project_yaml_path)
+                if full_project_config is None: full_project_config = {}
                 full_project_config['release'] = final_release_block
                 write_yaml(project_yaml_path, full_project_config)
-                # Stage the project.yaml file after the final write to ensure the user commits the signed state.
                 self.git_service.add(str(project_yaml_path))
             
-            # 7. Commit the project.yaml and create a Git tag (if not dry-run)
-            commit_message = f"release: {self.component_name} v{self.release_version}"
-            tag_name = f"{self.component_name}@v{self.release_version}"
-            tag_message = f"Release {self.component_name} v{self.release_version}"
+            # 7. Commit the project.yaml and create a Git tag
+            commit_message = f"release: {component_name} v{release_version}"
+            tag_name = f"{component_name}@v{release_version}"
+            tag_message = f"Release {component_name} v{release_version}"
 
             if self.dry_run:
                 self.logger.info(f"[DRY-RUN] Would have committed with message: '{commit_message}'")
@@ -307,27 +321,55 @@ class ReleaseManager:
                 self.logger.info(f"Creating annotated tag: '{tag_name}'")
                 self.git_service.run(['git', 'tag', '-a', tag_name, '-m', tag_message])
                 self.logger.info(f"✓ Release commit and tag created successfully.")
+            # --- End Core Release Logic ---
+
+            # --- Git Orchestration End ---
+            self.logger.info(f"Switching back to original branch: '{original_base_branch}'")
+            if self.dry_run:
+                self.logger.info(f"[DRY-RUN] Would have checked out '{original_base_branch}'.")
+            else:
+                self.git_service.checkout(original_base_branch)
             
-            return self.release_version, self.component_name
+            self.logger.info(f"Merging '{release_branch_name}' into '{original_base_branch}'")
+            if self.dry_run:
+                self.logger.info(f"[DRY-RUN] Would have merged '{release_branch_name}' into '{original_base_branch}' with --no-ff.")
+            else:
+                self.git_service.merge(release_branch_name, no_ff=True, message=f"Merge branch '{release_branch_name}' for release {release_version}")
+            
+            self.logger.info(f"Deleting release branch: '{release_branch_name}'")
+            if self.dry_run:
+                self.logger.info(f"[DRY-RUN] Would have deleted branch '{release_branch_name}'.")
+            else:
+                self.git_service.delete_branch(release_branch_name)
+            
+            self.logger.info(f"✓ Git orchestration complete.")
+
+            return release_version, component_name
         except Exception as e:
             # Rollback project.yaml if an error occurred after initial write
             if not self.dry_run:
                 self.logger.error(f"Release failed, attempting to rollback project.yaml...", exc_info=True)
                 try:
+                    # Attempt to checkout original branch before rollback
+                    self.logger.warning(f"Attempting to checkout original branch '{original_base_branch}' for rollback.")
+                    self.git_service.checkout(original_base_branch)
+                    # Attempt to delete the release branch if it was created
+                    self.logger.warning(f"Attempting to delete release branch '{release_branch_name}' for rollback.")
+                    self.git_service.delete_branch(release_branch_name, force=True) # Force delete in case of issues
+
                     if original_project_config_content is not None:
                         try:
-                            # Attempt to load original content, handle potential YAML errors
                             original_data = yaml.safe_load(original_project_config_content)
                             write_yaml(project_yaml_path, original_data)
-                            self.git_service.add(str(project_yaml_path)) # Stage the restored file
+                            self.git_service.add(str(project_yaml_path))
                             self.logger.info("✓ project.yaml restored to original state.")
                         except yaml.YAMLError as yaml_e:
                             self.logger.critical(f"Failed to parse original project.yaml content during rollback: {yaml_e}. Manual intervention required!", exc_info=True)
                         except Exception as write_add_e:
                             self.logger.critical(f"Failed to write or add restored project.yaml during rollback: {write_add_e}. Manual intervention required!", exc_info=True)
-                    elif not project_yaml_existed_before and project_yaml_path.exists(): # Use Path.exists()
+                    elif not project_yaml_existed_before and project_yaml_path.exists():
                         try:
-                            project_yaml_path.unlink() # Use Path.unlink() for removal
+                            project_yaml_path.unlink()
                             self.logger.info("✓ Newly created project.yaml removed.")
                         except Exception as unlink_e:
                             self.logger.critical(f"Failed to remove newly created project.yaml during rollback: {unlink_e}. Manual intervention required!", exc_info=True)
