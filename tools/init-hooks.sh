@@ -17,6 +17,9 @@ TOOLS_DIR=$(git rev-parse --show-toplevel)/tools
 
 echo "--- Initializing Git hooks ---"
 
+# Capture the current PATH from the environment where init-hooks.sh is executed
+CURRENT_PATH="$PATH"
+
 # Set up pre-commit hook for validation
 PRE_COMMIT_HOOK="$HOOKS_DIR/pre-commit"
 if [ -f "$PRE_COMMIT_HOOK" ]; then
@@ -28,8 +31,8 @@ cat > "$PRE_COMMIT_HOOK" <<EOF
 #!/bin/sh
 echo "--- Running pre-commit validation ---"
 
-# Ensure common paths are in PATH for docker command
-export PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:\$PATH"
+# Use the PATH captured during hook initialization
+export PATH="$CURRENT_PATH"
 
 # Find the docker compose command dynamically
 DOCKER_COMPOSE_CMD=""
