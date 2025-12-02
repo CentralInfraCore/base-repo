@@ -7,16 +7,31 @@ import hashlib
 import subprocess
 import datetime
 import re
-from jsonschema import validate, ValidationError
+from jsonschema import validate
 import base64
 import semver
+
+from releaselib.exceptions import (
+    ConfigurationError,
+    GitStateError,
+    VersionMismatchError,
+    ValidationFailureError,
+    SigningError,
+    ReleaseError
+)
 
 # --- Helper Functions (can be considered a utility module) ---
 
 def load_yaml(path):
     """Loads a YAML file."""
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
+    try:
+        with open(path, 'r') as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        raise ConfigurationError(f"Configuration file not found at: {path}")
+    except yaml.YAMLError as e:
+        raise ConfigurationError(f"YAML syntax error in {path}: {e}")
+
 
 def write_yaml(path, data):
     """Writes data to a YAML file."""
@@ -36,10 +51,10 @@ def get_reproducible_repo_hash(tree_id):
         archive_proc.stdout.close()
         repo_hash_b64 = b64_proc.communicate()[0].strip()
         if b64_proc.returncode != 0:
-            raise RuntimeError("Failed to calculate reproducible repository hash.")
+            raise ReleaseError("Failed to calculate reproducible repository hash.")
         return repo_hash_b64
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        raise RuntimeError(f"Error during repo hash calculation: {e}")
+        raise ReleaseError(f"Error during repo hash calculation: {e}")
 
 # --- Core Logic Class ---
 
@@ -60,8 +75,8 @@ class ReleaseManager:
         try:
             meta_schema_path = self._path(self.config['meta_schema_file'])
             meta_schema = load_yaml(meta_schema_path)
-        except Exception as e:
-            raise IOError(f"Could not load meta-schema '{self.config['meta_schema_file']}': {e}")
+        except (KeyError, ConfigurationError) as e:
+            raise ConfigurationError(f"Could not load meta-schema: {e}")
 
         schema_glob_path = self._path(os.path.join(self.config['meta_schemas_dir'], '**', '*.meta.yaml'))
         schema_files = glob.glob(schema_glob_path, recursive=True)
@@ -77,23 +92,27 @@ class ReleaseManager:
 
         if errors:
             error_str = "\n".join(errors)
-            raise ValidationError(f"One or more schemas failed validation:\n{error_str}")
+            raise ValidationFailureError(f"One or more schemas failed validation:\n{error_str}")
 
     def _validate_release_prerequisites(self):
         """Internal method to check git state, branch, and version."""
-        project_config = load_yaml(self._path('project.yaml'))['project']
-        raw_component_name = project_config.get('main_branch', 'main')
+        try:
+            project_config = load_yaml(self._path('project.yaml'))['project']
+            raw_component_name = project_config.get('main_branch', 'main')
+        except (KeyError, ConfigurationError) as e:
+            raise ConfigurationError(f"Could not parse 'project' or 'main_branch' from project.yaml: {e}")
+            
         component_name = re.sub(r'main$', '', raw_component_name)
 
         git_status = self.git_service.get_status_porcelain()
         if git_status:
-            raise RuntimeError("Uncommitted changes detected. Please commit or stash them before releasing.")
+            raise GitStateError("Uncommitted changes detected. Please commit or stash them before releasing.")
 
         current_branch = self.git_service.get_current_branch()
         release_branch_pattern = re.compile(rf"^{re.escape(component_name)}releases/v(\d+\.\d+\.\d+)$")
         match = release_branch_pattern.match(current_branch)
         if not match:
-            raise ValueError(f"Not on a valid release branch. Expected format: '{component_name}releases/vX.Y.Z', found: '{current_branch}'")
+            raise GitStateError(f"Not on a valid release branch. Expected format: '{component_name}releases/vX.Y.Z', found: '{current_branch}'")
 
         new_version_str = match.group(1)
         new_version = semver.Version.parse(new_version_str)
@@ -110,7 +129,7 @@ class ReleaseManager:
                 (new_version == latest_version.next_major() and new_version.minor == 0 and new_version.patch == 0)
             )
             if not is_valid_next:
-                raise ValueError(f"Version '{new_version_str}' is not a valid increment. Latest is '{latest_version}'.")
+                raise VersionMismatchError(f"Version '{new_version_str}' is not a valid increment. Latest is '{latest_version}'.")
         
         self.release_version = new_version_str
         self.component_name = component_name
@@ -119,13 +138,12 @@ class ReleaseManager:
     def run_release_check(self):
         """Performs all pre-flight checks for a release."""
         version, component = self._validate_release_prerequisites()
-        # The vault service constructor now handles this check.
         return version, component
 
     def run_release_close(self):
         """Executes the final steps of a release."""
         if not self.release_version or not self.component_name:
-            raise RuntimeError("run_release_check() must be successfully run before closing the release.")
+            raise ReleaseError("run_release_check() must be successfully run before closing the release.")
 
         project_yaml_path = self._path('project.yaml')
         full_project_config = load_yaml(project_yaml_path)
@@ -144,7 +162,12 @@ class ReleaseManager:
         digest_b64 = get_reproducible_repo_hash(tree_id)
 
         key_name = self.config.get('vault_key_name', 'cic-my-sign-key')
-        signature = self.vault_service.sign(digest_b64, key_name)
+        
+        try:
+            signature = self.vault_service.sign(digest_b64, key_name)
+        except Exception as e:
+            # Wrap vault/network errors in our custom exception
+            raise SigningError(f"Failed to get signature from Vault: {e}")
 
         final_release_block = release_block.copy()
         final_release_block['repository_tree_hash'] = tree_id
@@ -154,8 +177,8 @@ class ReleaseManager:
             'hash_algorithm': 'sha256',
             'digest': digest_b64
         }
-        
+
         full_project_config['release'] = final_release_block
         write_yaml(project_yaml_path, full_project_config)
-        
+
         return self.release_version, self.component_name

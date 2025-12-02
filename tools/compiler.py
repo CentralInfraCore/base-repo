@@ -4,6 +4,7 @@ import yaml
 from infra import ReleaseManager
 from releaselib.git_service import GitService
 from releaselib.vault_service import VaultService
+from releaselib.exceptions import ReleaseError
 
 # --- Configuration Loader ---
 
@@ -15,7 +16,8 @@ def load_project_config():
         with open('project.yaml', 'r') as f:
             # We only need the compiler settings for the manager
             return yaml.safe_load(f)['compiler_settings']
-    except (IOError, KeyError, TypeError) as e:
+    except (IOError, KeyError, TypeError, yaml.YAMLError) as e:
+        # Catching more specific errors for better feedback
         print(f"[91m[FATAL] Could not load or parse compiler settings from project.yaml: {e}[0m")
         sys.exit(1)
 
@@ -38,7 +40,6 @@ def main():
         config = load_project_config()
         git_service = GitService()
         
-        # VaultService is only needed for the release command
         vault_service = None
         if command == 'release':
             vault_service = VaultService(
@@ -62,17 +63,14 @@ def main():
         elif command == 'release':
             print("--- Running Schema Release ---")
             
-            # Step 1: Schema Validation
             print("\n[Phase 1/3] Validating schemas...")
             manager.run_validation()
             print("[92m✓ Schemas are valid.[0m")
             
-            # Step 2: Pre-flight Checks
             print("\n[Phase 2/3] Running pre-flight checks...")
             version, _ = manager.run_release_check()
             print(f"[92m✓ All checks passed for version {version}.[0m")
             
-            # Step 3: Closing the Release
             print("\n[Phase 3/3] Closing release...")
             release_version, component_name = manager.run_release_close()
             print("[92m✓ Release closed successfully. project.yaml has been finalized.[0m")
@@ -82,10 +80,11 @@ def main():
             print(f"Unknown command: {command}")
             sys.exit(1)
 
-    except Exception as e:
-        # 3. Catch any exception from the manager or services and display it nicely
-        print(f"\n[91m[FATAL ERROR] {e}[0m")
+    except ReleaseError as e:
+        # 3. Catch our specific, expected exceptions and display them nicely
+        print(f"\n[91m[RELEASE FAILED] {e}[0m")
         sys.exit(1)
+    # Any other exception will now correctly produce a full stack trace for debugging
 
 
 if __name__ == "__main__":
