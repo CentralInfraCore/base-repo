@@ -38,20 +38,22 @@ def write_yaml(path, data):
     Writes data to a YAML file atomically using a temporary file.
     This prevents data corruption if the write operation is interrupted.
     """
+    tmp_name = None
     try:
         # Create a temporary file in the same directory as the target file
         # This ensures that os.replace works across filesystems
         with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=os.path.dirname(path), encoding='utf-8') as tmp_file:
+            tmp_name = tmp_file.name
             yaml.dump(data, tmp_file, sort_keys=False, indent=2)
         
         # Atomically replace the original file with the temporary file
-        os.replace(tmp_file.name, path)
+        os.replace(tmp_name, path)
     except IOError as e:
         raise ReleaseError(f"Failed to write YAML file to {path}: {e}") from e
     except Exception as e:
         # Clean up temp file if something went wrong before os.replace
-        if os.path.exists(tmp_file.name):
-            os.remove(tmp_file.name)
+        if tmp_name and os.path.exists(tmp_name):
+            os.remove(tmp_name)
         raise ReleaseError(f"An unexpected error occurred during atomic write to {path}: {e}") from e
 
 
@@ -188,13 +190,14 @@ class ReleaseManager:
             raise VaultServiceError("VaultService is not initialized. Cannot sign release.")
 
         project_yaml_path = self._path('project.yaml')
-        original_project_config = None # To store original content for rollback
+        original_project_config_content = None # To store original content for rollback
+        project_yaml_existed_before = os.path.exists(project_yaml_path)
 
         try:
             # Store original content for potential rollback
-            if os.path.exists(project_yaml_path):
+            if project_yaml_existed_before:
                 with open(project_yaml_path, 'r') as f:
-                    original_project_config = f.read()
+                    original_project_config_content = f.read()
             
             # 1. Create preliminary release block (without signature/tree_hash yet)
             preliminary_release_block = {
@@ -246,13 +249,18 @@ class ReleaseManager:
             return self.release_version, self.component_name
         except Exception as e:
             # Rollback project.yaml if an error occurred after initial write
-            if not self.dry_run and original_project_config is not None:
+            if not self.dry_run:
                 print(f"[91m[ERROR] Release failed, attempting to rollback project.yaml...[0m")
                 try:
-                    with open(project_yaml_path, 'w') as f:
-                        f.write(original_project_config)
-                    self.git_service.add(project_yaml_path) # Stage the restored file
-                    print(f"[92m✓ project.yaml restored to original state.[0m")
+                    if original_project_config_content is not None:
+                        write_yaml(project_yaml_path, yaml.safe_load(original_project_config_content))
+                        self.git_service.add(project_yaml_path) # Stage the restored file
+                        print(f"[92m✓ project.yaml restored to original state.[0m")
+                    elif not project_yaml_existed_before and os.path.exists(project_yaml_path):
+                        os.remove(project_yaml_path)
+                        print(f"[92m✓ Newly created project.yaml removed.[0m")
+                    else:
+                        print(f"[93m[WARNING] No original project.yaml content to restore or file did not exist.[0m")
                 except Exception as rollback_e:
                     print(f"[91m[CRITICAL ERROR] Failed to rollback project.yaml: {rollback_e}[0m")
                     print(f"[91m[CRITICAL ERROR] project.yaml might be in an inconsistent state. Manual intervention required![0m")
