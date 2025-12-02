@@ -39,16 +39,28 @@ class ColoredFormatter(logging.Formatter):
 
 def setup_logging(verbose=False, debug=False):
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG if debug else (logging.INFO if verbose else logging.WARNING))
+    # Set the logger's level to the lowest possible to allow handlers to filter
+    logger.setLevel(logging.DEBUG) 
 
-    # Remove existing handlers to prevent duplicate messages
-    if logger.hasHandlers():
-        logger.handlers.clear()
-
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = ColoredFormatter(LOG_FORMAT)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    # Check if a handler with ColoredFormatter already exists to avoid duplicates
+    found_handler = False
+    for handler in logger.handlers:
+        if isinstance(handler, logging.StreamHandler) and isinstance(handler.formatter, ColoredFormatter):
+            handler.setLevel(logging.DEBUG if debug else (logging.INFO if verbose else logging.WARNING))
+            found_handler = True
+            break
+    
+    if not found_handler:
+        # If no such handler exists, create and add a new one
+        handler = logging.StreamHandler(sys.stdout)
+        formatter = ColoredFormatter(LOG_FORMAT)
+        handler.setFormatter(formatter)
+        handler.setLevel(logging.DEBUG if debug else (logging.INFO if verbose else logging.WARNING))
+        logger.addHandler(handler)
+    
+    # Propagate to root logger should be False to prevent duplicate messages if root logger also has handlers
+    logger.propagate = False
+    
     return logger
 
 logger = logging.getLogger(__name__) # Initialize global logger for this module

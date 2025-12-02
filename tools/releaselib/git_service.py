@@ -1,6 +1,6 @@
 import subprocess
-from pathlib import Path # Import Path
-from .exceptions import GitServiceError
+from pathlib import Path
+from .exceptions import GitServiceError, GitStateError # Import GitStateError
 
 class GitService:
     """
@@ -26,11 +26,17 @@ class GitService:
             )
             return result.stdout
         except subprocess.CalledProcessError as e:
-            raise GitServiceError(f"Git command failed: {' '.join(command_str)}\n{e.stderr.decode('utf-8', errors='replace')}", cause=e)
+            # Ensure command_str is defined even if an error occurs before its full definition
+            cmd_display = ' '.join(command_str) if 'command_str' in locals() else ' '.join(map(str, command))
+            raise GitServiceError(f"Git command failed: {cmd_display}\n{e.stderr.decode('utf-8', errors='replace')}", cause=e)
         except FileNotFoundError as e:
-            raise GitServiceError("Git command not found. Is Git installed and in your PATH?", cause=e)
+            # Ensure command_str is defined even if an error occurs before its full definition
+            cmd_display = ' '.join(command_str) if 'command_str' in locals() else ' '.join(map(str, command))
+            raise GitServiceError(f"Git command not found: {cmd_display}. Is Git installed and in your PATH?", cause=e)
         except subprocess.TimeoutExpired as e:
-            raise GitServiceError(f"Git command timed out after {self.timeout} seconds: {' '.join(command_str)}", cause=e)
+            # Ensure command_str is defined even if an error occurs before its full definition
+            cmd_display = ' '.join(command_str) if 'command_str' in locals() else ' '.join(map(str, command))
+            raise GitServiceError(f"Git command timed out after {self.timeout} seconds: {cmd_display}", cause=e)
 
 
     def run(self, command):
@@ -67,8 +73,46 @@ class GitService:
         """Stages a specific file."""
         return self.run(['git', 'add', file_path]) # file_path will be converted to string by _run_raw
 
-    def archive_tree_bytes(self, tree_id):
+    def archive_tree_bytes(self, tree_id, prefix=None):
         """
         Runs 'git archive' and returns the raw bytes of the tar archive.
+        The 'prefix' argument can be used to ensure reproducibility by
+        setting a consistent path prefix within the archive.
         """
-        return self._run_raw(['git', 'archive', '--format=tar', tree_id])
+        command = ['git', 'archive', '--format=tar']
+        if prefix:
+            command.append(f'--prefix={prefix}')
+        command.append(tree_id)
+        return self._run_raw(command)
+
+    def assert_clean_index(self):
+        """
+        Checks if the Git index is clean (no staged changes).
+        Raises GitStateError if staged changes are detected.
+        """
+        try:
+            # Use subprocess.run directly here because we specifically want to catch
+            # CalledProcessError for exit code 1, which indicates staged changes.
+            # We don't want `check=True` to raise for exit code 1 in this specific case,
+            # as we handle it explicitly.
+            result = subprocess.run(
+                ['git', 'diff-index', '--quiet', 'HEAD', '--'],
+                capture_output=True,
+                check=False, # Do not raise CalledProcessError for non-zero exit codes automatically
+                cwd=self.cwd,
+                timeout=self.timeout
+            )
+            if result.returncode == 1:
+                raise GitStateError("Staged changes detected in Git index. Please commit them before releasing.")
+            elif result.returncode != 0:
+                # Other non-zero exit codes indicate a different Git error
+                raise GitServiceError(f"Git command failed with exit code {result.returncode}: git diff-index --quiet HEAD --\n{result.stderr.decode('utf-8', errors='replace')}")
+
+        except FileNotFoundError as e:
+            raise GitServiceError("Git command not found. Is Git installed and in your PATH?", cause=e)
+        except subprocess.TimeoutExpired as e:
+            raise GitServiceError(f"Git command timed out after {self.timeout} seconds: git diff-index --quiet HEAD --", cause=e)
+        # Removed the broad 'except Exception' to allow GitStateError to propagate directly.
+        # Any other unexpected errors will now propagate as their original type,
+        # which is generally better than wrapping them in a generic GitServiceError
+        # with a potentially misleading message.

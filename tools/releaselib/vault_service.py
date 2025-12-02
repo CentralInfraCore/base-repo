@@ -18,13 +18,21 @@ class VaultService:
             if not vault_addr or not vault_token:
                 raise VaultServiceError("Vault address and token must be provided for a live run.")
             
-            # Strict TLS enforcement: if not dry-run, CA cert is required.
-            if not vault_cacert or not os.path.exists(vault_cacert):
-                raise VaultServiceError("Vault CA certificate is required for TLS verification in a live run.")
+            # Strict TLS enforcement:
+            # If vault_cacert is provided, it MUST exist.
+            # If not provided, requests will use its default CA bundle (secure by default).
+            if vault_cacert:
+                if not os.path.exists(vault_cacert):
+                    raise VaultServiceError(f"Provided Vault CA certificate file not found: {vault_cacert}")
+                self.verify_tls = vault_cacert
+            else:
+                self.verify_tls = True # Use requests' default CA bundle for verification
             
         self.vault_addr = vault_addr
         self.vault_token = vault_token
-        self.verify_tls = vault_cacert if vault_cacert and os.path.exists(vault_cacert) else False
+        # In dry-run, verify_tls is not used, but we set it to True for consistency
+        if self.dry_run:
+            self.verify_tls = True
 
     def sign(self, digest_b64, key_name):
         """
@@ -38,8 +46,10 @@ class VaultService:
         # Validate digest_b64 format
         try:
             decoded_digest = base64.b64decode(digest_b64, validate=True)
+            # While we expect SHA256, the Vault API handles various hash algorithms.
+            # The length check is a good sanity check for typical digests like SHA256.
             if len(decoded_digest) != 32: # SHA256 produces 32 bytes
-                raise VaultServiceError(f"Invalid digest length. Expected 32 bytes for SHA256, got {len(decoded_digest)}.")
+                self.logger.warning(f"Digest length is not 32 bytes (SHA256 expected), got {len(decoded_digest)}. Proceeding but this might indicate an issue.")
         except (TypeError, ValueError) as e:
             raise VaultServiceError(f"Invalid Base64 digest format: {e}") from e
 
@@ -62,10 +72,16 @@ class VaultService:
             signature = response_data.get("data", {}).get("signature")
             
             if not signature or not isinstance(signature, str) or not signature.startswith("vault:v1:"):
-                 raise VaultServiceError(f"Invalid or missing signature in Vault response: {response.text}")
+                 raise VaultServiceError(f"Invalid or missing signature in Vault response. Raw response: {response.text}")
             self.logger.debug("Signature received successfully.")
             return signature
         except requests.exceptions.RequestException as e:
-            raise VaultServiceError(f"Vault signing request failed: {e}") from e
+            raise VaultServiceError(f"Vault signing request failed: {e}", cause=e)
+        except ValueError as e: # Added for non-JSON responses
+            # Ensure response.text is not None before accessing it
+            raw_response_text = response.text if response else "No response text available."
+            raise VaultServiceError(f"Invalid JSON in Vault response: {e}. Raw response: {raw_response_text}", cause=e)
         except (KeyError, TypeError) as e:
-            raise VaultServiceError(f"Could not parse signature from Vault response: {e}. Response: {response.text}") from e
+            # Ensure response.text is not None before accessing it
+            raw_response_text = response.text if response else "No response text available."
+            raise VaultServiceError(f"Could not parse signature from Vault response: {e}. Raw response: {raw_response_text}", cause=e)

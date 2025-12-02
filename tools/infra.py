@@ -27,9 +27,11 @@ from releaselib.exceptions import (
 def load_yaml(path: Path):
     """Loads a YAML file."""
     try:
-        # Path objects can be passed directly to open()
         with open(path, 'r') as f:
-            return yaml.safe_load(f)
+            content = f.read()
+            if not content.strip(): # Check if file is empty or only whitespace
+                return None # Return None for empty files, to be handled by caller
+            return yaml.safe_load(content)
     except FileNotFoundError as e:
         raise ConfigurationError(f"Configuration file not found at: {path}") from e
     except yaml.YAMLError as e:
@@ -57,7 +59,11 @@ def write_yaml(path: Path, data):
     except Exception as e:
         # Clean up temp file if something went wrong before os.replace
         if tmp_name and Path(tmp_name).exists(): # Use Path.exists()
-            Path(tmp_name).unlink() # Use Path.unlink() for removal
+            try:
+                Path(tmp_name).unlink() # Use Path.unlink() for removal
+            except Exception as unlink_e:
+                # Log cleanup error but don't re-raise, as original exception is more important
+                logging.getLogger(__name__).warning(f"Failed to clean up temporary file {tmp_name}: {unlink_e}")
         raise ReleaseError(f"An unexpected error occurred during atomic write to {path}: {e}") from e
 
 
@@ -69,7 +75,10 @@ def get_reproducible_repo_hash(git_service, tree_id):
     """
     try:
         # Get the raw tar archive from the GitService
-        archive_bytes = git_service.archive_tree_bytes(tree_id)
+        # git archive --format=tar --prefix=./ <tree_id>
+        # Using --prefix=./ ensures that the tar entries are relative to the current directory,
+        # which is important for reproducibility across different repository paths.
+        archive_bytes = git_service.archive_tree_bytes(tree_id, prefix='./')
         
         # The most straightforward and dependency-free way to hash in Python
         hasher = hashlib.sha256()
@@ -95,12 +104,6 @@ class ReleaseManager:
         self.release_version = None
         self.component_name = None
 
-        # Validate essential configuration keys
-        required_config_keys = ['component_name', 'meta_schema_file', 'meta_schemas_dir']
-        for key in required_config_keys:
-            if key not in self.config:
-                raise ConfigurationError(f"Missing required configuration key '{key}' in compiler_settings of project.yaml.")
-
     def _path(self, relative_path):
         # Return a Path object
         return self.project_root / relative_path
@@ -110,6 +113,8 @@ class ReleaseManager:
         try:
             meta_schema_path = self._path(self.config['meta_schema_file'])
             meta_schema = load_yaml(meta_schema_path)
+            if meta_schema is None: # Handle empty meta-schema file
+                raise ConfigurationError(f"Meta-schema file '{meta_schema_path}' is empty.")
         except (KeyError, ConfigurationError) as e:
             raise ConfigurationError(f"Could not load meta-schema: {e}") from e
 
@@ -125,6 +130,9 @@ class ReleaseManager:
         for schema_file in schema_files:
             try:
                 schema_instance = load_yaml(schema_file)
+                if schema_instance is None: # Handle empty schema file
+                    errors.append(f"  - {schema_file.name}: Configuration Error - File is empty.")
+                    continue
                 validate(instance=schema_instance, schema=meta_schema)
             except ConfigurationError as e: # Catch YAML/IO errors during schema loading
                 errors.append(f"  - {schema_file.name}: Configuration Error - {e}")
@@ -151,17 +159,15 @@ class ReleaseManager:
             raise GitStateError("Uncommitted changes detected in working directory. Please commit or stash them before releasing.")
 
         # Check for staged changes (index is not empty)
-        # git diff-index --quiet HEAD -- (returns 1 if there are differences, 0 if clean)
-        try:
-            self.git_service.run(['git', 'diff-index', '--quiet', 'HEAD', '--'])
-        except GitStateError as e: # git diff-index --quiet returns 1 if index is not clean
-            raise GitStateError(f"Staged changes detected in Git index. Please commit them before releasing. (Details: {e})")
+        self.git_service.assert_clean_index()
 
         current_branch = self.git_service.get_current_branch()
-        release_branch_pattern = re.compile(rf"^{re.escape(component_name)}releases/v(\d+\.\d+\.\d+)$")
+        # Relaxed regex to allow more branching conventions, e.g., "releases/v1.2.3" or "component-releases/v1.2.3"
+        # The component_name is now optional at the beginning of the branch name.
+        release_branch_pattern = re.compile(rf"^(?:{re.escape(component_name)}[-_])?releases/v(\d+\.\d+\.\d+)$")
         match = release_branch_pattern.match(current_branch)
         if not match:
-            raise GitStateError(f"Not on a valid release branch for component '{component_name}'. Expected format: '{component_name}releases/vX.Y.Z', found: '{current_branch}'")
+            raise GitStateError(f"Not on a valid release branch for component '{component_name}'. Expected format: 'releases/vX.Y.Z' or '{component_name}-releases/vX.Y.Z', found: '{current_branch}'")
 
         new_version_str = match.group(1)
         try:
@@ -174,19 +180,33 @@ class ReleaseManager:
 
         if existing_tags:
             try:
-                existing_versions = sorted([semver.Version.parse(tag.split('@v')[-1]) for tag in existing_tags])
+                # Filter out tags that don't match the expected format before parsing
+                parsed_versions = []
+                for tag in existing_tags:
+                    tag_match = re.match(rf"^{re.escape(component_name)}@v(\d+\.\d+\.\d+)$", tag)
+                    if tag_match:
+                        parsed_versions.append(semver.Version.parse(tag_match.group(1)))
+                    else:
+                        self.logger.warning(f"Skipping malformed tag '{tag}' during version comparison.")
+                
+                if not parsed_versions:
+                    self.logger.info(f"No valid existing tags found for component '{component_name}'. Assuming first release.")
+                    # If no valid tags, then any version is valid as the first release
+                    # No need to check against latest_version, just ensure it's a valid semver.
+                    # This path should ideally not be reached if existing_tags was true,
+                    # but handles cases where all existing tags are malformed.
+                else:
+                    latest_version = sorted(parsed_versions)[-1]
+                    is_valid_next = (
+                        new_version == latest_version.next_patch() or
+                        new_version == latest_version.next_minor() or
+                        new_version == latest_version.next_major()
+                    )
+                    if not is_valid_next:
+                        raise VersionMismatchError(f"Version '{new_version_str}' is not a valid increment. Latest is '{latest_version}'.")
             except ValueError as e:
                 raise VersionMismatchError(f"Could not parse existing tag versions: {e}") from e
             
-            latest_version = existing_versions[-1]
-            is_valid_next = (
-                new_version == latest_version.next_patch() or
-                new_version == latest_version.next_minor() or
-                new_version == latest_version.next_major()
-            )
-            if not is_valid_next:
-                raise VersionMismatchError(f"Version '{new_version_str}' is not a valid increment. Latest is '{latest_version}'.")
-        
         self.release_version = new_version_str
         self.component_name = component_name
         return new_version_str, component_name
@@ -233,6 +253,8 @@ class ReleaseManager:
                 self.logger.debug(yaml.dump({'release': preliminary_release_block}, sort_keys=False, indent=2))
             else:
                 full_project_config = load_yaml(project_yaml_path)
+                if full_project_config is None: # Handle empty project.yaml
+                    full_project_config = {}
                 full_project_config['release'] = preliminary_release_block
                 write_yaml(project_yaml_path, full_project_config)
                 self.git_service.add(str(project_yaml_path)) # git add expects string path
@@ -261,11 +283,12 @@ class ReleaseManager:
                 self.logger.debug(yaml.dump({'release': final_release_block}, sort_keys=False, indent=2))
             else:
                 full_project_config = load_yaml(project_yaml_path) # Reload to ensure we have the latest state
+                if full_project_config is None: # Handle empty project.yaml
+                    full_project_config = {}
                 full_project_config['release'] = final_release_block
                 write_yaml(project_yaml_path, full_project_config)
-                # Note: We do NOT git add project.yaml again here. The tree_id was calculated
-                # based on the state *after* the preliminary write and add. The final write
-                # is just to update the file with the signature. The user will commit this.
+                # Stage the project.yaml file after the final write to ensure the user commits the signed state.
+                self.git_service.add(str(project_yaml_path))
             
             return self.release_version, self.component_name
         except Exception as e:
@@ -274,16 +297,25 @@ class ReleaseManager:
                 self.logger.error(f"Release failed, attempting to rollback project.yaml...", exc_info=True)
                 try:
                     if original_project_config_content is not None:
-                        # Use write_yaml for atomic rollback
-                        write_yaml(project_yaml_path, yaml.safe_load(original_project_config_content))
-                        self.git_service.add(str(project_yaml_path)) # Stage the restored file
-                        self.logger.info("✓ project.yaml restored to original state.")
+                        try:
+                            # Attempt to load original content, handle potential YAML errors
+                            original_data = yaml.safe_load(original_project_config_content)
+                            write_yaml(project_yaml_path, original_data)
+                            self.git_service.add(str(project_yaml_path)) # Stage the restored file
+                            self.logger.info("✓ project.yaml restored to original state.")
+                        except yaml.YAMLError as yaml_e:
+                            self.logger.critical(f"Failed to parse original project.yaml content during rollback: {yaml_e}. Manual intervention required!", exc_info=True)
+                        except Exception as write_add_e:
+                            self.logger.critical(f"Failed to write or add restored project.yaml during rollback: {write_add_e}. Manual intervention required!", exc_info=True)
                     elif not project_yaml_existed_before and project_yaml_path.exists(): # Use Path.exists()
-                        project_yaml_path.unlink() # Use Path.unlink() for removal
-                        self.logger.info("✓ Newly created project.yaml removed.")
+                        try:
+                            project_yaml_path.unlink() # Use Path.unlink() for removal
+                            self.logger.info("✓ Newly created project.yaml removed.")
+                        except Exception as unlink_e:
+                            self.logger.critical(f"Failed to remove newly created project.yaml during rollback: {unlink_e}. Manual intervention required!", exc_info=True)
                     else:
                         self.logger.warning("No original project.yaml content to restore or file did not exist.")
                 except Exception as rollback_e:
-                    self.logger.critical(f"Failed to rollback project.yaml: {rollback_e}", exc_info=True)
+                    self.logger.critical(f"An unexpected error occurred during rollback attempt: {rollback_e}", exc_info=True)
                     self.logger.critical("project.yaml might be in an inconsistent state. Manual intervention required!")
             raise ReleaseError(f"Release process failed: {e}") from e
