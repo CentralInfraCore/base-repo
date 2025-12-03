@@ -21,11 +21,11 @@ compiler_settings:
   meta_schema_file: md.meta.schema.yaml
   vault_key_name: cic-my-sign-key
 release:
-  version: 0.6.0
-  timestamp: '2025-12-02T22:06:36.295974+00:00'
-  repository_tree_hash: 139e3ac7529957ac6c8ef37ebcc87e4aa5ca19f3
+  version: 0.7.0
+  timestamp: '2025-12-03T11:00:49.568466+00:00'
+  repository_tree_hash: 21099e4de0daad9ce055905426a79a46b5d906ab
   signing_metadata:
     key: cic-my-sign-key
-    signature: vault:v1:MEUCIBVpZqjjbw0pTTwcrrs+83uC0U09xNblw261cgRtdN2CAiEAqSRGQXtV8IHQiihX3qOf0uy8iqwdYlQ6sReeE5T3UCk=
+    signature: vault:v1:MEUCIQCUYOnsbUigMekrbHGAZGaIAHxHkroL6bXN6piYVXlZzgIgXwz4ub9QXQlsJB0v/L8IB49S/H/Qe96GGDOARSZIVx8=
     hash_algorithm: sha256
-    digest: Vdq8MqDT6X07WVQwks57nlGn8NqhxeXqf5ptiqE1m/E=
+    digest: xEdEn1QlS1rlb/7S1YIp4QwaD1+Y8Z41WBTZV3suLcQ=
