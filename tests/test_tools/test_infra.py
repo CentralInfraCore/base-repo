@@ -94,21 +94,27 @@ def mock_release_manager_deps(mocker):
     mock_project_root.resolve.return_value = mock_project_root
     mock_project_root.exists.return_value = True
     
+    # FIX: Create a stateful mock for project.yaml
+    path_mocks = {}
+
     def mock_truediv(other):
-        result_path_mock = mocker.MagicMock(spec=Path)
-        result_path_mock.name = str(other)
-        result_path_mock.resolve.return_value = result_path_mock
+        path_key = str(other)
+        if path_key not in path_mocks:
+            result_path_mock = mocker.MagicMock(spec=Path)
+            result_path_mock.name = path_key
+            result_path_mock.resolve.return_value = result_path_mock
+            path_mocks[path_key] = result_path_mock
 
-        if str(other) == 'project.yaml':
-            result_path_mock.exists.return_value = True
-            result_path_mock.read_text.return_value = "compiler_settings:\n  component_name: base\nrelease: {}"
-        elif str(other) == mock_config['meta_schema_file']:
-            result_path_mock.exists.return_value = True
-        else:
-            result_path_mock.exists.return_value = False
-            result_path_mock.read_text.side_effect = FileNotFoundError
-
-        return result_path_mock
+            if path_key == 'project.yaml':
+                result_path_mock.exists.return_value = True
+                result_path_mock.read_text.return_value = "compiler_settings:\n  component_name: base\nrelease: {}"
+            elif path_key == mock_config['meta_schema_file']:
+                result_path_mock.exists.return_value = True
+            else:
+                result_path_mock.exists.return_value = False
+                result_path_mock.read_text.side_effect = FileNotFoundError
+        
+        return path_mocks[path_key]
 
     mock_project_root.__truediv__.side_effect = mock_truediv
     mock_project_root.glob.return_value = [] 
@@ -288,18 +294,11 @@ class TestRunReleaseClose:
         """Test that a newly created project.yaml is removed on rollback."""
         mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
         
-        # Simulate project.yaml not existing initially
         project_yaml_path_mock = mock_project_root / 'project.yaml'
-        project_yaml_path_mock.exists.return_value = False
+        # FIX: Correctly simulate the file's existence changing over time
+        project_yaml_path_mock.exists.side_effect = [False, True, True]
         project_yaml_path_mock.read_text.side_effect = FileNotFoundError
         
-        # After the first write, it exists
-        def exists_side_effect(path):
-            if 'project.yaml' in str(path):
-                return True
-            return False
-        project_yaml_path_mock.exists.side_effect = exists_side_effect
-
         manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
         
         mock_git_service.get_status_porcelain.return_value = ""

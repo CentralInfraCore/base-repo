@@ -200,10 +200,11 @@ class ReleaseManager:
                     self.logger.info(f"No valid existing tags found for component '{component_name}'. Assuming first release.")
                 else:
                     latest_version = sorted(parsed_versions)[-1]
+                    # FIX: Use semver 2.x compatible 'bump_*' methods
                     is_valid_next = (
-                        new_version == latest_version.next_patch() or
-                        new_version == latest_version.next_minor() or
-                        new_version == latest_version.next_major()
+                        new_version == latest_version.bump_patch() or
+                        new_version == latest_version.bump_minor() or
+                        new_version == latest_version.bump_major()
                     )
                     if not is_valid_next:
                         raise VersionMismatchError(f"Version '{release_version}' is not a valid increment. Latest is '{latest_version}'.")
