@@ -36,7 +36,7 @@ COMPILER_CLI_ARGS += --git-timeout $(GIT_TIMEOUT)
 COMPILER_CLI_ARGS += --vault-timeout $(VAULT_TIMEOUT)
 
 # Construct PYTEST_ARGS based on TEST_FILE and TEST_NAME
-PYTEST_ARGS = --cov=tools.compiler --cov-report=term-missing -v
+PYTEST_ARGS =
 ifeq ($(TEST_FILE),)
     PYTEST_ARGS += tests/
 else
@@ -77,7 +77,7 @@ endif
 		-e GIT_AUTHOR_EMAIL="$(shell git config user.email)" \
 		-e GIT_COMMITTER_NAME="$(shell git config user.name)" \
 		-e GIT_COMMITTER_EMAIL="$(shell git config user.email)" \
-		builder python tools/compiler.py release --version $(VERSION) $(COMPILER_CLI_ARGS)
+		builder python tools.compiler.py release --version $(VERSION) $(COMPILER_CLI_ARGS)
 	# The release.sh script is no longer needed as its functionality has been integrated into compiler.py
 	# @tools/release.sh project.yaml
 	# @git add project.yaml # This is now handled by compiler.py
