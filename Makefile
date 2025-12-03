@@ -64,7 +64,7 @@ build: infra.build
 
 validate:
 	@echo "--- Validating all schemas against the meta-schema ---"
-	@docker compose exec builder python tools/compiler.py validate $(COMPILER_CLI_ARGS)
+	@docker compose exec builder python -m tools.compiler validate $(COMPILER_CLI_ARGS)
 
 release:
 ifeq ($(VERSION),)
@@ -77,7 +77,7 @@ endif
 		-e GIT_AUTHOR_EMAIL="$(shell git config user.email)" \
 		-e GIT_COMMITTER_NAME="$(shell git config user.name)" \
 		-e GIT_COMMITTER_EMAIL="$(shell git config user.email)" \
-		builder python tools.compiler.py release --version $(VERSION) $(COMPILER_CLI_ARGS)
+		builder python -m tools.compiler release --version $(VERSION) $(COMPILER_CLI_ARGS)
 	# The release.sh script is no longer needed as its functionality has been integrated into compiler.py
 	# @tools/release.sh project.yaml
 	# @git add project.yaml # This is now handled by compiler.py

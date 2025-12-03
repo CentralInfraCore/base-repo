@@ -2,8 +2,7 @@ import pytest
 import sys
 import os
 import logging
-import yaml
-from unittest.mock import MagicMock, mock_open
+from unittest.mock import mock_open
 
 # Project root: /app
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
