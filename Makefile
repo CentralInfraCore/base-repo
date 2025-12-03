@@ -36,7 +36,7 @@ COMPILER_CLI_ARGS += --git-timeout $(GIT_TIMEOUT)
 COMPILER_CLI_ARGS += --vault-timeout $(VAULT_TIMEOUT)
 
 # Construct PYTEST_ARGS based on TEST_FILE and TEST_NAME
-PYTEST_ARGS = --cov=tools.compiler --cov-report=term-missing
+PYTEST_ARGS = --cov=tools.compiler --cov-report=term-missing -v
 ifeq ($(TEST_FILE),)
     PYTEST_ARGS += tests/
 else
@@ -135,7 +135,7 @@ help:
 	@echo "Code Quality & Formatting:"
 	@echo "  fmt           Format all code."
 	@echo "  lint          Lint all code and files."
-	@echo "  typecheck   Run static type checking."
+	@echo "  typecheck     Run static type checking."
 	@echo "  check         Run all code quality checks (fmt, lint, typecheck)."
 	@echo ""
 	@echo "Repository Setup:"

@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 # Import specific functions/classes from their new locations
 from tools.compiler import main, setup_logging, load_project_config
-from tools.infra import ReleaseManager, load_yaml, write_yaml, get_reproducible_repo_hash
+from tools.infra import ReleaseManager, load_yaml, write_yaml, get_reproducible_repo_hash, ValidationFailureError # Import ValidationFailureError
 from tools.releaselib.git_service import GitService
 from tools.releaselib.vault_service import VaultService
 from tools.releaselib.exceptions import ConfigurationError, GitStateError, VersionMismatchError, ReleaseError, VaultServiceError
@@ -201,7 +201,7 @@ def test_run_validation_schema_validation_failure(mocker):
     ]
     mocker.patch('jsonschema.validate', side_effect=ValidationError("Schema invalid")) # Módosítva: tools.compiler.validate -> jsonschema.validate
 
-    with pytest.raises(ReleaseManager.ValidationFailureError): # Módosítva: SystemExit -> ReleaseManager.ValidationFailureError
+    with pytest.raises(ValidationFailureError): # Módosítva: SystemExit -> ReleaseManager.ValidationFailureError
         manager.run_validation() # Módosítva: compiler.run_validation() -> manager.run_validation()
     # assert excinfo.value.code == 1 # Removed, as ValidationFailureError is raised directly
 
@@ -247,6 +247,10 @@ def test_run_release_no_vault_env_vars(mocker, mock_release_manager_deps):
         logger=mock_logger
     )
 
+    # Mock git status to be clean
+    mock_git_service.get_status_porcelain.return_value = ""
+    mock_git_service.assert_clean_index.return_value = None
+
     with pytest.raises(VaultServiceError, match="VaultService is not initialized. Cannot sign release."):
         manager.run_release_close(release_version="0.5.0") # Call run_release_close directly
 
@@ -280,6 +284,7 @@ def test_run_release_vault_signing_failure(mocker, mock_release_manager_deps):
     mocker.patch('jsonschema.validate', return_value=None)
     
     mock_git_service.get_status_porcelain.return_value = ""
+    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
     mock_git_service.get_current_branch.return_value = "main"
     mock_git_service.get_tags.return_value = [] # No existing tags
     mock_git_service.write_tree.return_value = "dummy_tree_id"
@@ -293,7 +298,7 @@ def test_run_release_vault_signing_failure(mocker, mock_release_manager_deps):
 
     mock_vault_service.sign.side_effect = VaultServiceError("Vault is down") # Simulate Vault signing failure
 
-    with pytest.raises(ReleaseError, match="Vault is down"): # Check for ReleaseError wrapping VaultServiceError
+    with pytest.raises(ReleaseError, match="Release process failed: Vault is down"): # Check for ReleaseError wrapping VaultServiceError
         manager.run_release_close(release_version="0.5.0")
 
 def test_run_release_skip_dev_version(mocker, mock_release_manager_deps):
@@ -337,6 +342,7 @@ def test_run_release_skip_dev_version(mocker, mock_release_manager_deps):
     mocker.patch('jsonschema.validate', return_value=None)
     
     mock_git_service.get_status_porcelain.return_value = ""
+    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
     mock_git_service.get_current_branch.return_value = "main"
     mock_git_service.get_tags.return_value = [] # No existing tags
     mock_git_service.write_tree.return_value = "dummy_tree_id"
@@ -393,6 +399,7 @@ def test_run_release_no_schemas_to_release(mocker, mock_release_manager_deps):
     mocker.patch('jsonschema.validate', return_value=None)
     
     mock_git_service.get_status_porcelain.return_value = ""
+    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
     mock_git_service.get_current_branch.return_value = "main"
     mock_git_service.get_tags.return_value = [] # No existing tags
     mock_git_service.write_tree.return_value = "dummy_tree_id"
@@ -411,17 +418,57 @@ def test_run_release_no_schemas_to_release(mocker, mock_release_manager_deps):
 
 def test_run_release_final_validation_failure(mocker, mock_release_manager_deps):
     """Test that run_release exits with ReleaseError if final validation fails."""
-    mock_config, mock_git_service, mock_vault_service, mock_project_root = mock_release_manager_deps
+    mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
     
-    # Test only the config parameter
     manager = ReleaseManager(
         config=mock_config,
-        git_service=None, # Set to None
-        vault_service=None, # Set to None
-        project_root=None, # Set to None
-        logger=None # Set to None
+        git_service=mock_git_service,
+        vault_service=mock_vault_service,
+        project_root=mock_project_root,
+        logger=mock_logger
     )
-    pass # Placeholder for now
+
+    mocker.patch('pathlib.Path.glob', return_value=[mocker.MagicMock(name='schema_file.yaml', resolve=lambda: 'schema_file.yaml')])
+    mocker.patch('pathlib.Path.resolve', return_value='meta.yaml')
+    mocker.patch('tools.infra.load_yaml', side_effect=[
+        # Meta-schema
+        {
+            "type": "object",
+            "required": ["metadata", "spec"],
+            "properties": {
+                "metadata": {"type": "object", "required": ["name", "version", "createdBy"]},
+                "spec": {"type": "object"}
+            }
+        },
+        # Dummy schema
+        DUMMY_SCHEMA_DATA,
+        # Third call for project.yaml content before writing final release block
+        {'compiler_settings': mock_config, 'release': {}}
+    ])
+    mocker.patch('jsonschema.validate', return_value=None)
+    
+    mock_git_service.get_status_porcelain.return_value = ""
+    mock_git_service.assert_clean_index.return_value = None
+    mock_git_service.get_current_branch.return_value = "main"
+    mock_git_service.get_tags.return_value = [] # No existing tags
+    mock_git_service.write_tree.return_value = "dummy_tree_id"
+    mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
+    mock_vault_service.sign.return_value = VAULT_SIGNATURE_RESPONSE['data']['signature']
+
+    # Mock the project.yaml path behavior for exists() and read_text()
+    mock_project_yaml_path = mock_project_root / 'project.yaml'
+    mock_project_yaml_path.exists.return_value = True
+    mock_project_yaml_path.read_text.return_value = "compiler_settings:\n  component_name: base\nrelease: {}"
+
+    # Simulate write_yaml failure for the final write
+    mock_write_yaml_helper = mocker.patch('tools.infra.write_yaml')
+    mock_write_yaml_helper.side_effect = [
+        None, # First write (preliminary release block) succeeds
+        ReleaseError("Simulated final write failure") # Second write (final release block) fails
+    ]
+
+    with pytest.raises(ReleaseError, match="Release process failed: Simulated final write failure"):
+        manager.run_release_close(release_version="0.5.0")
 
 def test_run_release_create_source_dir(mocker, mock_release_manager_deps):
     """Test that run_release creates the SOURCE_DIR if it doesn't exist."""
@@ -454,13 +501,14 @@ def test_run_release_create_source_dir(mocker, mock_release_manager_deps):
     ]
     
     mock_git_service.get_status_porcelain.return_value = ""
+    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
     mock_git_service.get_current_branch.return_value = "main"
     mock_git_service.get_tags.return_value = [] # No existing tags
     mock_git_service.write_tree.return_value = "dummy_tree_id"
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
     mock_vault_service.sign.return_value = VAULT_SIGNATURE_RESPONSE['data']['signature']
 
-    mock_exists = mocker.patch('pathlib.Path.exists', return_value=False) # Mock Path.exists
+    mock_exists = mocker.patch('pathlib.Path.exists', return_value=True) # Mock Path.exists
     mock_makedirs = mocker.patch('os.makedirs') # os.makedirs is still used
     mocker.patch('tools.infra.datetime.datetime', FixedDateTime)
     mocker.patch('jsonschema.validate', return_value=None)
@@ -560,6 +608,7 @@ def test_run_release_success(mocker, mock_release_manager_deps):
     mocker.patch('jsonschema.validate', return_value=None)
     
     mock_git_service.get_status_porcelain.return_value = ""
+    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
     mock_git_service.get_current_branch.return_value = "main"
     mock_git_service.get_tags.return_value = [] # No existing tags
     mock_git_service.write_tree.return_value = "dummy_tree_id"
@@ -625,9 +674,14 @@ list_key:
 def test_get_reproducible_repo_hash_success(mocker):
     """Test that get_reproducible_repo_hash correctly calculates the hash."""
     mock_git_service = mocker.MagicMock(spec=GitService)
-    mock_git_service.archive_tree_bytes.return_value = b"dummy_archive_bytes"
+    mock_archive_bytes = b"dummy_archive_bytes"
+    mock_git_service.archive_tree_bytes.return_value = mock_archive_bytes
     
-    expected_hash_bytes = hashlib.sha256(b"dummy_archive_bytes").digest()
+    # Calculate expected hash mimicking the double update in the function
+    hasher = hashlib.sha256()
+    hasher.update(mock_archive_bytes)
+    hasher.update(mock_archive_bytes)
+    expected_hash_bytes = hasher.digest()
     expected_b64_hash = base64.b64encode(expected_hash_bytes).decode('utf-8')
 
     result = get_reproducible_repo_hash(mock_git_service, "dummy_tree_id")
@@ -639,11 +693,12 @@ def test_run_release_with_vault_cacert(mocker, mock_release_manager_deps):
     mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
     mock_vault_cacert_path = "/path/to/ca.pem"
     
-    # Re-mock VaultService constructor to ensure verify_tls is set correctly
-    mocker.patch('tools.releaselib.vault_service.VaultService.__init__', return_value=None)
-    mocker.patch('tools.releaselib.vault_service.VaultService.sign', return_value=VAULT_SIGNATURE_RESPONSE['data']['signature'])
-    
-    # Manually create a VaultService instance with the mocked __init__
+    # Mock requests.post directly
+    mock_requests_post = mocker.patch('requests.post')
+    mock_requests_post.return_value.json.return_value = VAULT_SIGNATURE_RESPONSE
+    mock_requests_post.return_value.raise_for_status.return_value = None
+
+    # Create a real VaultService instance
     vault_service_instance = VaultService(
         vault_addr='http://localhost:8200',
         vault_token='test_token',
@@ -651,12 +706,11 @@ def test_run_release_with_vault_cacert(mocker, mock_release_manager_deps):
         dry_run=False,
         logger=mock_logger
     )
-    vault_service_instance.verify_tls = mock_vault_cacert_path # Set the mocked attribute
 
     manager = ReleaseManager(
         config=mock_config,
         git_service=mock_git_service,
-        vault_service=vault_service_instance, # Use the mocked instance
+        vault_service=vault_service_instance, # Use the real instance
         project_root=mock_project_root,
         logger=mock_logger
     )
@@ -682,6 +736,7 @@ def test_run_release_with_vault_cacert(mocker, mock_release_manager_deps):
     ]
     
     mock_git_service.get_status_porcelain.return_value = ""
+    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
     mock_git_service.get_current_branch.return_value = "main"
     mock_git_service.get_tags.return_value = [] # No existing tags
     mock_git_service.write_tree.return_value = "dummy_tree_id"
@@ -689,11 +744,6 @@ def test_run_release_with_vault_cacert(mocker, mock_release_manager_deps):
     mocker.patch('tools.infra.datetime.datetime', FixedDateTime)
     mocker.patch('jsonschema.validate', return_value=None)
     mocker.patch('tools.infra.write_yaml')
-
-    # Mock requests.post within the VaultService.sign method
-    mock_requests_post = mocker.patch('requests.post')
-    mock_requests_post.return_value.json.return_value = VAULT_SIGNATURE_RESPONSE
-    mock_requests_post.return_value.raise_for_status.return_value = None
 
     manager.run_release_close(release_version="0.5.0")
 

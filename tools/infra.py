@@ -20,6 +20,11 @@ from .releaselib.exceptions import (
     VaultServiceError
 )
 
+# Add this custom exception
+class ValidationFailureError(ReleaseError):
+    """Custom exception for schema validation failures."""
+    pass
+
 # --- Helper Functions (can be considered a utility module) ---
 
 def load_yaml(path: Path):
