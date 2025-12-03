@@ -66,7 +66,7 @@ validate:
 	@echo "--- Validating all schemas against the meta-schema ---"
 	@docker compose exec builder python -m tools.compiler validate $(COMPILER_CLI_ARGS)
 
-release:
+release: test
 ifeq ($(VERSION),)
 	$(error VERSION is required for the release command. Usage: make release VERSION=1.0.0)
 endif
