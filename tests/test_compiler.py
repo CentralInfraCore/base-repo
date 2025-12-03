@@ -112,36 +112,25 @@ def test_placeholder():
     """A placeholder test to ensure pytest is running correctly."""
     assert True
 
-def test_compiler_validation_runs(mocker):
+def test_compiler_validation_runs(mocker, mock_release_manager_deps):
     """Test that the compiler's validation function can be called without error."""
-    # Mock dependencies for ReleaseManager
-    mock_config = {'meta_schema_file': 'meta.yaml', 'meta_schemas_dir': 'schemas'}
-    mock_git_service = mocker.MagicMock(spec=GitService)
-    mock_vault_service = mocker.MagicMock(spec=VaultService)
-    mock_logger = mocker.MagicMock()
+    mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
 
-    # Instantiate ReleaseManager
+    # Instantiate ReleaseManager with the mock_project_root from the fixture
     manager = ReleaseManager(
         config=mock_config,
         git_service=mock_git_service,
         vault_service=mock_vault_service,
-        project_root=mocker.MagicMock(),
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
 
     # Targeted mocks for project_root operations
-    mock_project_root = manager.project_root # Get the MagicMock instance from the manager
     mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
     mock_schema_file.resolve.return_value = Path('schema_file.yaml')
-    mock_project_root.glob.return_value = [mock_schema_file]
+    mock_project_root.glob.return_value = [mock_schema_file] # Override default glob for this test
 
-    mock_meta_schema_path = mocker.MagicMock(spec=Path, name='meta.yaml')
-    mock_meta_schema_path.resolve.return_value = Path('meta.yaml')
-    # Mock the / operator for project_root to return the meta_schema_path mock
-    mock_project_root.__truediv__.side_effect = lambda other: mock_meta_schema_path if other == mock_config['meta_schema_file'] else mocker.MagicMock(spec=Path)
-
-
-    mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml') # Módosítva: tools.compiler.load_yaml -> tools.infra.load_yaml
+    mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
         # Meta-schema
         {
@@ -151,68 +140,50 @@ def test_compiler_validation_runs(mocker):
         # Dummy schema
         DUMMY_SCHEMA_DATA
     ]
-    mocker.patch('jsonschema.validate', return_value=None) # Módosítva: tools.compiler.validate -> jsonschema.validate
+    mocker.patch('tools.infra.validate', return_value=None) # FIX: Patch tools.infra.validate
 
     try:
-        manager.run_validation() # Módosítva: compiler.run_validation() -> manager.run_validation()
+        manager.run_validation()
     except SystemExit as e:
         if e.code == 1:
             pytest.fail(f"Validation failed with SystemExit: {e}")
     except Exception as e:
         pytest.fail(f"An unexpected error occurred during validation: {e}")
 
-def test_run_validation_meta_schema_load_failure(mocker):
+def test_run_validation_meta_schema_load_failure(mocker, mock_release_manager_deps):
     """Test that run_validation exits with code 1 if meta-schema loading fails."""
-    mock_config = {'meta_schema_file': 'meta.yaml', 'meta_schemas_dir': 'schemas'}
-    mock_git_service = mocker.MagicMock(spec=GitService)
-    mock_vault_service = mocker.MagicMock(spec=VaultService)
-    mock_logger = mocker.MagicMock()
+    mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
 
     manager = ReleaseManager(
         config=mock_config,
         git_service=mock_git_service,
         vault_service=mock_vault_service,
-        project_root=mocker.MagicMock(),
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
 
-    # Targeted mock for project_root operations
-    mock_project_root = manager.project_root
-    mock_meta_schema_path = mocker.MagicMock(spec=Path, name='meta.yaml')
-    mock_project_root.__truediv__.side_effect = lambda other: mock_meta_schema_path if other == mock_config['meta_schema_file'] else mocker.MagicMock(spec=Path)
+    mocker.patch('tools.infra.load_yaml', side_effect=ConfigurationError("File not found"))
+    with pytest.raises(ConfigurationError):
+        manager.run_validation()
 
-    mocker.patch('tools.infra.load_yaml', side_effect=ConfigurationError("File not found")) # Módosítva: tools.compiler.load_yaml -> tools.infra.load_yaml
-    with pytest.raises(ConfigurationError): # Módosítva: SystemExit -> ConfigurationError
-        manager.run_validation() # Módosítva: compiler.run_validation() -> manager.run_validation()
-    # assert excinfo.value.code == 1 # Removed, as ConfigurationError is raised directly
-
-def test_run_validation_schema_validation_failure(mocker):
+def test_run_validation_schema_validation_failure(mocker, mock_release_manager_deps):
     """Test that run_validation exits with code 1 if a schema fails validation."""
-    mock_config = {'meta_schema_file': 'meta.yaml', 'meta_schemas_dir': 'schemas'}
-    mock_git_service = mocker.MagicMock(spec=GitService)
-    mock_vault_service = mocker.MagicMock(spec=VaultService)
-    mock_logger = mocker.MagicMock()
+    mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
 
     manager = ReleaseManager(
         config=mock_config,
         git_service=mock_git_service,
         vault_service=mock_vault_service,
-        project_root=mocker.MagicMock(),
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
 
     # Targeted mocks for project_root operations
-    mock_project_root = manager.project_root
     mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
     mock_schema_file.resolve.return_value = Path('schema_file.yaml')
-    mock_project_root.glob.return_value = [mock_schema_file]
+    mock_project_root.glob.return_value = [mock_schema_file] # Override default glob for this test
 
-    mock_meta_schema_path = mocker.MagicMock(spec=Path, name='meta.yaml')
-    mock_meta_schema_path.resolve.return_value = Path('meta.yaml')
-    mock_project_root.__truediv__.side_effect = lambda other: mock_meta_schema_path if other == mock_config['meta_schema_file'] else mocker.MagicMock(spec=Path)
-
-
-    mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml') # Módosítva: tools.compiler.load_yaml -> tools.infra.load_yaml
+    mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
         # Meta-schema
         {
@@ -222,7 +193,7 @@ def test_run_validation_schema_validation_failure(mocker):
         # Dummy schema
         DUMMY_SCHEMA_DATA
     ]
-    mocker.patch('jsonschema.validate', side_effect=JsonSchemaValidationError("Schema invalid")) # Módosítva: ValidationError -> JsonSchemaValidationError
+    mocker.patch('tools.infra.validate', side_effect=JsonSchemaValidationError("Schema invalid")) # FIX: Patch tools.infra.validate
 
     with pytest.raises(ValidationFailureError):
         manager.run_validation()
@@ -231,15 +202,15 @@ def test_main_no_arguments(mocker):
     """Test that main exits with code 1 if no arguments are provided."""
     mocker.patch.object(sys, 'argv', ['compiler.py'])
     with pytest.raises(SystemExit) as excinfo:
-        main() # Módosítva: compiler.main() -> main()
-    assert excinfo.value.code == 2 # Módosítva: 1 -> 2 (argparse exits with 2 for missing required args)
+        main()
+    assert excinfo.value.code == 2
 
 def test_main_unknown_command(mocker):
     """Test that main exits with code 1 if an unknown command is provided."""
     mocker.patch.object(sys, 'argv', ['compiler.py', 'unknown_command'])
     with pytest.raises(SystemExit) as excinfo:
-        main() # Módosítva: compiler.main() -> main()
-    assert excinfo.value.code == 2 # Módosítva: 1 -> 2 (argparse exits with 2 for unknown command)
+        main()
+    assert excinfo.value.code == 2
 
 # --- Tests for run_release (needs significant refactoring) ---
 
@@ -258,24 +229,29 @@ def mock_release_manager_deps(mocker):
     
     # Mock the / operator for Path objects
     # This is crucial for expressions like `project_root / 'project.yaml'`
-    def mock_truediv(self, other):
-        if other == 'project.yaml':
-            mock_project_yaml_path = mocker.MagicMock(spec=Path)
-            mock_project_yaml_path.exists.return_value = True
-            mock_project_yaml_path.read_text.return_value = "compiler_settings:\n  component_name: base\nrelease: {}"
-            mock_project_yaml_path.resolve.return_value = mock_project_yaml_path # resolve itself
-            return mock_project_yaml_path
-        elif other == mock_config['meta_schema_file']:
-            mock_meta_schema_path = mocker.MagicMock(spec=Path)
-            mock_meta_schema_path.resolve.return_value = Path('meta.yaml') # Return a real Path for resolve
-            return mock_meta_schema_path
+    def mock_truediv(other): # Removed 'self' argument
+        # Create a new mock Path object for the result of the division
+        result_path_mock = mocker.MagicMock(spec=Path)
+        result_path_mock.name = str(other) # Set name for debugging/matching
+        result_path_mock.resolve.return_value = result_path_mock # Default resolve to itself
+
+        if str(other) == 'project.yaml':
+            result_path_mock.exists.return_value = True
+            result_path_mock.read_text.return_value = "compiler_settings:\n  component_name: base\nrelease: {}"
+        elif str(other) == mock_config['meta_schema_file']:
+            result_path_mock.exists.return_value = True # Assume meta-schema file exists
+            # Its resolve is already set to itself by default
         else:
-            # For other paths, return a generic mock Path
-            generic_mock_path = mocker.MagicMock(spec=Path)
-            generic_mock_path.resolve.return_value = generic_mock_path
-            return generic_mock_path
+            # Default for other paths created by /
+            result_path_mock.exists.return_value = False # Assume other files don't exist by default
+            result_path_mock.read_text.side_effect = FileNotFoundError # If read, raise error
+
+        return result_path_mock
 
     mock_project_root.__truediv__.side_effect = mock_truediv
+
+    # Mock glob for project_root - default to empty list, tests can override
+    mock_project_root.glob.return_value = [] 
 
     return mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root
 
@@ -283,22 +259,22 @@ def test_run_release_no_vault_env_vars(mocker, mock_release_manager_deps):
     """Test that run_release exits with VaultServiceError if VaultService is not initialized."""
     mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
     
+    # Configure git service mock
+    mock_git_service.get_status_porcelain.return_value = ""
+    mock_git_service.assert_clean_index.return_value = None
+    mock_git_service.get_current_branch.return_value = "main" # Provide a string return value
+
     # Simulate VaultService not being initialized (e.g., due to missing env vars)
-    # This test now checks the ReleaseManager's internal check, not compiler.main's env var check
     manager = ReleaseManager(
         config=mock_config,
         git_service=mock_git_service,
         vault_service=None, # Explicitly set to None to trigger the error
-        project_root=mock_project_root,
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
-
-    # Mock git status to be clean
-    mock_git_service.get_status_porcelain.return_value = ""
-    mock_git_service.assert_clean_index.return_value = None
-
+    
     with pytest.raises(VaultServiceError, match="VaultService is not initialized. Cannot sign release."):
-        manager.run_release_close(release_version="0.5.0") # Call run_release_close directly
+        manager.run_release_close(release_version="0.5.0")
 
 def test_run_release_vault_signing_failure(mocker, mock_release_manager_deps):
     """Test that run_release exits with ReleaseError if Vault signing fails."""
@@ -308,16 +284,14 @@ def test_run_release_vault_signing_failure(mocker, mock_release_manager_deps):
         config=mock_config,
         git_service=mock_git_service,
         vault_service=mock_vault_service,
-        project_root=mock_project_root,
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
 
     # Targeted mocks for project_root operations
     mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
     mock_schema_file.resolve.return_value = Path('schema_file.yaml')
-    mock_project_root.glob.return_value = [mock_schema_file]
-
-    # The project.yaml path is handled by the mock_truediv in the fixture
+    mock_project_root.glob.return_value = [mock_schema_file] # Override default glob for this test
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
@@ -333,18 +307,19 @@ def test_run_release_vault_signing_failure(mocker, mock_release_manager_deps):
         # Dummy schema
         DUMMY_SCHEMA_DATA
     ]
-    mocker.patch('jsonschema.validate', return_value=None)
-    
+    mocker.patch('tools.infra.validate', return_value=None) # FIX: Patch tools.infra.validate
+    mocker.patch('tools.infra.write_yaml') # FIX: Add write_yaml mock
+
     mock_git_service.get_status_porcelain.return_value = ""
-    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
-    mock_git_service.get_current_branch.return_value = "main"
-    mock_git_service.get_tags.return_value = [] # No existing tags
+    mock_git_service.assert_clean_index.return_value = None
+    mock_git_service.get_current_branch.return_value = "main" # Provide a string return value
+    mock_git_service.get_tags.return_value = []
     mock_git_service.write_tree.return_value = "dummy_tree_id"
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
 
     mock_vault_service.sign.side_effect = VaultServiceError("Vault is down") # Simulate Vault signing failure
 
-    with pytest.raises(ReleaseError, match=r"Release process failed: Vault is down"): # Updated regex
+    with pytest.raises(ReleaseError, match=r"Release process failed: Vault is down"):
         manager.run_release_close(release_version="0.5.0")
 
 def test_run_release_skip_dev_version(mocker, mock_release_manager_deps):
@@ -355,7 +330,7 @@ def test_run_release_skip_dev_version(mocker, mock_release_manager_deps):
         config=mock_config,
         git_service=mock_git_service,
         vault_service=mock_vault_service,
-        project_root=mock_project_root,
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
 
@@ -364,7 +339,7 @@ def test_run_release_skip_dev_version(mocker, mock_release_manager_deps):
     mock_schema_file.resolve.return_value = Path('test-schema.yaml')
     mock_dev_schema_file = mocker.MagicMock(spec=Path, name='test-schema-dev.yaml')
     mock_dev_schema_file.resolve.return_value = Path('test-schema-dev.yaml')
-    mock_project_root.glob.return_value = [mock_schema_file, mock_dev_schema_file]
+    mock_project_root.glob.return_value = [mock_schema_file, mock_dev_schema_file] # Override default glob for this test
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
@@ -386,12 +361,12 @@ def test_run_release_skip_dev_version(mocker, mock_release_manager_deps):
     mocker.patch.object(os.path, 'exists', return_value=True)
     mocker.patch.object(os, 'makedirs')
     mocker.patch('tools.infra.datetime.datetime', FixedDateTime)
-    mocker.patch('jsonschema.validate', return_value=None)
+    mocker.patch('tools.infra.validate', return_value=None) # FIX: Patch tools.infra.validate
     
     mock_git_service.get_status_porcelain.return_value = ""
-    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
-    mock_git_service.get_current_branch.return_value = "main"
-    mock_git_service.get_tags.return_value = [] # No existing tags
+    mock_git_service.assert_clean_index.return_value = None
+    mock_git_service.get_current_branch.return_value = "main" # Provide a string return value
+    mock_git_service.get_tags.return_value = []
     mock_git_service.write_tree.return_value = "dummy_tree_id"
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
     mock_vault_service.sign.return_value = VAULT_SIGNATURE_RESPONSE['data']['signature']
@@ -418,14 +393,14 @@ def test_run_release_no_schemas_to_release(mocker, mock_release_manager_deps):
         config=mock_config,
         git_service=mock_git_service,
         vault_service=mock_vault_service,
-        project_root=mock_project_root,
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
 
     # Targeted mocks for project_root operations
     mock_dev_schema_file = mocker.MagicMock(spec=Path, name='test-schema-dev.yaml')
     mock_dev_schema_file.resolve.return_value = Path('test-schema-dev.yaml')
-    mock_project_root.glob.return_value = [mock_dev_schema_file]
+    mock_project_root.glob.return_value = [mock_dev_schema_file] # Override default glob for this test
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
@@ -445,12 +420,12 @@ def test_run_release_no_schemas_to_release(mocker, mock_release_manager_deps):
     mocker.patch.object(os.path, 'exists', return_value=True)
     mocker.patch.object(os, 'makedirs')
     mocker.patch('tools.infra.datetime.datetime', FixedDateTime)
-    mocker.patch('jsonschema.validate', return_value=None)
+    mocker.patch('tools.infra.validate', return_value=None) # FIX: Patch tools.infra.validate
     
     mock_git_service.get_status_porcelain.return_value = ""
-    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
-    mock_git_service.get_current_branch.return_value = "main"
-    mock_git_service.get_tags.return_value = [] # No existing tags
+    mock_git_service.assert_clean_index.return_value = None
+    mock_git_service.get_current_branch.return_value = "main" # Provide a string return value
+    mock_git_service.get_tags.return_value = []
     mock_git_service.write_tree.return_value = "dummy_tree_id"
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
     mock_vault_service.sign.return_value = VAULT_SIGNATURE_RESPONSE['data']['signature']
@@ -473,14 +448,14 @@ def test_run_release_final_validation_failure(mocker, mock_release_manager_deps)
         config=mock_config,
         git_service=mock_git_service,
         vault_service=mock_vault_service,
-        project_root=mock_project_root,
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
 
     # Targeted mocks for project_root operations
     mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
     mock_schema_file.resolve.return_value = Path('schema_file.yaml')
-    mock_project_root.glob.return_value = [mock_schema_file]
+    mock_project_root.glob.return_value = [mock_schema_file] # Override default glob for this test
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
@@ -498,12 +473,12 @@ def test_run_release_final_validation_failure(mocker, mock_release_manager_deps)
         # Third call for project.yaml content before writing final release block
         {'compiler_settings': mock_config, 'release': {}}
     ]
-    mocker.patch('jsonschema.validate', return_value=None)
+    mocker.patch('tools.infra.validate', return_value=None) # FIX: Patch tools.infra.validate
     
     mock_git_service.get_status_porcelain.return_value = ""
     mock_git_service.assert_clean_index.return_value = None
-    mock_git_service.get_current_branch.return_value = "main"
-    mock_git_service.get_tags.return_value = [] # No existing tags
+    mock_git_service.get_current_branch.return_value = "main" # Provide a string return value
+    mock_git_service.get_tags.return_value = []
     mock_git_service.write_tree.return_value = "dummy_tree_id"
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
     mock_vault_service.sign.return_value = VAULT_SIGNATURE_RESPONSE['data']['signature']
@@ -526,14 +501,14 @@ def test_run_release_create_source_dir(mocker, mock_release_manager_deps):
         config=mock_config,
         git_service=mock_git_service,
         vault_service=mock_vault_service,
-        project_root=mock_project_root,
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
 
     # Targeted mocks for project_root operations
     mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
     mock_schema_file.resolve.return_value = Path('schema_file.yaml')
-    mock_project_root.glob.return_value = [mock_schema_file]
+    mock_project_root.glob.return_value = [mock_schema_file] # Override default glob for this test
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
@@ -551,16 +526,16 @@ def test_run_release_create_source_dir(mocker, mock_release_manager_deps):
     ]
     
     mock_git_service.get_status_porcelain.return_value = ""
-    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
-    mock_git_service.get_current_branch.return_value = "main"
-    mock_git_service.get_tags.return_value = [] # No existing tags
+    mock_git_service.assert_clean_index.return_value = None
+    mock_git_service.get_current_branch.return_value = "main" # Provide a string return value
+    mock_git_service.get_tags.return_value = []
     mock_git_service.write_tree.return_value = "dummy_tree_id"
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
     mock_vault_service.sign.return_value = VAULT_SIGNATURE_RESPONSE['data']['signature']
 
-    mocker.patch('os.makedirs') # os.makedirs is still used
+    mocker.patch('os.makedirs')
     mocker.patch('tools.infra.datetime.datetime', FixedDateTime)
-    mocker.patch('jsonschema.validate', return_value=None)
+    mocker.patch('tools.infra.validate', return_value=None) # FIX: Patch tools.infra.validate
     mocker.patch('tools.infra.write_yaml')
 
     manager.run_release_close(release_version="0.5.0")
@@ -579,7 +554,7 @@ def test_run_release_success(mocker, mock_release_manager_deps):
         config=mock_config,
         git_service=mock_git_service,
         vault_service=mock_vault_service,
-        project_root=mock_project_root,
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
 
@@ -589,7 +564,7 @@ def test_run_release_success(mocker, mock_release_manager_deps):
     # Targeted mocks for project_root operations
     mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
     mock_schema_file.resolve.return_value = Path('schema_file.yaml')
-    mock_project_root.glob.return_value = [mock_schema_file]
+    mock_project_root.glob.return_value = [mock_schema_file] # Override default glob for this test
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
@@ -649,14 +624,14 @@ def test_run_release_success(mocker, mock_release_manager_deps):
     mocker.patch.object(os, 'makedirs')
 
     # Mock datetime.now to control build_timestamp
-    mocker.patch('tools.infra.datetime.datetime', FixedDateTime) # Use FixedDateTime for infra.datetime
+    mocker.patch('tools.infra.datetime.datetime', FixedDateTime)
 
-    mocker.patch('jsonschema.validate', return_value=None)
+    mocker.patch('tools.infra.validate', return_value=None) # FIX: Patch tools.infra.validate
     
     mock_git_service.get_status_porcelain.return_value = ""
-    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
-    mock_git_service.get_current_branch.return_value = "main"
-    mock_git_service.get_tags.return_value = [] # No existing tags
+    mock_git_service.assert_clean_index.return_value = None
+    mock_git_service.get_current_branch.return_value = "main" # Provide a string return value
+    mock_git_service.get_tags.return_value = []
     mock_git_service.write_tree.return_value = "dummy_tree_id"
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
     mock_vault_service.sign.return_value = VAULT_SIGNATURE_RESPONSE['data']['signature']
@@ -695,7 +670,7 @@ def test_write_yaml(tmp_path):
         "list_key": [1, 2, 3]
     }
 
-    write_yaml(test_file, test_data) # Módosítva: compiler.write_yaml -> write_yaml
+    write_yaml(test_file, test_data)
 
     assert test_file.exists()
     
@@ -761,14 +736,14 @@ def test_run_release_with_vault_cacert(mocker, mock_release_manager_deps):
         config=mock_config,
         git_service=mock_git_service,
         vault_service=vault_service_instance, # Use the real instance
-        project_root=mock_project_root,
+        project_root=mock_project_root, # Use the mock from the fixture
         logger=mock_logger
     )
 
     # Targeted mocks for project_root operations
     mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
     mock_schema_file.resolve.return_value = Path('schema_file.yaml')
-    mock_project_root.glob.return_value = [mock_schema_file]
+    mock_project_root.glob.return_value = [mock_schema_file] # Override default glob for this test
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
@@ -788,13 +763,14 @@ def test_run_release_with_vault_cacert(mocker, mock_release_manager_deps):
     ]
     
     mock_git_service.get_status_porcelain.return_value = ""
-    mock_git_service.assert_clean_index.return_value = None # Mock assert_clean_index
-    mock_git_service.get_current_branch.return_value = "main"
-    mock_git_service.get_tags.return_value = [] # No existing tags
+    mock_git_service.assert_clean_index.return_value = None
+    mock_git_service.get_current_branch.return_value = "main" # Provide a string return value
+    mock_git_service.get_tags.return_value = []
     mock_git_service.write_tree.return_value = "dummy_tree_id"
-    mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
+    # FIX: Provide a valid Base64 encoded digest
+    mocker.patch('tools.infra.get_reproducible_repo_hash', return_value=base64.b64encode(b'dummy_digest_content').decode('ascii'))
     mocker.patch('tools.infra.datetime.datetime', FixedDateTime)
-    mocker.patch('jsonschema.validate', return_value=None)
+    mocker.patch('tools.infra.validate', return_value=None) # FIX: Patch tools.infra.validate
     mocker.patch('tools.infra.write_yaml')
 
     manager.run_release_close(release_version="0.5.0")
