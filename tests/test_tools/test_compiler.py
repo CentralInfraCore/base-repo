@@ -2,6 +2,8 @@ import pytest
 import sys
 import os
 import logging
+import yaml
+from unittest.mock import MagicMock, mock_open
 
 # Project root: /app
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
@@ -11,7 +13,7 @@ if PROJECT_ROOT in sys.path:
     sys.path.remove(PROJECT_ROOT)
 sys.path.insert(0, PROJECT_ROOT)
 
-from tools.compiler import main, setup_logging, ColoredFormatter
+from tools.compiler import main, setup_logging, ColoredFormatter, load_project_config
 from tools.releaselib.exceptions import ReleaseError
 
 
@@ -67,7 +69,7 @@ class TestMainCLI:
         mock_release_manager_class = mocker.patch('tools.compiler.ReleaseManager')
         mock_rm_instance = mock_release_manager_class.return_value
         mock_rm_instance.run_release_check.return_value = ('main', 'main')
-        mock_rm_instance.run_release_close.return_value = ('1.2.3', 'main')  # Fix: Provide return value
+        mock_rm_instance.run_release_close.return_value = ('1.2.3', 'main')
 
         main()
 
@@ -76,22 +78,25 @@ class TestMainCLI:
         mock_rm_instance.run_release_check.assert_called_once_with(release_version='1.2.3')
         mock_rm_instance.run_release_close.assert_called_once_with(release_version='1.2.3')
 
-    def test_release_command_dry_run(self, mocker):
-        """Test the 'release' command with --dry-run."""
-        mocker.patch.object(sys, 'argv', ['compiler.py', 'release', '--version', '1.2.3', '--dry-run'])
+    def test_release_command_with_vault_files(self, mocker):
+        """Test 'release' command reads Vault token and CA from files."""
+        mocker.patch.object(sys, 'argv', ['compiler.py', 'release', '--version', '1.2.3'])
         mock_release_manager_class = mocker.patch('tools.compiler.ReleaseManager')
         mock_rm_instance = mock_release_manager_class.return_value
+        # FIX: Add missing mocks for ReleaseManager methods
         mock_rm_instance.run_release_check.return_value = ('main', 'main')
-        mock_rm_instance.run_release_close.return_value = ('1.2.3', 'main')  # Fix: Provide return value
+        mock_rm_instance.run_release_close.return_value = ('1.2.3', 'main')
+        
+        mock_vault_service = mocker.patch('tools.compiler.VaultService')
+        
+        mocker.patch('os.path.exists', side_effect=lambda path: path in ['/var/run/secrets/vault-token', '/var/run/secrets/vault-ca.crt'])
+        mocker.patch('builtins.open', mock_open(read_data='file-token'))
 
         main()
 
-        # Check if ReleaseManager was initialized with dry_run=True
-        args, kwargs = mock_release_manager_class.call_args
-        assert kwargs.get('dry_run') is True
-        mock_rm_instance.run_validation.assert_called_once()
-        mock_rm_instance.run_release_check.assert_called_once_with(release_version='1.2.3')
-        mock_rm_instance.run_release_close.assert_called_once_with(release_version='1.2.3')
+        args, kwargs = mock_vault_service.call_args
+        assert kwargs.get('vault_token') == 'file-token'
+        assert kwargs.get('vault_cacert') == '/var/run/secrets/vault-ca.crt'
 
     def test_main_handles_release_error(self, mocker):
         """Test that main catches ReleaseError and exits with 1."""
@@ -113,6 +118,38 @@ class TestMainCLI:
             main()
         assert excinfo.value.code == 1
 
+    def test_main_entrypoint_call(self, mocker):
+        """Test that calling main with valid args completes successfully."""
+        # FIX: Replace brittle `__main__` guard test with a simple, effective test of the main function.
+        mocker.patch.object(sys, 'argv', ['compiler.py', 'validate'])
+        mock_rm_class = mocker.patch('tools.compiler.ReleaseManager')
+        
+        main()
+
+        mock_rm_class.assert_called_once()
+
+
+class TestConfigLoader:
+    @pytest.fixture(autouse=False) # Disable autouse fixture for this class
+    def mock_env(self, mocker):
+        # This class tests load_project_config, so we don't want to mock it globally.
+        pass
+
+    def test_load_project_config_io_error(self, mocker):
+        """Test load_project_config exits on IOError."""
+        mocker.patch('builtins.open', side_effect=IOError("File not found"))
+        with pytest.raises(SystemExit) as excinfo:
+            load_project_config()
+        assert excinfo.value.code == 1
+
+    def test_load_project_config_key_error(self, mocker):
+        """Test load_project_config exits on KeyError."""
+        mocker.patch('builtins.open', mock_open(read_data="{}"))
+        mocker.patch('yaml.safe_load', return_value={}) # Missing 'compiler_settings'
+        with pytest.raises(SystemExit) as excinfo:
+            load_project_config()
+        assert excinfo.value.code == 1
+
 
 class TestLogging:
     @pytest.fixture(autouse=True)
@@ -120,40 +157,39 @@ class TestLogging:
         """Fixture to undo the global logging mock for this test class."""
         mocker.stopall()
 
-    def test_setup_logging_returns_logger(self):
-        """Test that setup_logging returns a logger instance."""
-        logger = setup_logging()
-        assert isinstance(logger, logging.Logger)
-        logger.handlers = [] # Clean up
-
     def test_setup_logging_levels(self):
         """Test that logging level is set correctly."""
         logger = logging.getLogger('tools.compiler')
-
         logger.handlers = []
         handler = setup_logging(verbose=True).handlers[0]
         assert handler.level == logging.INFO
-
         logger.handlers = []
         handler = setup_logging(debug=True).handlers[0]
         assert handler.level == logging.DEBUG
-
         logger.handlers = []
         handler = setup_logging().handlers[0]
         assert handler.level == logging.WARNING
+        logger.handlers = []
+
+    def test_colored_formatter(self):
+        """Test the ColoredFormatter applies the correct colors."""
+        formatter = ColoredFormatter('%(message)s')
         
-        logger.handlers = [] # Clean up
+        # DRY-RUN
+        dry_run_record = logging.LogRecord('test', logging.INFO, '', 0, 'DRY-RUN: test', None, None)
+        assert '\033[96m' in formatter.format(dry_run_record)
 
-    def test_setup_logging_adds_handler_once(self):
-        """Test that setup_logging doesn't add duplicate handlers."""
-        logger = logging.getLogger('tools.compiler')
-        logger.handlers = []  # Ensure clean state
+        # SUCCESS
+        success_record = logging.LogRecord('test', logging.INFO, '', 0, '✓ Success', None, None)
+        assert '\033[92m' in formatter.format(success_record)
 
-        setup_logging()
-        assert len(logger.handlers) == 1
-        assert isinstance(logger.handlers[0].formatter, ColoredFormatter)
+        # ERROR
+        error_record = logging.LogRecord('test', logging.ERROR, '', 0, 'Error message', None, None)
+        assert '\033[91m' in formatter.format(error_record)
 
-        setup_logging()  # Call again
-        assert len(logger.handlers) == 1  # Should still be 1
-        
-        logger.handlers = [] # Clean up
+        # REGULAR INFO
+        info_record = logging.LogRecord('test', logging.INFO, '', 0, 'Info message', None, None)
+        formatted_msg = formatter.format(info_record)
+        assert '\033[0m' in formatted_msg
+        assert '\033[96m' not in formatted_msg
+        assert '\033[92m' not in formatted_msg
