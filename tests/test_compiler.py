@@ -3,15 +3,16 @@ import os
 from datetime import datetime, timezone
 import yaml
 import sys
-from jsonschema import ValidationError
+from jsonschema import ValidationError as JsonSchemaValidationError # Alias for clarity
 import requests
 import hashlib
 import base64
 from unittest.mock import MagicMock, patch
+from pathlib import Path # Ensure this import is present
 
 # Import specific functions/classes from their new locations
 from tools.compiler import main, setup_logging, load_project_config
-from tools.infra import ReleaseManager, load_yaml, write_yaml, get_reproducible_repo_hash, ValidationFailureError # Import ValidationFailureError
+from tools.infra import ReleaseManager, load_yaml, write_yaml, get_reproducible_repo_hash, ValidationFailureError
 from tools.releaselib.git_service import GitService
 from tools.releaselib.vault_service import VaultService
 from tools.releaselib.exceptions import ConfigurationError, GitStateError, VersionMismatchError, ReleaseError, VaultServiceError
@@ -128,8 +129,17 @@ def test_compiler_validation_runs(mocker):
         logger=mock_logger
     )
 
-    mocker.patch('pathlib.Path.glob', return_value=[mocker.MagicMock(name='schema_file.yaml', resolve=lambda: 'schema_file.yaml')])
-    mocker.patch('pathlib.Path.resolve', return_value='meta.yaml') # For meta_schema_path.resolve()
+    # Targeted mocks for project_root operations
+    mock_project_root = manager.project_root # Get the MagicMock instance from the manager
+    mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
+    mock_schema_file.resolve.return_value = Path('schema_file.yaml')
+    mock_project_root.glob.return_value = [mock_schema_file]
+
+    mock_meta_schema_path = mocker.MagicMock(spec=Path, name='meta.yaml')
+    mock_meta_schema_path.resolve.return_value = Path('meta.yaml')
+    # Mock the / operator for project_root to return the meta_schema_path mock
+    mock_project_root.__truediv__.side_effect = lambda other: mock_meta_schema_path if other == mock_config['meta_schema_file'] else mocker.MagicMock(spec=Path)
+
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml') # Módosítva: tools.compiler.load_yaml -> tools.infra.load_yaml
     mock_load_yaml_helper.side_effect = [
@@ -166,6 +176,11 @@ def test_run_validation_meta_schema_load_failure(mocker):
         logger=mock_logger
     )
 
+    # Targeted mock for project_root operations
+    mock_project_root = manager.project_root
+    mock_meta_schema_path = mocker.MagicMock(spec=Path, name='meta.yaml')
+    mock_project_root.__truediv__.side_effect = lambda other: mock_meta_schema_path if other == mock_config['meta_schema_file'] else mocker.MagicMock(spec=Path)
+
     mocker.patch('tools.infra.load_yaml', side_effect=ConfigurationError("File not found")) # Módosítva: tools.compiler.load_yaml -> tools.infra.load_yaml
     with pytest.raises(ConfigurationError): # Módosítva: SystemExit -> ConfigurationError
         manager.run_validation() # Módosítva: compiler.run_validation() -> manager.run_validation()
@@ -186,8 +201,16 @@ def test_run_validation_schema_validation_failure(mocker):
         logger=mock_logger
     )
 
-    mocker.patch('pathlib.Path.glob', return_value=[mocker.MagicMock(name='schema_file.yaml', resolve=lambda: 'schema_file.yaml')])
-    mocker.patch('pathlib.Path.resolve', return_value='meta.yaml')
+    # Targeted mocks for project_root operations
+    mock_project_root = manager.project_root
+    mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
+    mock_schema_file.resolve.return_value = Path('schema_file.yaml')
+    mock_project_root.glob.return_value = [mock_schema_file]
+
+    mock_meta_schema_path = mocker.MagicMock(spec=Path, name='meta.yaml')
+    mock_meta_schema_path.resolve.return_value = Path('meta.yaml')
+    mock_project_root.__truediv__.side_effect = lambda other: mock_meta_schema_path if other == mock_config['meta_schema_file'] else mocker.MagicMock(spec=Path)
+
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml') # Módosítva: tools.compiler.load_yaml -> tools.infra.load_yaml
     mock_load_yaml_helper.side_effect = [
@@ -199,11 +222,10 @@ def test_run_validation_schema_validation_failure(mocker):
         # Dummy schema
         DUMMY_SCHEMA_DATA
     ]
-    mocker.patch('jsonschema.validate', side_effect=ValidationError("Schema invalid")) # Módosítva: tools.compiler.validate -> jsonschema.validate
+    mocker.patch('jsonschema.validate', side_effect=JsonSchemaValidationError("Schema invalid")) # Módosítva: ValidationError -> JsonSchemaValidationError
 
-    with pytest.raises(ValidationFailureError): # Módosítva: SystemExit -> ReleaseManager.ValidationFailureError
-        manager.run_validation() # Módosítva: compiler.run_validation() -> manager.run_validation()
-    # assert excinfo.value.code == 1 # Removed, as ValidationFailureError is raised directly
+    with pytest.raises(ValidationFailureError):
+        manager.run_validation()
 
 def test_main_no_arguments(mocker):
     """Test that main exits with code 1 if no arguments are provided."""
@@ -228,8 +250,32 @@ def mock_release_manager_deps(mocker):
     mock_git_service = mocker.MagicMock(spec=GitService)
     mock_vault_service = mocker.MagicMock(spec=VaultService)
     mock_logger = mocker.MagicMock()
-    mock_project_root = mocker.MagicMock()
-    mock_project_root.resolve.return_value = mock_project_root # Ensure resolve returns a Path-like object
+    
+    # Create a MagicMock that behaves like a Path object for project_root
+    mock_project_root = mocker.MagicMock(spec=Path)
+    mock_project_root.resolve.return_value = mock_project_root # resolve() should return itself for the root
+    mock_project_root.exists.return_value = True # Assume project root always exists
+    
+    # Mock the / operator for Path objects
+    # This is crucial for expressions like `project_root / 'project.yaml'`
+    def mock_truediv(self, other):
+        if other == 'project.yaml':
+            mock_project_yaml_path = mocker.MagicMock(spec=Path)
+            mock_project_yaml_path.exists.return_value = True
+            mock_project_yaml_path.read_text.return_value = "compiler_settings:\n  component_name: base\nrelease: {}"
+            mock_project_yaml_path.resolve.return_value = mock_project_yaml_path # resolve itself
+            return mock_project_yaml_path
+        elif other == mock_config['meta_schema_file']:
+            mock_meta_schema_path = mocker.MagicMock(spec=Path)
+            mock_meta_schema_path.resolve.return_value = Path('meta.yaml') # Return a real Path for resolve
+            return mock_meta_schema_path
+        else:
+            # For other paths, return a generic mock Path
+            generic_mock_path = mocker.MagicMock(spec=Path)
+            generic_mock_path.resolve.return_value = generic_mock_path
+            return generic_mock_path
+
+    mock_project_root.__truediv__.side_effect = mock_truediv
 
     return mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root
 
@@ -266,9 +312,15 @@ def test_run_release_vault_signing_failure(mocker, mock_release_manager_deps):
         logger=mock_logger
     )
 
-    mocker.patch('pathlib.Path.glob', return_value=[mocker.MagicMock(name='schema_file.yaml', resolve=lambda: 'schema_file.yaml')])
-    mocker.patch('pathlib.Path.resolve', return_value='meta.yaml')
-    mocker.patch('tools.infra.load_yaml', side_effect=[
+    # Targeted mocks for project_root operations
+    mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
+    mock_schema_file.resolve.return_value = Path('schema_file.yaml')
+    mock_project_root.glob.return_value = [mock_schema_file]
+
+    # The project.yaml path is handled by the mock_truediv in the fixture
+
+    mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
+    mock_load_yaml_helper.side_effect = [
         # Meta-schema
         {
             "type": "object",
@@ -280,7 +332,7 @@ def test_run_release_vault_signing_failure(mocker, mock_release_manager_deps):
         },
         # Dummy schema
         DUMMY_SCHEMA_DATA
-    ])
+    ]
     mocker.patch('jsonschema.validate', return_value=None)
     
     mock_git_service.get_status_porcelain.return_value = ""
@@ -290,15 +342,9 @@ def test_run_release_vault_signing_failure(mocker, mock_release_manager_deps):
     mock_git_service.write_tree.return_value = "dummy_tree_id"
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
 
-    # Mock the project.yaml path behavior for exists() and read_text()
-    mock_project_yaml_path = mock_project_root / 'project.yaml'
-    mock_project_yaml_path.exists.return_value = True
-    # Provide a valid YAML string for read_text, matching the expected structure
-    mock_project_yaml_path.read_text.return_value = "compiler_settings:\n  component_name: base\nrelease: {}"
-
     mock_vault_service.sign.side_effect = VaultServiceError("Vault is down") # Simulate Vault signing failure
 
-    with pytest.raises(ReleaseError, match="Release process failed: Vault is down"): # Check for ReleaseError wrapping VaultServiceError
+    with pytest.raises(ReleaseError, match=r"Release process failed: Vault is down"): # Updated regex
         manager.run_release_close(release_version="0.5.0")
 
 def test_run_release_skip_dev_version(mocker, mock_release_manager_deps):
@@ -313,11 +359,12 @@ def test_run_release_skip_dev_version(mocker, mock_release_manager_deps):
         logger=mock_logger
     )
 
-    mocker.patch('pathlib.Path.glob', return_value=[
-        mocker.MagicMock(name='test-schema.yaml', resolve=lambda: 'test-schema.yaml'),
-        mocker.MagicMock(name='test-schema-dev.yaml', resolve=lambda: 'test-schema-dev.yaml')
-    ])
-    mocker.patch('pathlib.Path.resolve', side_effect=['meta.yaml', 'test-schema.yaml', 'test-schema-dev.yaml'])
+    # Targeted mocks for project_root operations
+    mock_schema_file = mocker.MagicMock(spec=Path, name='test-schema.yaml')
+    mock_schema_file.resolve.return_value = Path('test-schema.yaml')
+    mock_dev_schema_file = mocker.MagicMock(spec=Path, name='test-schema-dev.yaml')
+    mock_dev_schema_file.resolve.return_value = Path('test-schema-dev.yaml')
+    mock_project_root.glob.return_value = [mock_schema_file, mock_dev_schema_file]
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
@@ -375,8 +422,10 @@ def test_run_release_no_schemas_to_release(mocker, mock_release_manager_deps):
         logger=mock_logger
     )
 
-    mocker.patch('pathlib.Path.glob', return_value=[mocker.MagicMock(name='test-schema-dev.yaml', resolve=lambda: 'test-schema-dev.yaml')])
-    mocker.patch('pathlib.Path.resolve', return_value='meta.yaml')
+    # Targeted mocks for project_root operations
+    mock_dev_schema_file = mocker.MagicMock(spec=Path, name='test-schema-dev.yaml')
+    mock_dev_schema_file.resolve.return_value = Path('test-schema-dev.yaml')
+    mock_project_root.glob.return_value = [mock_dev_schema_file]
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
@@ -428,9 +477,13 @@ def test_run_release_final_validation_failure(mocker, mock_release_manager_deps)
         logger=mock_logger
     )
 
-    mocker.patch('pathlib.Path.glob', return_value=[mocker.MagicMock(name='schema_file.yaml', resolve=lambda: 'schema_file.yaml')])
-    mocker.patch('pathlib.Path.resolve', return_value='meta.yaml')
-    mocker.patch('tools.infra.load_yaml', side_effect=[
+    # Targeted mocks for project_root operations
+    mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
+    mock_schema_file.resolve.return_value = Path('schema_file.yaml')
+    mock_project_root.glob.return_value = [mock_schema_file]
+
+    mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
+    mock_load_yaml_helper.side_effect = [
         # Meta-schema
         {
             "type": "object",
@@ -444,7 +497,7 @@ def test_run_release_final_validation_failure(mocker, mock_release_manager_deps)
         DUMMY_SCHEMA_DATA,
         # Third call for project.yaml content before writing final release block
         {'compiler_settings': mock_config, 'release': {}}
-    ])
+    ]
     mocker.patch('jsonschema.validate', return_value=None)
     
     mock_git_service.get_status_porcelain.return_value = ""
@@ -454,11 +507,6 @@ def test_run_release_final_validation_failure(mocker, mock_release_manager_deps)
     mock_git_service.write_tree.return_value = "dummy_tree_id"
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
     mock_vault_service.sign.return_value = VAULT_SIGNATURE_RESPONSE['data']['signature']
-
-    # Mock the project.yaml path behavior for exists() and read_text()
-    mock_project_yaml_path = mock_project_root / 'project.yaml'
-    mock_project_yaml_path.exists.return_value = True
-    mock_project_yaml_path.read_text.return_value = "compiler_settings:\n  component_name: base\nrelease: {}"
 
     # Simulate write_yaml failure for the final write
     mock_write_yaml_helper = mocker.patch('tools.infra.write_yaml')
@@ -482,8 +530,10 @@ def test_run_release_create_source_dir(mocker, mock_release_manager_deps):
         logger=mock_logger
     )
 
-    mocker.patch('pathlib.Path.glob', return_value=[mocker.MagicMock(name='schema_file.yaml', resolve=lambda: 'schema_file.yaml')])
-    mocker.patch('pathlib.Path.resolve', return_value='meta.yaml')
+    # Targeted mocks for project_root operations
+    mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
+    mock_schema_file.resolve.return_value = Path('schema_file.yaml')
+    mock_project_root.glob.return_value = [mock_schema_file]
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
@@ -508,11 +558,10 @@ def test_run_release_create_source_dir(mocker, mock_release_manager_deps):
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
     mock_vault_service.sign.return_value = VAULT_SIGNATURE_RESPONSE['data']['signature']
 
-    mock_exists = mocker.patch('pathlib.Path.exists', return_value=True) # Mock Path.exists
-    mock_makedirs = mocker.patch('os.makedirs') # os.makedirs is still used
+    mocker.patch('os.makedirs') # os.makedirs is still used
     mocker.patch('tools.infra.datetime.datetime', FixedDateTime)
     mocker.patch('jsonschema.validate', return_value=None)
-    mock_write_yaml_helper = mocker.patch('tools.infra.write_yaml')
+    mocker.patch('tools.infra.write_yaml')
 
     manager.run_release_close(release_version="0.5.0")
 
@@ -537,11 +586,11 @@ def test_run_release_success(mocker, mock_release_manager_deps):
     # Mock os.getenv for VAULT_ADDR and VAULT_TOKEN (these are now handled by compiler.main, not ReleaseManager directly)
     # We are testing ReleaseManager.run_release_close, so VaultService is already instantiated.
     
-    # Mock glob.glob to return a dummy schema file
-    mocker.patch('pathlib.Path.glob', return_value=[mocker.MagicMock(name='schema_file.yaml', resolve=lambda: 'schema_file.yaml')])
-    mocker.patch('pathlib.Path.resolve', return_value='meta.yaml')
+    # Targeted mocks for project_root operations
+    mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
+    mock_schema_file.resolve.return_value = Path('schema_file.yaml')
+    mock_project_root.glob.return_value = [mock_schema_file]
 
-    # Mock load_yaml to return the dummy schema data and meta-schema
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
         # First call for meta-schema
@@ -597,9 +646,6 @@ def test_run_release_success(mocker, mock_release_manager_deps):
     # Mock write_yaml to prevent actual file writing
     mock_write_yaml_helper = mocker.patch('tools.infra.write_yaml')
 
-    # Mock os.path.exists and os.makedirs for SOURCE_DIR
-    mocker.patch('pathlib.Path.exists', return_value=True) # Assume project.yaml exists
-    mocker.patch('pathlib.Path.read_text', return_value="original project.yaml content") # For rollback
     mocker.patch.object(os, 'makedirs')
 
     # Mock datetime.now to control build_timestamp
@@ -698,6 +744,10 @@ def test_run_release_with_vault_cacert(mocker, mock_release_manager_deps):
     mock_requests_post.return_value.json.return_value = VAULT_SIGNATURE_RESPONSE
     mock_requests_post.return_value.raise_for_status.return_value = None
 
+    # Patch os.path.exists to return True for our mock_vault_cacert_path
+    # This is correct and should remain, as VaultService uses os.path.exists
+    mocker.patch('os.path.exists', side_effect=lambda path: path == mock_vault_cacert_path)
+
     # Create a real VaultService instance
     vault_service_instance = VaultService(
         vault_addr='http://localhost:8200',
@@ -715,8 +765,10 @@ def test_run_release_with_vault_cacert(mocker, mock_release_manager_deps):
         logger=mock_logger
     )
 
-    mocker.patch('pathlib.Path.glob', return_value=[mocker.MagicMock(name='schema_file.yaml', resolve=lambda: 'schema_file.yaml')])
-    mocker.patch('pathlib.Path.resolve', return_value='meta.yaml')
+    # Targeted mocks for project_root operations
+    mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
+    mock_schema_file.resolve.return_value = Path('schema_file.yaml')
+    mock_project_root.glob.return_value = [mock_schema_file]
 
     mock_load_yaml_helper = mocker.patch('tools.infra.load_yaml')
     mock_load_yaml_helper.side_effect = [
