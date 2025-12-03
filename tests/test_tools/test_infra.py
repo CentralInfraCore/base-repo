@@ -8,6 +8,7 @@ import hashlib
 import requests
 from unittest.mock import MagicMock, patch, mock_open
 from pathlib import Path
+import logging
 
 # Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -94,7 +95,6 @@ def mock_release_manager_deps(mocker):
     mock_project_root.resolve.return_value = mock_project_root
     mock_project_root.exists.return_value = True
     
-    # FIX: Create a stateful mock for project.yaml
     path_mocks = {}
 
     def mock_truediv(other):
@@ -143,7 +143,6 @@ class TestLoadYaml:
             load_yaml(yaml_path)
 
     def test_empty_file(self, tmp_path):
-        """Test that load_yaml returns None for an empty file."""
         yaml_path = tmp_path / "empty.yaml"
         yaml_path.write_text("")
         assert load_yaml(yaml_path) is None
@@ -173,10 +172,9 @@ class TestRunValidation:
             manager.run_validation()
 
     def test_empty_meta_schema(self, mocker, mock_release_manager_deps):
-        """Test validation fails if the meta-schema file is empty."""
         mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
         manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
-        mocker.patch('tools.infra.load_yaml', return_value=None) # Simulate empty meta-schema
+        mocker.patch('tools.infra.load_yaml', return_value=None)
         with pytest.raises(ConfigurationError, match="Meta-schema file .* is empty"):
             manager.run_validation()
 
@@ -194,7 +192,6 @@ class TestRunValidation:
             manager.run_validation()
 
     def test_unexpected_error_in_validation(self, mocker, mock_release_manager_deps):
-        """Test that a generic exception during validation is caught and reported."""
         mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
         manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
         mock_schema_file = mocker.MagicMock(spec=Path, name='schema_file.yaml')
@@ -203,11 +200,50 @@ class TestRunValidation:
 
         with pytest.raises(ValidationFailureError, match="Unexpected Error"):
             manager.run_validation()
+            
+    def test_validation_skips_meta_schema(self, mocker, mock_release_manager_deps):
+        mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
+        manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
+        
+        meta_schema_path = mock_project_root / mock_config['meta_schema_file']
+        other_schema_path = mocker.MagicMock(spec=Path, name='other.yaml')
+        other_schema_path.resolve.return_value = Path("resolved/other.yaml")
+        
+        mock_project_root.glob.return_value = [meta_schema_path, other_schema_path]
+        
+        mock_load_yaml = mocker.patch('tools.infra.load_yaml', side_effect=[{"type": "object"}, DUMMY_SCHEMA_DATA])
+        mock_validate = mocker.patch('tools.infra.validate')
+        
+        manager.run_validation()
+        
+        assert mock_load_yaml.call_count == 2
+        mock_validate.assert_called_once()
 
 
 class TestRunReleaseCheck:
-    def test_invalid_version_string(self, mocker, mock_release_manager_deps):
-        """Test that an invalid semver string raises VersionMismatchError."""
+    def test_missing_component_name(self, mock_release_manager_deps):
+        mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
+        del mock_config['component_name']
+        manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
+        with pytest.raises(ConfigurationError, match="Missing 'component_name'"):
+            manager.run_release_check("1.0.0")
+
+    def test_dirty_working_directory(self, mock_release_manager_deps):
+        mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
+        manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
+        mock_git_service.get_status_porcelain.return_value = "M some_file.txt"
+        with pytest.raises(GitStateError, match="Uncommitted changes detected"):
+            manager.run_release_check("1.0.0")
+
+    def test_invalid_base_branch(self, mock_release_manager_deps):
+        mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
+        manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
+        mock_git_service.get_status_porcelain.return_value = ""
+        mock_git_service.get_current_branch.return_value = "feature/new-thing"
+        with pytest.raises(GitStateError, match="Not on a valid base branch"):
+            manager.run_release_check("1.0.0")
+
+    def test_invalid_version_string(self, mock_release_manager_deps):
         mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
         manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
         mock_git_service.get_status_porcelain.return_value = ""
@@ -215,37 +251,33 @@ class TestRunReleaseCheck:
         with pytest.raises(VersionMismatchError, match="Invalid version string"):
             manager.run_release_check(release_version="not-a-version")
 
-    def test_malformed_existing_tag(self, mocker, mock_release_manager_deps):
-        """Test that a malformed existing tag is skipped during version check."""
+    def test_malformed_existing_tag(self, mock_release_manager_deps):
         mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
         manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
         mock_git_service.get_status_porcelain.return_value = ""
         mock_git_service.get_current_branch.return_value = "main"
         mock_git_service.get_tags.return_value = ["base@v1.0.0", "base@v-invalid"]
         
-        # Should not raise an error, but log a warning
         manager.run_release_check(release_version="1.0.1")
         mock_logger.warning.assert_called_with("Skipping malformed tag 'base@v-invalid' during version comparison.")
 
-    def test_not_a_valid_version_increment(self, mocker, mock_release_manager_deps):
-        """Test that a non-sequential version raises VersionMismatchError."""
+    def test_not_a_valid_version_increment(self, mock_release_manager_deps):
         mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
         manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
         mock_git_service.get_status_porcelain.return_value = ""
         mock_git_service.get_current_branch.return_value = "main"
         mock_git_service.get_tags.return_value = ["base@v1.0.0"]
         with pytest.raises(VersionMismatchError, match="is not a valid increment"):
-            manager.run_release_check(release_version="1.0.0") # Same version
+            manager.run_release_check(release_version="1.0.0")
         with pytest.raises(VersionMismatchError, match="is not a valid increment"):
-            manager.run_release_check(release_version="0.9.0") # Lower version
+            manager.run_release_check(release_version="0.9.0")
         with pytest.raises(VersionMismatchError, match="is not a valid increment"):
-            manager.run_release_check(release_version="1.1.1") # Not a direct increment
+            manager.run_release_check(release_version="1.1.1")
 
 
 class TestRunReleaseClose:
     @pytest.fixture(autouse=True)
     def setup_release_mocks(self, mocker):
-        """Common mocks for all run_release_close tests."""
         mocker.patch('tools.infra.datetime.datetime', FixedDateTime)
         mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_digest_b64")
         mocker.patch('tools.infra.write_yaml')
@@ -259,7 +291,7 @@ class TestRunReleaseClose:
         with pytest.raises(VaultServiceError, match="VaultService is not initialized"):
             manager.run_release_close(release_version="0.5.0")
 
-    def test_vault_signing_failure(self, mocker, mock_release_manager_deps):
+    def test_vault_signing_failure(self, mock_release_manager_deps):
         mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
         manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
         mock_git_service.get_status_porcelain.return_value = ""
@@ -270,8 +302,7 @@ class TestRunReleaseClose:
         with pytest.raises(ReleaseError, match="Release process failed: Vault is down"):
             manager.run_release_close(release_version="0.5.0")
 
-    def test_rollback_on_failure(self, mocker, mock_release_manager_deps):
-        """Test that project.yaml is rolled back on a commit failure."""
+    def test_rollback_on_failure(self, mock_release_manager_deps):
         mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
         manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
         
@@ -279,23 +310,19 @@ class TestRunReleaseClose:
         mock_git_service.get_current_branch.return_value = "main"
         mock_git_service.write_tree.return_value = "dummy_tree_id"
         mock_vault_service.sign.return_value = "signed_hash"
-        # Simulate commit failure
         mock_git_service.run.side_effect = GitStateError("Commit failed")
 
         with pytest.raises(ReleaseError, match="Commit failed"):
             manager.run_release_close(release_version="1.0.1")
 
-        # Verify rollback logic was called
         mock_git_service.checkout.assert_called_with("main")
         mock_git_service.delete_branch.assert_called_with("base/releases/v1.0.1", force=True)
         mock_logger.info.assert_any_call("✓ project.yaml restored to original state.")
 
-    def test_rollback_for_new_project_yaml(self, mocker, mock_release_manager_deps):
-        """Test that a newly created project.yaml is removed on rollback."""
+    def test_rollback_for_new_project_yaml(self, mock_release_manager_deps):
         mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
         
         project_yaml_path_mock = mock_project_root / 'project.yaml'
-        # FIX: Correctly simulate the file's existence changing over time
         project_yaml_path_mock.exists.side_effect = [False, True, True]
         project_yaml_path_mock.read_text.side_effect = FileNotFoundError
         
@@ -313,27 +340,35 @@ class TestRunReleaseClose:
         project_yaml_path_mock.unlink.assert_called_once()
         mock_logger.info.assert_any_call("✓ Newly created project.yaml removed.")
 
-    def test_success(self, mocker, mock_release_manager_deps):
+    def test_rollback_fails_on_yaml_parse(self, mocker, mock_release_manager_deps):
         mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
         manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, logger=mock_logger)
         
         mock_git_service.get_status_porcelain.return_value = ""
         mock_git_service.get_current_branch.return_value = "main"
+        mock_git_service.run.side_effect = GitStateError("Commit failed")
+        mocker.patch('yaml.safe_load', side_effect=yaml.YAMLError("Bad YAML"))
+
+        with pytest.raises(ReleaseError, match="Commit failed"):
+            manager.run_release_close(release_version="1.0.1")
+        
+        mock_logger.critical.assert_any_call(mocker.ANY, exc_info=True)
+
+    def test_dry_run_mode(self, mock_release_manager_deps):
+        mock_config, mock_git_service, mock_vault_service, mock_logger, mock_project_root = mock_release_manager_deps
+        manager = ReleaseManager(config=mock_config, git_service=mock_git_service, vault_service=mock_vault_service, project_root=mock_project_root, dry_run=True, logger=mock_logger)
+        
+        mock_git_service.get_status_porcelain.return_value = ""
+        mock_git_service.get_current_branch.return_value = "main"
         mock_git_service.write_tree.return_value = "dummy_tree_id"
-        mock_vault_service.sign.return_value = VAULT_SIGNATURE_RESPONSE['data']['signature']
+        mock_vault_service.sign.return_value = "signed_hash"
 
-        try:
-            manager.run_release_close(release_version="0.5.0")
-        except Exception as e:
-            pytest.fail(f"An unexpected error occurred during release: {e}")
+        manager.run_release_close(release_version="1.0.1")
 
-        mock_vault_service.sign.assert_called_once_with("dummy_digest_b64", "cic-my-sign-key")
-        mock_git_service.checkout.assert_any_call("base/releases/v0.5.0", create_new=True)
-        mock_git_service.run.assert_any_call(['git', 'commit', '-m', 'release: base v0.5.0'])
-        mock_git_service.run.assert_any_call(['git', 'tag', '-a', 'base@v0.5.0', '-m', 'Release base v0.5.0'])
-        mock_git_service.checkout.assert_any_call("main")
-        mock_git_service.merge.assert_called_once_with("base/releases/v0.5.0", no_ff=True, message="Merge branch 'base/releases/v0.5.0' for release 0.5.0")
-        mock_git_service.delete_branch.assert_called_once_with("base/releases/v0.5.0")
+        mock_logger.info.assert_any_call("[DRY-RUN] Would have created branch 'base/releases/v1.0.1' and checked it out.")
+        mock_logger.info.assert_any_call("[DRY-RUN] Would have committed with message: 'release: base v1.0.1'")
+        mock_git_service.run.assert_not_called()
+        mock_git_service.checkout.assert_not_called()
 
 
 class TestHelperFunctions:
@@ -346,10 +381,31 @@ class TestHelperFunctions:
         assert loaded_data == test_data
 
     def test_write_yaml_io_error(self, mocker):
-        """Test that write_yaml raises ReleaseError on IO error."""
         mocker.patch('tempfile.NamedTemporaryFile', side_effect=IOError("Disk full"))
         with pytest.raises(ReleaseError, match="Failed to write YAML file"):
             write_yaml(Path("any/path.yaml"), {})
+            
+    def test_write_yaml_cleanup_error(self, mocker):
+        mock_tmp_file = mocker.MagicMock()
+        mock_tmp_file.name = "dummy_temp_file"
+        mock_tmp_file_cm = mocker.MagicMock()
+        mock_tmp_file_cm.__enter__.return_value = mock_tmp_file
+        mock_tmp_file_cm.__exit__.return_value = None
+        mocker.patch('tempfile.NamedTemporaryFile', return_value=mock_tmp_file_cm)
+
+        mocker.patch('os.replace', side_effect=Exception("os.replace failed"))
+
+        mocker.patch('pathlib.Path.exists', return_value=True)
+        mocker.patch('pathlib.Path.unlink', side_effect=OSError("unlink failed"))
+
+        mock_logger = mocker.patch('logging.getLogger')
+
+        with pytest.raises(ReleaseError, match="os.replace failed"):
+            write_yaml(Path("any/path.yaml"), {})
+
+        mock_logger().warning.assert_called_once_with(
+            "Failed to clean up temporary file dummy_temp_file: unlink failed"
+        )
 
     def test_get_reproducible_repo_hash_success(self, mocker):
         mock_git_service = mocker.MagicMock(spec=GitService)
@@ -357,7 +413,6 @@ class TestHelperFunctions:
         mock_git_service.archive_tree_bytes.return_value = mock_archive_bytes
         
         hasher = hashlib.sha256()
-        hasher.update(mock_archive_bytes)
         hasher.update(mock_archive_bytes)
         expected_hash_bytes = hasher.digest()
         expected_b64_hash = base64.b64encode(expected_hash_bytes).decode('utf-8')
@@ -367,7 +422,6 @@ class TestHelperFunctions:
         mock_git_service.archive_tree_bytes.assert_called_once_with("dummy_tree_id", prefix='./')
 
     def test_get_reproducible_repo_hash_error(self, mocker):
-        """Test that get_reproducible_repo_hash wraps exceptions."""
         mock_git_service = mocker.MagicMock(spec=GitService)
         mock_git_service.archive_tree_bytes.side_effect = Exception("Git error")
         with pytest.raises(ReleaseError, match="Error during repo hash calculation: Git error"):

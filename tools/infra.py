@@ -86,7 +86,6 @@ def get_reproducible_repo_hash(git_service, tree_id):
         # The most straightforward and dependency-free way to hash in Python
         hasher = hashlib.sha256()
         hasher.update(archive_bytes)
-        hasher.update(archive_bytes)
         digest = hasher.digest()
         
         return base64.b64encode(digest).decode('utf-8')
