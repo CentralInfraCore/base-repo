@@ -4,7 +4,7 @@
 include mk/infra.mk
 
 # ---- Phony ----
-.PHONY: all help validate release test up down shell build fmt lint check typecheck repo.init
+.PHONY: all help validate release test up down shell build fmt lint check typecheck repo.init manifest-verify manifest-update
 
 # Default to showing help
 all: help
@@ -66,7 +66,7 @@ validate:
 	@echo "--- Validating all schemas against the meta-schema ---"
 	@docker compose exec builder python -m tools.compiler validate $(COMPILER_CLI_ARGS)
 
-release: test
+release: manifest-verify test
 ifeq ($(VERSION),)
 	$(error VERSION is required for the release command. Usage: make release VERSION=1.0.0)
 endif
@@ -85,6 +85,20 @@ endif
 test:
 	@echo "--- Running pytest for the compiler infrastructure ---"
 	@docker compose exec builder python -m pytest $(PYTEST_ARGS)
+
+# =============================================================================
+# Manifest Management
+# =============================================================================
+
+manifest-verify: ##manifest-verify
+	@echo "--- Verifying repository manifest ---"
+	@docker compose exec builder sh -c 'test -f MANIFEST.sha256 && sha256sum -c MANIFEST.sha256'
+
+manifest-update: ##manifest-update
+	@echo "--- Updating repository manifest ---"
+	@docker compose exec builder sh -c 'git ls-files -z \
+		| xargs -0 sha256sum' | grep -v "MANIFEST.sha256" | LC_ALL=C sort > MANIFEST.sha256
+	@echo "MANIFEST.sha256 updated"
 
 # =============================================================================
 # Code Quality & Formatting (Aliases)
@@ -119,6 +133,10 @@ help:
 	@echo "  validate      Run fast, offline validation of all schemas."
 	@echo "  release       Build, checksum, and sign all non-dev schemas (requires Vault)."
 	@echo "  test          Run pytest for the compiler infrastructure code."
+	@echo ""
+	@echo "Manifest Management:"
+	@echo "  manifest-verify  Verify the integrity of the repository using MANIFEST.sha256."
+	@echo "  manifest-update  Re-generate the MANIFEST.sha256 file."
 	@echo ""
 	@echo "Options for validate/release:"
 	@echo "  VERBOSE=1     Enable verbose output."
