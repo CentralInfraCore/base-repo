@@ -43,7 +43,7 @@ services:
       - "host.docker.internal:host-gateway"
     # Pass through environment variables for the release process
     environment:
-      - PYTHONPATH=/app/p_venv
+      - PYTHONPATH=/app:/app/p_venv # Add /app to PYTHONPATH
       - VAULT_ADDR=https://host.docker.internal:18200
       - CIC_VAULT_TOKEN_FILE=/var/run/secrets/vault-token
       - CIC_VAULT_CA_FILE=/var/run/secrets/vault-ca.crt
