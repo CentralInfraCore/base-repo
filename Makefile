@@ -1,5 +1,10 @@
 # Makefile for Schema Development Environment
 
+# ---- Global Make Settings ----
+SHELL := /bin/bash
+.SHELLFLAGS := -eu -o pipefail -c
+MAKEFLAGS += --no-builtin-rules --warn-undefined-variables
+
 # ---- Includes ----
 include mk/infra.mk
 
@@ -152,7 +157,7 @@ help:
 	@echo ""
 	@echo "Code Quality & Formatting:"
 	@echo "  fmt           Format all code."
-	@echo "  lint          Lint all code and files."
+	@echo "  lint           Lint all code and files."
 	@echo "  typecheck     Run static type checking."
 	@echo "  check         Run all code quality checks (fmt, lint, typecheck)."
 	@echo ""
