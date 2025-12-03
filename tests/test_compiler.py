@@ -1,5 +1,4 @@
 import pytest
-from tools import compiler
 import os
 from datetime import datetime, timezone
 import yaml
@@ -8,6 +7,14 @@ from jsonschema import ValidationError
 import requests
 import hashlib
 import base64
+from unittest.mock import MagicMock, patch
+
+# Import specific functions/classes from their new locations
+from tools.compiler import main, setup_logging, load_project_config
+from tools.infra import ReleaseManager, load_yaml, write_yaml, get_reproducible_repo_hash
+from tools.releaselib.git_service import GitService
+from tools.releaselib.vault_service import VaultService
+from tools.releaselib.exceptions import ConfigurationError, GitStateError, VersionMismatchError, ReleaseError, VaultServiceError
 
 # Dummy schema data for testing run_release
 DUMMY_SCHEMA_DATA = {

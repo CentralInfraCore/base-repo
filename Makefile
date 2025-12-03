@@ -18,6 +18,8 @@ DRY_RUN ?=
 VERSION ?= # New: Version for release command
 GIT_TIMEOUT ?= 60
 VAULT_TIMEOUT ?= 10
+TEST_FILE ?= # New: Specify a specific test file (e.g., tests/test_compiler.py)
+TEST_NAME ?= # New: Specify a specific test function name (e.g., test_load_yaml_valid)
 
 # Construct COMPILER_CLI_ARGS based on VERBOSE and DEBUG flags
 COMPILER_CLI_ARGS =
@@ -32,6 +34,19 @@ ifeq ($(DRY_RUN),1)
 endif
 COMPILER_CLI_ARGS += --git-timeout $(GIT_TIMEOUT)
 COMPILER_CLI_ARGS += --vault-timeout $(VAULT_TIMEOUT)
+
+# Construct PYTEST_ARGS based on TEST_FILE and TEST_NAME
+PYTEST_ARGS = --cov=tools.compiler --cov-report=term-missing
+ifeq ($(TEST_FILE),)
+    PYTEST_ARGS += tests/
+else
+    PYTEST_ARGS += $(TEST_FILE)
+endif
+ifeq ($(TEST_NAME),)
+    # No specific test name
+else
+    PYTEST_ARGS += -k "$(TEST_NAME)"
+endif
 
 
 # =============================================================================
@@ -69,7 +84,7 @@ endif
 
 test:
 	@echo "--- Running pytest for the compiler infrastructure ---"
-	@docker compose exec builder python -m pytest --cov=tools.compiler --cov-report=term-missing tests/
+	@docker compose exec builder python -m pytest $(PYTEST_ARGS)
 
 # =============================================================================
 # Code Quality & Formatting (Aliases)
