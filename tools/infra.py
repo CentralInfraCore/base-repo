@@ -12,7 +12,7 @@ import tempfile
 import logging # Import logging
 from pathlib import Path # Import Path
 
-from releaselib.exceptions import (
+from .releaselib.exceptions import (
     ConfigurationError,
     GitStateError,
     VersionMismatchError,
@@ -80,6 +80,7 @@ def get_reproducible_repo_hash(git_service, tree_id):
         
         # The most straightforward and dependency-free way to hash in Python
         hasher = hashlib.sha256()
+        hasher.update(archive_bytes)
         hasher.update(archive_bytes)
         digest = hasher.digest()
         

@@ -5,10 +5,10 @@ import argparse
 import logging
 from pathlib import Path # Import Path
 
-from infra import ReleaseManager
-from releaselib.git_service import GitService
-from releaselib.vault_service import VaultService
-from releaselib.exceptions import ReleaseError, VaultServiceError
+from .infra import ReleaseManager # Módosítva: from tools.infra import ReleaseManager
+from .releaselib.git_service import GitService
+from .releaselib.vault_service import VaultService
+from .releaselib.exceptions import ReleaseError, VaultServiceError
 
 # --- Logging Setup ---
 LOG_FORMAT = "%(levelname)s: %(message)s"
