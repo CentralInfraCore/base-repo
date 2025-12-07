@@ -82,9 +82,7 @@ endif
 	# @tools/release.sh project.yaml
 	# @git add project.yaml # This is now handled by compiler.py
 
-test:
-	@echo "--- Running pytest for the compiler infrastructure ---"
-	@docker compose exec builder python -m pytest $(PYTEST_ARGS)
+test: infra.test
 
 # =============================================================================
 # Manifest Management
