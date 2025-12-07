@@ -165,10 +165,10 @@ class TestRunRelease:
     def test_finalize_path_with_clean_index(self, mock_release_manager_deps):
         (config, git, vault, logger, root) = mock_release_manager_deps
         git.get_current_branch.return_value = "base/releases/v1.0.1"
-        git.is_index_dirty.return_value = False
+        git.is_dirty.return_value = False # Changed from is_index_dirty
         manager = ReleaseManager(config, git, vault, root, logger=logger)
         manager.run_release("1.0.1")
-        logger.info.assert_any_call("Index is clean, assuming user has committed manually.")
+        logger.info.assert_any_call("No changes detected in project.yaml to commit. Assuming manual commit or no signing_metadata added.")
         assert not any("commit" in call[0][0] for call in git.run.call_args_list)
 
     def test_finalize_path_invalid_yaml(self, mocker, mock_release_manager_deps):

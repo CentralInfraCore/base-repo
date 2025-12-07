@@ -177,11 +177,16 @@ class ReleaseManager:
             self.git_service.checkout(release_branch_name, create_new=True)
 
         project_yaml_path = self._path("project.yaml")
-        full_project_config = self._update_project_yaml_preliminary(project_yaml_path, release_version)
         
+        # Get tree ID and reproducible hash BEFORE updating project.yaml
         tree_id = self.git_service.write_tree()
+        repository_tree_hash = self.git_service.run(["git", "rev-parse", tree_id])
         digest_b64 = get_reproducible_repo_hash(self.git_service, tree_id)
-        full_project_config["release"]["digest"] = digest_b64
+
+        # Update project.yaml with preliminary release info
+        full_project_config = self._update_project_yaml_preliminary(
+            project_yaml_path, release_version, repository_tree_hash, digest_b64
+        )
         
         author_key = self.config.get("vault_key_name")
         approval_key = self.config.get("cic_root_ca_key_name")
@@ -198,6 +203,7 @@ class ReleaseManager:
                 {"type": "approval", "key": approval_key, "signature": approval_sig, "hash_algorithm": "sha256"},
             ]
             full_project_config["release"]["signing_metadata"] = signing_metadata
+            
             if not self.dry_run:
                 write_yaml(project_yaml_path, full_project_config)
                 self.git_service.add(str(project_yaml_path))
@@ -207,8 +213,15 @@ class ReleaseManager:
 
         except VaultServiceError as e:
             self.logger.warning(f"Vault signing failed: {e}")
+            # If signing fails, we still write the project.yaml with the digest
+            # but without signing_metadata, and instruct for manual intervention.
+            # The project.yaml will already contain version, timestamp, repo_tree_hash, and digest.
             if not self.dry_run:
+                # Ensure signing_metadata is removed or empty if signing failed
+                if "signing_metadata" in full_project_config["release"]:
+                    del full_project_config["release"]["signing_metadata"]
                 write_yaml(project_yaml_path, full_project_config)
+                self.git_service.add(str(project_yaml_path))
             
             message = (
                 f"Release v{release_version} is prepared for manual signing on branch '{release_branch_name}'.\n"
@@ -246,12 +259,11 @@ class ReleaseManager:
         tag_message = f"Release {component_name} v{release_version}"
 
         if not self.dry_run:
-            if self.git_service.is_index_dirty():
+            # Check if project.yaml has changes to commit (e.g., if signing_metadata was added)
+            if self.git_service.is_dirty(): # This checks for both staged and unstaged changes
                  self.git_service.run(["git", "commit", "-m", commit_message])
             else:
-                # If the index is clean, it means the user has already committed.
-                # We should verify this commit is what we expect, but for now, we'll just log it.
-                self.logger.info("Index is clean, assuming user has committed manually.")
+                self.logger.info("No changes detected in project.yaml to commit. Assuming manual commit or no signing_metadata added.")
 
             self.logger.info(f"Creating annotated tag: '{tag_name}'")
             self.git_service.run(["git", "tag", "-a", tag_name, "-m", tag_message])
@@ -264,12 +276,14 @@ class ReleaseManager:
         
         self.logger.info(f"✓ Release {release_version} successfully finalized and merged into {main_branch}.")
 
-    def _update_project_yaml_preliminary(self, path: Path, version: str) -> dict:
+    def _update_project_yaml_preliminary(self, path: Path, version: str, repository_tree_hash: str, digest: str) -> dict:
         """Reads, updates, and writes the preliminary release block to project.yaml."""
         config = load_yaml(path) or {}
         config["release"] = {
             "version": version,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "repository_tree_hash": repository_tree_hash,
+            "digest": digest,
         }
         if not self.dry_run:
             write_yaml(path, config)
