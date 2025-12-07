@@ -29,8 +29,8 @@ infra.build:
 
 infra.fmt:
 	@echo "--- Formatting Python code with Black and Isort ---"
-	@docker compose exec builder python -m black .
-	@docker compose exec builder python -m isort .
+	@docker compose exec builder python -m black --exclude p_venv .
+	@docker compose exec builder python -m isort --skip-glob "p_venv/*" .
 
 infra.lint:
 	@echo "--- Linting Python code with Ruff ---"
@@ -40,7 +40,7 @@ infra.lint:
 
 infra.typecheck:
 	@echo "--- Running static type checking with MyPy ---"
-	@docker compose exec builder python -m mypy .
+	@docker compose exec builder python -m mypy --exclude p_venv .
 
 infra.check: infra.fmt infra.lint infra.typecheck
 	@echo "--- Running all code quality checks (format, lint, typecheck) ---"
