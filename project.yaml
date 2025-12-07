@@ -19,5 +19,6 @@ project:
 compiler_settings:
   component_name: base
   meta_schemas_dir: ./
+  source_dir: ./
   meta_schema_file: md.meta.schema.yaml
   vault_key_name: cic-my-sign-key
