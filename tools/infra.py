@@ -54,8 +54,15 @@ def write_yaml(path: Path, data):
             yaml.dump(data, tmp_file, sort_keys=False, indent=2)
         os.replace(tmp_name, path)
     except IOError as e:
+        # Re-raise as ReleaseError, but cleanup should happen in finally
         raise ReleaseError(f"Failed to write YAML file to {path}: {e}") from e
     except Exception as e:
+        # Catch any other unexpected errors
+        raise ReleaseError(
+            f"An unexpected error occurred during atomic write to {path}: {e}"
+        ) from e
+    finally:
+        # Cleanup temporary file if it exists
         if tmp_name and Path(tmp_name).exists():
             try:
                 Path(tmp_name).unlink()
@@ -63,9 +70,6 @@ def write_yaml(path: Path, data):
                 logging.getLogger(__name__).warning(
                     f"Failed to clean up temporary file {tmp_name}: {unlink_e}"
                 )
-        raise ReleaseError(
-            f"An unexpected error occurred during atomic write to {path}: {e}"
-        ) from e
 
 def get_reproducible_repo_hash(git_service, tree_id):
     """Calculates a reproducible SHA256 hash of a given git tree object."""

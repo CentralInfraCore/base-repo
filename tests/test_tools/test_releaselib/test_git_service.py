@@ -81,6 +81,50 @@ def test_get_status_porcelain(mock_run, git_service):
     mock_run.assert_called_once_with(["git", "status", "--porcelain"])
 
 
+@patch.object(GitService, "get_status_porcelain")
+def test_is_dirty_true(mock_get_status_porcelain, git_service):
+    """Test is_dirty when there are uncommitted changes."""
+    mock_get_status_porcelain.return_value = "M file.txt"
+    assert git_service.is_dirty() is True
+
+
+@patch.object(GitService, "get_status_porcelain")
+def test_is_dirty_false(mock_get_status_porcelain, git_service):
+    """Test is_dirty when there are no uncommitted changes."""
+    mock_get_status_porcelain.return_value = ""
+    assert git_service.is_dirty() is False
+
+
+@patch("subprocess.run")
+def test_is_index_dirty_true(mock_run, git_service):
+    """Test is_index_dirty when there are staged changes."""
+    mock_run.side_effect = subprocess.CalledProcessError(1, "git diff-index")
+    assert git_service.is_index_dirty() is True
+
+
+@patch("subprocess.run")
+def test_is_index_dirty_false(mock_run, git_service):
+    """Test is_index_dirty when there are no staged changes."""
+    mock_run.return_value = MagicMock(returncode=0)
+    assert git_service.is_index_dirty() is False
+
+
+@patch("subprocess.run")
+def test_is_index_dirty_file_not_found(mock_run, git_service):
+    """Test is_index_dirty raises GitServiceError on FileNotFoundError."""
+    mock_run.side_effect = FileNotFoundError("git not found")
+    with pytest.raises(GitServiceError, match="Failed to check Git index status"):
+        git_service.is_index_dirty()
+
+
+@patch("subprocess.run")
+def test_is_index_dirty_timeout_expired(mock_run, git_service):
+    """Test is_index_dirty raises GitServiceError on TimeoutExpired."""
+    mock_run.side_effect = subprocess.TimeoutExpired("git diff-index", 30)
+    with pytest.raises(GitServiceError, match="Failed to check Git index status"):
+        git_service.is_index_dirty()
+
+
 @patch.object(GitService, "run")
 def test_get_tags(mock_run, git_service):
     mock_run.return_value = "v1.0.0\nv1.1.0\n"
@@ -150,6 +194,14 @@ def test_assert_clean_index_timeout(mock_run, git_service):
     """Test assert_clean_index with a timeout."""
     mock_run.side_effect = subprocess.TimeoutExpired("git diff-index", 30)
     with pytest.raises(GitServiceError, match="Git command timed out"):
+        git_service.assert_clean_index()
+
+
+@patch("subprocess.run")
+def test_assert_clean_index_file_not_found(mock_run, git_service):
+    """Test assert_clean_index raises GitServiceError on FileNotFoundError."""
+    mock_run.side_effect = FileNotFoundError("git not found")
+    with pytest.raises(GitServiceError, match="Git command not found"):
         git_service.assert_clean_index()
 
 

@@ -56,6 +56,7 @@ def mock_release_manager_deps(mocker):
         path_mock = mocker.MagicMock(spec=Path)
         path_mock.name = str(other)
         path_mock.resolve.return_value = path_mock
+        path_mock.parent = mock_project_root # For write_yaml's tempfile
         return path_mock
 
     mock_project_root.__truediv__.side_effect = mock_truediv
@@ -66,6 +67,7 @@ def mock_release_manager_deps(mocker):
     mock_git_service.get_current_branch.return_value = "main"
     mock_git_service.write_tree.return_value = "dummy_tree_id"
     mock_git_service.assert_clean_index.return_value = None
+    mock_git_service.is_index_dirty.return_value = True
 
     return (
         mock_config,
@@ -98,18 +100,16 @@ class TestRunValidation:
         with pytest.raises(ConfigurationError):
             manager.run_validation()
 
-    def test_schema_validation_failure(self, mocker, mock_release_manager_deps):
+    def test_empty_schema_file_in_validation(self, mocker, mock_release_manager_deps):
         (config, git, vault, logger, root) = mock_release_manager_deps
         manager = ReleaseManager(config, git, vault, root, logger=logger)
         
-        mock_schema_file = mocker.MagicMock(spec=Path, name="schema_file.yaml")
-        mock_schema_file.resolve.return_value = Path("schema_file.yaml")
+        mock_schema_file = mocker.MagicMock(spec=Path, name="empty.yaml")
         root.glob.return_value = [mock_schema_file]
 
-        mocker.patch("tools.infra.load_yaml", side_effect=[{"type": "object"}, DUMMY_SCHEMA_DATA])
-        mocker.patch("tools.infra.validate", side_effect=JsonSchemaValidationError("Schema invalid"))
-
-        with pytest.raises(ValidationFailureError):
+        mocker.patch("tools.infra.load_yaml", side_effect=[{"type": "object"}, None])
+        
+        with pytest.raises(ValidationFailureError, match="File is empty"):
             manager.run_validation()
 
 
@@ -163,10 +163,9 @@ class TestRunRelease:
         vault.sign.assert_not_called()
 
     def test_finalize_path_with_clean_index(self, mock_release_manager_deps):
-        """Covers the `else` block in _finalize_release for a clean index."""
         (config, git, vault, logger, root) = mock_release_manager_deps
         git.get_current_branch.return_value = "base/releases/v1.0.1"
-        git.is_index_dirty.return_value = False # Simulate user already committed
+        git.is_index_dirty.return_value = False
         manager = ReleaseManager(config, git, vault, root, logger=logger)
         manager.run_release("1.0.1")
         logger.info.assert_any_call("Index is clean, assuming user has committed manually.")
@@ -203,6 +202,35 @@ class TestHelperFunctions:
         mocker.patch("tempfile.NamedTemporaryFile", side_effect=IOError("Disk full"))
         with pytest.raises(ReleaseError):
             write_yaml(Path("any.yaml"), {})
+
+    def test_write_yaml_cleanup_on_replace_error(self, mocker):
+        mocker.patch("os.replace", side_effect=OSError("Permission denied"))
+        
+        # Mock tempfile to have a predictable name
+        mock_tmp_file = mocker.MagicMock()
+        mock_tmp_file.name = "dummy_temp_file"
+        mock_tmp_file_cm = mocker.MagicMock()
+        mock_tmp_file_cm.__enter__.return_value = mock_tmp_file
+        mock_tmp_file_cm.__exit__.return_value = None
+        mocker.patch("tools.infra.tempfile.NamedTemporaryFile", return_value=mock_tmp_file_cm)
+
+        # Mock the Path class to control the instance created from the temp name
+        mock_path_instance = mocker.MagicMock()
+        mock_path_instance.exists.return_value = True
+        
+        # When Path() is called in tools.infra, make it return our mock instance
+        # This is a bit more robust than patching the return_value of the class mock
+        mock_path_class = mocker.patch("tools.infra.Path")
+        mock_path_class.return_value = mock_path_instance
+
+        with pytest.raises(ReleaseError, match="Permission denied"):
+            write_yaml(Path("any.yaml"), {"data": "content"})
+        
+        # Assert that Path was called with our temp name
+        mock_path_class.assert_any_call("dummy_temp_file")
+        # Assert that exists and unlink were called on the instance
+        mock_path_instance.exists.assert_called_once()
+        mock_path_instance.unlink.assert_called_once()
 
     def test_get_reproducible_repo_hash_error(self, mocker):
         mock_git_service = mocker.MagicMock(spec=GitService)
