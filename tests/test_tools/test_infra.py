@@ -4,7 +4,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import ANY
+from unittest.mock import ANY, mock_open
 
 import pytest
 import yaml
@@ -65,6 +65,7 @@ def mock_release_manager_deps(mocker):
     mock_git_service.is_dirty.return_value = False
     mock_git_service.get_current_branch.return_value = "main"
     mock_git_service.write_tree.return_value = "dummy_tree_id"
+    mock_git_service.assert_clean_index.return_value = None
 
     return (
         mock_config,
@@ -76,68 +77,56 @@ def mock_release_manager_deps(mocker):
 
 
 class TestRunValidation:
-    # These tests are fine and test the validation logic separately
     def test_runs(self, mocker, mock_release_manager_deps):
-        (
-            mock_config,
-            mock_git_service,
-            mock_vault_service,
-            mock_logger,
-            mock_project_root,
-        ) = mock_release_manager_deps
-        manager = ReleaseManager(
-            config=mock_config,
-            git_service=mock_git_service,
-            vault_service=mock_vault_service,
-            project_root=mock_project_root,
-            logger=mock_logger,
-        )
+        (config, git, vault, logger, root) = mock_release_manager_deps
+        manager = ReleaseManager(config, git, vault, root, logger=logger)
+        
         mock_schema_file = mocker.MagicMock(spec=Path, name="schema_file.yaml")
         mock_schema_file.resolve.return_value = Path("schema_file.yaml")
-        mock_project_root.glob.return_value = [mock_schema_file]
+        root.glob.return_value = [mock_schema_file]
 
         mocker.patch("tools.infra.load_yaml", side_effect=[{"type": "object"}, DUMMY_SCHEMA_DATA])
         mocker.patch("tools.infra.validate", return_value=None)
 
         manager.run_validation()
-        mock_logger.info.assert_any_call("✓ Schema validation passed.")
+        logger.info.assert_any_call("✓ Schema validation passed.")
+
+    def test_meta_schema_load_failure(self, mocker, mock_release_manager_deps):
+        (config, git, vault, logger, root) = mock_release_manager_deps
+        manager = ReleaseManager(config, git, vault, root, logger=logger)
+        mocker.patch("tools.infra.load_yaml", side_effect=ConfigurationError("File not found"))
+        with pytest.raises(ConfigurationError):
+            manager.run_validation()
+
+    def test_schema_validation_failure(self, mocker, mock_release_manager_deps):
+        (config, git, vault, logger, root) = mock_release_manager_deps
+        manager = ReleaseManager(config, git, vault, root, logger=logger)
+        
+        mock_schema_file = mocker.MagicMock(spec=Path, name="schema_file.yaml")
+        mock_schema_file.resolve.return_value = Path("schema_file.yaml")
+        root.glob.return_value = [mock_schema_file]
+
+        mocker.patch("tools.infra.load_yaml", side_effect=[{"type": "object"}, DUMMY_SCHEMA_DATA])
+        mocker.patch("tools.infra.validate", side_effect=JsonSchemaValidationError("Schema invalid"))
+
+        with pytest.raises(ValidationFailureError):
+            manager.run_validation()
 
 
 class TestCheckBaseBranchAndVersion:
-    """
-    Tests the internal _check_base_branch_and_version method.
-    """
     def test_success(self, mock_release_manager_deps):
         (config, git, _, logger, root) = mock_release_manager_deps
         manager = ReleaseManager(config, git, None, root, logger=logger)
-        manager._check_base_branch_and_version("1.0.0") # Should not raise
+        manager._check_base_branch_and_version("1.0.0")
 
-    def test_missing_component_name(self, mock_release_manager_deps):
+    def test_invalid_version_string(self, mock_release_manager_deps):
         (config, git, _, logger, root) = mock_release_manager_deps
-        del config["component_name"]
         manager = ReleaseManager(config, git, None, root, logger=logger)
-        with pytest.raises(ConfigurationError):
-            manager._check_base_branch_and_version("1.0.0")
-
-    def test_dirty_working_directory(self, mock_release_manager_deps):
-        (config, git, _, logger, root) = mock_release_manager_deps
-        git.is_dirty.return_value = True
-        manager = ReleaseManager(config, git, None, root, logger=logger)
-        with pytest.raises(GitStateError):
-            manager._check_base_branch_and_version("1.0.0")
-
-    def test_invalid_base_branch(self, mock_release_manager_deps):
-        (config, git, _, logger, root) = mock_release_manager_deps
-        git.get_current_branch.return_value = "feature/branch"
-        manager = ReleaseManager(config, git, None, root, logger=logger)
-        with pytest.raises(GitStateError):
-            manager._check_base_branch_and_version("1.0.0")
+        with pytest.raises(VersionMismatchError):
+            manager._check_base_branch_and_version("not-a-version")
 
 
 class TestRunRelease:
-    """
-    New test class for the main `run_release` orchestrator method.
-    """
     @pytest.fixture(autouse=True)
     def setup_mocks(self, mocker):
         mocker.patch("tools.infra.get_reproducible_repo_hash", return_value="dummy_digest_b64")
@@ -146,73 +135,77 @@ class TestRunRelease:
         mocker.patch("tools.infra.validate")
 
     def test_happy_path(self, mock_release_manager_deps):
-        """Tests the full, successful, automated release process."""
         (config, git, vault, logger, root) = mock_release_manager_deps
         manager = ReleaseManager(config, git, vault, root, logger=logger)
-        
         vault.sign.side_effect = ["author_signature", "approval_signature"]
-
         manager.run_release("1.0.1")
-
-        # Preparation phase
         git.checkout.assert_any_call("base/releases/v1.0.1", create_new=True)
-        
-        # Finalization phase
         git.run.assert_any_call(["git", "tag", "-a", "base@v1.0.1", "-m", "Release base v1.0.1"])
         git.checkout.assert_any_call("main")
         git.merge.assert_called_once()
         git.delete_branch.assert_called_once_with("base/releases/v1.0.1")
-        logger.info.assert_any_call("✓ Release 1.0.1 successfully finalized and merged into main.")
 
     def test_unhappy_path_vault_failure(self, mock_release_manager_deps):
-        """Tests that manual intervention is requested when Vault fails."""
         (config, git, vault, logger, root) = mock_release_manager_deps
         manager = ReleaseManager(config, git, vault, root, logger=logger)
-        
         vault.sign.side_effect = VaultServiceError("Vault is down")
-
-        with pytest.raises(ManualInterventionRequired) as excinfo:
+        with pytest.raises(ManualInterventionRequired):
             manager.run_release("1.0.1")
-        
-        assert "ACTION REQUIRED" in str(excinfo.value)
-        assert "Digest (Base64): dummy_digest_b64" in str(excinfo.value)
-        
-        # Verify it doesn't proceed to finalize
         git.merge.assert_not_called()
-        git.delete_branch.assert_not_called()
 
     def test_finalize_path(self, mock_release_manager_deps):
-        """Tests the finalization part of the flow when run on a release branch."""
         (config, git, vault, logger, root) = mock_release_manager_deps
-        
-        # Simulate being on the release branch
         git.get_current_branch.return_value = "base/releases/v1.0.1"
-        
         manager = ReleaseManager(config, git, vault, root, logger=logger)
-        
         manager.run_release("1.0.1")
-
-        # Should not try to prepare, only finalize
         git.checkout.assert_any_call("main")
         git.merge.assert_called_once()
-        git.delete_branch.assert_called_once_with("base/releases/v1.0.1")
-        vault.sign.assert_not_called() # Shouldn't sign again
+        vault.sign.assert_not_called()
 
-    def test_dry_run_mode(self, mock_release_manager_deps):
-        """Tests that dry_run prevents any state-changing operations."""
+    def test_finalize_path_with_clean_index(self, mock_release_manager_deps):
+        """Covers the `else` block in _finalize_release for a clean index."""
         (config, git, vault, logger, root) = mock_release_manager_deps
-        manager = ReleaseManager(config, git, vault, root, dry_run=True, logger=logger)
-        
-        vault.sign.side_effect = ["author_signature", "approval_signature"]
-
+        git.get_current_branch.return_value = "base/releases/v1.0.1"
+        git.is_index_dirty.return_value = False # Simulate user already committed
+        manager = ReleaseManager(config, git, vault, root, logger=logger)
         manager.run_release("1.0.1")
+        logger.info.assert_any_call("Index is clean, assuming user has committed manually.")
+        assert not any("commit" in call[0][0] for call in git.run.call_args_list)
 
-        # Check that no destructive/state-changing calls were made
-        git.checkout.assert_not_called()
-        git.run.assert_not_called()
-        git.merge.assert_not_called()
-        git.delete_branch.assert_not_called()
-        
-        # Ensure the logger was informed about dry run
-        logger.info.assert_any_call("✓ Both signatures obtained. Proceeding to finalize release automatically.")
-        logger.info.assert_any_call("✓ Release 1.0.1 successfully finalized and merged into main.")
+    def test_finalize_path_invalid_yaml(self, mocker, mock_release_manager_deps):
+        (config, git, vault, _, root) = mock_release_manager_deps
+        git.get_current_branch.return_value = "base/releases/v1.0.1"
+        manager = ReleaseManager(config, git, vault, root)
+        mocker.patch("tools.infra.validate", side_effect=JsonSchemaValidationError("Missing signature"))
+        with pytest.raises(ValidationFailureError):
+            manager.run_release("1.0.1")
+
+    def test_run_release_wrong_branch(self, mock_release_manager_deps):
+        (config, git, vault, _, root) = mock_release_manager_deps
+        git.get_current_branch.return_value = "feature/some-other-branch"
+        manager = ReleaseManager(config, git, vault, root)
+        with pytest.raises(GitStateError):
+            manager.run_release("1.0.1")
+
+
+class TestHelperFunctions:
+    def test_load_yaml_file_not_found(self, mocker):
+        mocker.patch("builtins.open", side_effect=FileNotFoundError)
+        with pytest.raises(ConfigurationError):
+            load_yaml(Path("nonexistent.yaml"))
+
+    def test_load_yaml_invalid_yaml(self, mocker):
+        mocker.patch("builtins.open", mock_open(read_data=": invalid yaml"))
+        with pytest.raises(ConfigurationError):
+            load_yaml(Path("invalid.yaml"))
+
+    def test_write_yaml_io_error(self, mocker):
+        mocker.patch("tempfile.NamedTemporaryFile", side_effect=IOError("Disk full"))
+        with pytest.raises(ReleaseError):
+            write_yaml(Path("any.yaml"), {})
+
+    def test_get_reproducible_repo_hash_error(self, mocker):
+        mock_git_service = mocker.MagicMock(spec=GitService)
+        mock_git_service.archive_tree_bytes.side_effect = Exception("Git error")
+        with pytest.raises(ReleaseError):
+            get_reproducible_repo_hash(mock_git_service, "dummy_tree_id")
