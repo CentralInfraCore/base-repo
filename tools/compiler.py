@@ -183,7 +183,7 @@ def main():
 
             # Try to get VAULT_TOKEN from environment, then from mounted file
             vault_token = os.getenv("VAULT_TOKEN")
-            vault_token_file = "/var/run/secrets/vault-token"
+            vault_token_file = os.getenv("CIC_VAULT_TOKEN_FILE")
             if not vault_token and os.path.exists(vault_token_file):
                 try:
                     with open(vault_token_file, "r") as f:

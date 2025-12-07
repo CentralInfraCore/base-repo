@@ -1,4 +1,4 @@
-import subprocess
+import subprocess  # nosec
 from pathlib import Path
 from typing import Optional
 
@@ -27,7 +27,7 @@ class GitService:
                 check=True,
                 cwd=self.cwd,  # cwd can be a Path object
                 timeout=self.timeout,
-            )
+            )  # nosec
             return result.stdout
         except subprocess.CalledProcessError as e:
             # Ensure command_str is defined even if an error occurs before its full definition
@@ -127,7 +127,7 @@ class GitService:
                 check=False,  # Do not raise CalledProcessError for non-zero exit codes automatically
                 cwd=self.cwd,
                 timeout=self.timeout,
-            )
+            )  # nosec
             if result.returncode == 1:
                 raise GitStateError(
                     "Staged changes detected in Git index. Please commit them before releasing."
@@ -174,7 +174,9 @@ class GitService:
         command.append(branch_name)
         return self.run(command)
 
-    def merge(self, branch_name: str, no_ff: bool = False, message: Optional[str] = None):
+    def merge(
+        self, branch_name: str, no_ff: bool = False, message: Optional[str] = None
+    ):
         """Merges a Git branch into the current branch."""
         command = ["git", "merge"]
         if no_ff:

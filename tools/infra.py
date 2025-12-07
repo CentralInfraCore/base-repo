@@ -404,7 +404,9 @@ class ReleaseManager:
                     )
                 )
             else:
-                full_project_config_raw = load_yaml(project_yaml_path) # Removed type hint here
+                full_project_config_raw = load_yaml(
+                    project_yaml_path
+                )  # Removed type hint here
                 if full_project_config_raw is None:
                     full_project_config = {}
                 elif isinstance(full_project_config_raw, dict):

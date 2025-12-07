@@ -42,7 +42,11 @@ infra.typecheck:
 	@echo "--- Running static type checking with MyPy ---"
 	@docker compose exec builder python -m mypy --exclude p_venv .
 
-infra.check: infra.fmt infra.lint infra.typecheck
+security:
+	@echo "--- Running security checks with Bandit ---"
+	@docker compose exec builder python3 -m bandit -r tools
+
+infra.check: infra.fmt infra.lint infra.typecheck security
 	@echo "--- Running all code quality checks (format, lint, typecheck) ---"
 
 # =============================================================================

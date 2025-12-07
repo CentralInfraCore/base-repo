@@ -1,7 +1,11 @@
 pyyaml
+types-PyYAML
 jsonschema
 requests
+types-requests
 cryptography
+pyopenssl
+jsonref
 
 # Testing
 pytest
@@ -15,3 +19,4 @@ isort
 mypy
 yamllint
 semver
+bandit
