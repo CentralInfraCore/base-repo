@@ -324,6 +324,9 @@ class ReleaseManager:
         else:
             release_branch_name = f"{component_name}/releases/v{release_version}"
 
+        # Declare full_project_config here with its explicit type
+        full_project_config: dict[str, Any]
+
         # --- Git Orchestration Start ---
         try:
             self.logger.info(
@@ -363,7 +366,7 @@ class ReleaseManager:
             else:
                 full_project_config_raw: Optional[Any] = load_yaml(project_yaml_path)
                 if full_project_config_raw is None:
-                    full_project_config: dict[str, Any] = {}
+                    full_project_config = {}
                 elif isinstance(full_project_config_raw, dict):
                     full_project_config = full_project_config_raw
                 else:
@@ -383,7 +386,7 @@ class ReleaseManager:
             signature = self.vault_service.sign(digest_b64, key_name)
 
             # 5. Build the complete, final release block in memory.
-            final_release_block = preliminary_release_block.copy()
+            final_release_block: dict[str, Any] = preliminary_release_block.copy()
             final_release_block["repository_tree_hash"] = tree_id
             final_release_block["signing_metadata"] = {
                 "key": key_name,
@@ -401,7 +404,7 @@ class ReleaseManager:
                     )
                 )
             else:
-                full_project_config_raw: Optional[Any] = load_yaml(project_yaml_path)
+                full_project_config_raw = load_yaml(project_yaml_path) # Removed type hint here
                 if full_project_config_raw is None:
                     full_project_config = {}
                 elif isinstance(full_project_config_raw, dict):
