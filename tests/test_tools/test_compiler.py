@@ -14,7 +14,7 @@ if PROJECT_ROOT in sys.path:
 sys.path.insert(0, PROJECT_ROOT)
 
 from tools.compiler import ColoredFormatter  # noqa: E402
-from tools.compiler import load_project_config, main, setup_logging # noqa: E402
+from tools.compiler import load_project_config, main, setup_logging  # noqa: E402
 from tools.releaselib.exceptions import ReleaseError  # noqa: E402
 
 

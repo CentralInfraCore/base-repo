@@ -14,11 +14,20 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 from jsonschema import ValidationError as JsonSchemaValidationError
 
 # Import specific functions/classes from their new locations
-from tools.infra import (ReleaseManager, ValidationFailureError,
-                         get_reproducible_repo_hash, load_yaml, write_yaml)
-from tools.releaselib.exceptions import (ConfigurationError, GitStateError,
-                                         ReleaseError, VaultServiceError,
-                                         VersionMismatchError)
+from tools.infra import (
+    ReleaseManager,
+    ValidationFailureError,
+    get_reproducible_repo_hash,
+    load_yaml,
+    write_yaml,
+)
+from tools.releaselib.exceptions import (
+    ConfigurationError,
+    GitStateError,
+    ReleaseError,
+    VaultServiceError,
+    VersionMismatchError,
+)
 from tools.releaselib.git_service import GitService
 from tools.releaselib.vault_service import VaultService
 

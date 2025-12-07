@@ -9,13 +9,16 @@ from pathlib import Path  # Import Path
 
 import semver
 import yaml
-from jsonschema import \
-    ValidationError as JsonSchemaValidationError  # Alias for clarity
+from jsonschema import ValidationError as JsonSchemaValidationError  # Alias for clarity
 from jsonschema import validate
 
-from .releaselib.exceptions import (ConfigurationError, GitStateError,
-                                    ReleaseError, VaultServiceError,
-                                    VersionMismatchError)
+from .releaselib.exceptions import (
+    ConfigurationError,
+    GitStateError,
+    ReleaseError,
+    VaultServiceError,
+    VersionMismatchError,
+)
 
 
 # Add this custom exception

@@ -1,5 +1,6 @@
 import base64
 import os
+
 # Add project root to sys.path
 import sys
 from unittest.mock import MagicMock, patch

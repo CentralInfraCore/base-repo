@@ -1,3 +1,4 @@
+---
 project:
   name: base
   description: Schema Compiler & Signing Infrastructure Template
@@ -8,13 +9,13 @@ project:
     status: active
     supported_until: '2026-12-31'
   contacts:
-  - type: email
-    value: sgz@centralinfracore.hu
+    - type: email
+      value: sgz@centralinfracore.hu
   links:
-  - name: repository
-    url: https://github.com/CentralInfraCore/base-repo.git
-  - name: documentation
-    url: /docs
+    - name: repository
+      url: https://github.com/CentralInfraCore/base-repo.git
+    - name: documentation
+      url: /docs
 compiler_settings:
   component_name: base
   meta_schemas_dir: ./
@@ -26,6 +27,7 @@ release:
   repository_tree_hash: e1fb0e174258ca167d7db4183d85bd74711ac5e6
   signing_metadata:
     key: cic-my-sign-key
-    signature: vault:v1:MEQCIFp3HuzGYlwkm6Oyp2EOoMZxW57Oq6UinsG8dG3ULm9yAiBi6n8FlVbqAAxUpCQLvr+TPArvf73wk2wqXgVFE+Rgug==
+    signature: >-
+      vault:v1:MEQCIFp3HuzGYlwkm6Oyp2EOoMZxW57Oq6UinsG8dG3ULm9yAiBi6n8FlVbqAAxUpCQLvr+TPArvf73wk2wqXgVFE+Rgug==
     hash_algorithm: sha256
     digest: I5sNPGVJeeCsEqQwMYtQPIkRNohm9u4bIR4zVQeiPvA=
