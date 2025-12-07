@@ -27,7 +27,7 @@ def mock_env(mocker):
     )
     mocker.patch("tools.compiler.GitService")
     mocker.patch("tools.compiler.VaultService")
-    mocker.patch.object(os, "getenv", return_value=None)
+    # Removed the global os.getenv mock to allow specific tests to control os.environ
     mocker.patch("os.path.exists", return_value=False)
 
 
@@ -99,6 +99,18 @@ class TestMainCLI:
         mock_rm_instance.run_release_close.return_value = ("1.2.3", "main")
 
         mock_vault_service = mocker.patch("tools.compiler.VaultService")
+
+        # Use mocker.patch.dict to explicitly control os.environ for this test
+        mocker.patch.dict(
+            os.environ,
+            {
+                "VAULT_TOKEN": "",  # Explicitly empty to trigger file read
+                # Removed "CIC_VAULT_TOKEN_FILE": "" to allow os.getenv to return None
+                "VAULT_ADDR": "http://mock-vault:8200",
+                "VAULT_CACERT": "",  # Explicitly empty to use default path
+            },
+            clear=False,  # Do not clear other environment variables
+        )
 
         mocker.patch(
             "os.path.exists",
