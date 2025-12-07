@@ -6,6 +6,7 @@ import os
 import re
 import tempfile
 from pathlib import Path  # Import Path
+from typing import Any, Optional
 
 import semver
 import yaml
@@ -360,9 +361,15 @@ class ReleaseManager:
                     )
                 )
             else:
-                full_project_config = load_yaml(project_yaml_path)
-                if full_project_config is None:
-                    full_project_config = {}
+                full_project_config_raw: Optional[Any] = load_yaml(project_yaml_path)
+                if full_project_config_raw is None:
+                    full_project_config: dict[str, Any] = {}
+                elif isinstance(full_project_config_raw, dict):
+                    full_project_config = full_project_config_raw
+                else:
+                    raise ConfigurationError(
+                        f"project.yaml at {project_yaml_path} is not a valid dictionary. Found type: {type(full_project_config_raw)}"
+                    )
                 full_project_config["release"] = preliminary_release_block
                 write_yaml(project_yaml_path, full_project_config)
                 self.git_service.add(str(project_yaml_path))
@@ -394,9 +401,15 @@ class ReleaseManager:
                     )
                 )
             else:
-                full_project_config = load_yaml(project_yaml_path)
-                if full_project_config is None:
+                full_project_config_raw: Optional[Any] = load_yaml(project_yaml_path)
+                if full_project_config_raw is None:
                     full_project_config = {}
+                elif isinstance(full_project_config_raw, dict):
+                    full_project_config = full_project_config_raw
+                else:
+                    raise ConfigurationError(
+                        f"project.yaml at {project_yaml_path} is not a valid dictionary. Found type: {type(full_project_config_raw)}"
+                    )
                 full_project_config["release"] = final_release_block
                 write_yaml(project_yaml_path, full_project_config)
                 self.git_service.add(str(project_yaml_path))

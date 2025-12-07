@@ -1,5 +1,6 @@
 import os
 import subprocess
+
 # Add project root to sys.path
 import sys
 from pathlib import Path
@@ -9,8 +10,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
-from tools.releaselib.git_service import (GitService, GitServiceError,
-                                          GitStateError)
+from tools.releaselib.git_service import GitService, GitServiceError, GitStateError
 
 
 @pytest.fixture

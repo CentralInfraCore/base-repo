@@ -1,5 +1,6 @@
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 from .exceptions import GitServiceError, GitStateError  # Import GitStateError
 
@@ -173,7 +174,7 @@ class GitService:
         command.append(branch_name)
         return self.run(command)
 
-    def merge(self, branch_name: str, no_ff: bool = False, message: str = None):
+    def merge(self, branch_name: str, no_ff: bool = False, message: Optional[str] = None):
         """Merges a Git branch into the current branch."""
         command = ["git", "merge"]
         if no_ff:

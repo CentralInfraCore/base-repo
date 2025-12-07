@@ -6,8 +6,7 @@ from pathlib import Path  # Import Path
 
 import yaml
 
-from .infra import \
-    ReleaseManager  # Módosítva: from tools.infra import ReleaseManager
+from .infra import ReleaseManager  # Módosítva: from tools.infra import ReleaseManager
 from .releaselib.exceptions import ReleaseError
 from .releaselib.git_service import GitService
 from .releaselib.vault_service import VaultService
