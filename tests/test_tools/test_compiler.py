@@ -141,7 +141,10 @@ class TestMainCLI:
         mocker.patch.object(sys, "argv", ["compiler.py", "validate"])
         mock_rm_class = mocker.patch("tools.compiler.ReleaseManager")
 
-        main()
+        try:
+            main()
+        except SystemExit as e:
+            pytest.fail(f"main() exited unexpectedly with code {e.code}")
 
         mock_rm_class.assert_called_once()
 
@@ -217,4 +220,4 @@ class TestLogging:
         formatted_msg = formatter.format(info_record)
         assert "\033[0m" in formatted_msg
         assert "\033[96m" not in formatted_msg
-        assert "\0392m" not in formatted_msg
+        assert "\033[92m" not in formatted_msg
