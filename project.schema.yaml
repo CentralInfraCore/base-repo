@@ -95,6 +95,7 @@ properties:
       - source_dir
       - meta_schema_file
       - vault_key_name
+      - cic_root_ca_key_name # Added for the second signature
     properties:
       meta_schemas_dir:
         type: string
@@ -104,6 +105,10 @@ properties:
         type: string
       vault_key_name:
         type: string
+        description: "The Vault key name for the author's signature."
+      cic_root_ca_key_name:
+        type: string
+        description: "The Vault key name for the CIC Root CA approval signature."
 
   release:
     type: object
@@ -124,12 +129,39 @@ properties:
         description: >-
           The Git tree hash of the entire repository at the moment of release,
           proving the integrity of the full codebase.
-      sign:
+      digest:
         type: string
-        description: >-
-          A cryptographic signature from Vault for the 'release' block content.
+        description: "The base64 encoded SHA256 digest of the repository tree hash used for signing."
+      signing_metadata:
+        type: array
+        description: "A list of cryptographic signatures."
+        minItems: 2
+        maxItems: 2
+        items:
+          type: object
+          required:
+            - type
+            - key
+            - signature
+            - hash_algorithm
+          properties:
+            type:
+              type: string
+              description: "The type of signature."
+              enum: ["author", "approval"]
+            key:
+              type: string
+              description: "The name of the key used for signing in Vault."
+            signature:
+              type: string
+              description: "The Vault-provided signature string."
+            hash_algorithm:
+              type: string
+              description: "The hashing algorithm used before signing."
+              enum: ["sha256"]
     required:
       - version
       - timestamp
       - repository_tree_hash
-      - sign
+      - digest
+      - signing_metadata
