@@ -135,6 +135,8 @@ class ReleaseManager:
         if errors:
             error_str = "\n".join(errors)
             raise ValidationFailureError(f"One or more schemas failed validation:\n{error_str}")
+        
+        self.logger.info("✓ Schema validation passed.")
 
     def run_release(self, release_version: str):
         """
@@ -162,19 +164,14 @@ class ReleaseManager:
         """
         self.logger.info("--- Starting New Release Preparation ---")
         
-        # Run validation first
         self.run_validation()
-        self.logger.info("✓ Schema validation passed.")
 
-        # 1. Initial checks
         self._check_base_branch_and_version(release_version)
 
-        # 2. Create release branch
         self.logger.info(f"Creating release branch: '{release_branch_name}'")
         if not self.dry_run:
             self.git_service.checkout(release_branch_name, create_new=True)
 
-        # 3, 4. Create preliminary block and get hash
         project_yaml_path = self._path("project.yaml")
         full_project_config = self._update_project_yaml_preliminary(project_yaml_path, release_version)
         
@@ -182,7 +179,6 @@ class ReleaseManager:
         digest_b64 = get_reproducible_repo_hash(self.git_service, tree_id)
         full_project_config["release"]["digest"] = digest_b64
         
-        # 5. Attempt to sign
         author_key = self.config.get("vault_key_name")
         approval_key = self.config.get("cic_root_ca_key_name")
         
@@ -193,7 +189,6 @@ class ReleaseManager:
             approval_sig = self.vault_service.sign(digest_b64, approval_key)
             self.logger.info("✓ Approval signature obtained.")
             
-            # 6, 7. Happy Path
             signing_metadata = [
                 {"type": "author", "key": author_key, "signature": author_sig, "hash_algorithm": "sha256"},
                 {"type": "approval", "key": approval_key, "signature": approval_sig, "hash_algorithm": "sha256"},
@@ -207,7 +202,6 @@ class ReleaseManager:
             self._finalize_release(release_version, release_branch_name)
 
         except VaultServiceError as e:
-            # z. Unhappy Path
             self.logger.warning(f"Vault signing failed: {e}")
             if not self.dry_run:
                 write_yaml(project_yaml_path, full_project_config)
@@ -232,7 +226,6 @@ class ReleaseManager:
         self.logger.info("--- Finalizing Prepared Release ---")
         project_yaml_path = self._path("project.yaml")
 
-        # y. Validate project.yaml against the schema
         self.logger.info("Validating final project.yaml against schema...")
         try:
             schema_path = self._path("project.schema.yaml")
@@ -243,7 +236,6 @@ class ReleaseManager:
         except (ConfigurationError, JsonSchemaValidationError) as e:
             raise ValidationFailureError(f"Final project.yaml validation failed: {e}")
 
-        # 8. Commit and Tag
         component_name = self.config.get("component_name", "main")
         commit_message = f"release: {component_name} v{release_version}"
         tag_name = f"{component_name}@v{release_version}"
@@ -252,10 +244,14 @@ class ReleaseManager:
         if not self.dry_run:
             if self.git_service.is_index_dirty():
                  self.git_service.run(["git", "commit", "-m", commit_message])
+            else:
+                # If the index is clean, it means the user has already committed.
+                # We should verify this commit is what we expect, but for now, we'll just log it.
+                self.logger.info("Index is clean, assuming user has committed manually.")
+
             self.logger.info(f"Creating annotated tag: '{tag_name}'")
             self.git_service.run(["git", "tag", "-a", tag_name, "-m", tag_message])
 
-        # 9, 10, 11. Merge and Cleanup
         main_branch = self.config.get("main_branch", "main")
         if not self.dry_run:
             self.git_service.checkout(main_branch)
@@ -278,11 +274,9 @@ class ReleaseManager:
 
     def _check_base_branch_and_version(self, release_version: str):
         """Validates git state, base branch, and version increment."""
-        # Check config first
         if "component_name" not in self.config:
             raise ConfigurationError("Missing 'component_name' in compiler_settings of project.yaml.")
 
-        # Then check git state
         if self.git_service.is_dirty():
             raise GitStateError("Uncommitted changes detected. Please commit or stash them.")
         

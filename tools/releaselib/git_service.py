@@ -2,7 +2,7 @@ import subprocess  # nosec
 from pathlib import Path
 from typing import Optional
 
-from .exceptions import GitServiceError, GitStateError  # Import GitStateError
+from .exceptions import GitServiceError, GitStateError
 
 
 class GitService:
@@ -12,7 +12,7 @@ class GitService:
     """
 
     def __init__(self, cwd=None, timeout=60):
-        self.cwd = Path(cwd) if cwd else None  # Store as Path object
+        self.cwd = Path(cwd) if cwd else None
         self.timeout = timeout
 
     def _run_raw(self, command):
@@ -63,6 +63,22 @@ class GitService:
         """Returns True if there are uncommitted changes."""
         return bool(self.get_status_porcelain())
 
+    def is_index_dirty(self):
+        """Returns True if there are staged changes in the index."""
+        try:
+            subprocess.run(
+                ["git", "diff-index", "--quiet", "HEAD", "--"],
+                check=True,
+                capture_output=True,
+                cwd=self.cwd,
+                timeout=self.timeout,
+            ) # nosec
+            return False
+        except subprocess.CalledProcessError:
+            return True
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            raise GitServiceError(f"Failed to check Git index status: {e}") from e
+
     def get_tags(self, pattern=None):
         """Returns a list of tags, optionally filtered by a pattern."""
         command = ["git", "tag", "--list"]
@@ -77,7 +93,6 @@ class GitService:
 
     def add(self, file_path: Path):
         """Stages a specific file."""
-        # The _run_raw method handles converting Path to string
         return self.run(["git", "add", file_path])
 
     def archive_tree_bytes(self, tree_id, prefix=None):
