@@ -95,7 +95,6 @@ properties:
       - source_dir
       - meta_schema_file
       - vault_key_name
-      - cic_root_ca_key_name # Added for the second signature
     properties:
       meta_schemas_dir:
         type: string
@@ -106,9 +105,6 @@ properties:
       vault_key_name:
         type: string
         description: "The Vault key name for the author's signature."
-      cic_root_ca_key_name:
-        type: string
-        description: "The Vault key name for the CIC Root CA approval signature."
 
   release:
     type: object
