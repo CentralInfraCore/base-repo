@@ -201,13 +201,10 @@ class ReleaseManager:
                 self.git_service.add(str(project_yaml_path))
                 
                 commit_message = f"release: Prepare {component_name} v{release_version} for build"
-                tag_name = f"{component_name}@v{release_version}-dev"
                 tag_message = f"Developer release prep for {component_name} v{release_version}"
 
                 self.logger.info(f"Committing changes with message: '{commit_message}'")
                 self.git_service.run(['git', 'commit', '-m', commit_message])
-                self.logger.info(f"Creating annotated tag: '{tag_name}'")
-                self.git_service.run(['git', 'tag', '-a', tag_name, '-m', tag_message])
                 self.logger.info("✓ Developer release commit and tag created successfully.")
 
             self.logger.info(f"✓ Release branch '{release_branch_name}' created and tagged. Proceed with build and finalization.")
