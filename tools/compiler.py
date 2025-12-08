@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from .infra import ReleaseManager, ManualInterventionRequired
+from .infra import ReleaseManager
 from .releaselib.exceptions import ReleaseError
 from .releaselib.git_service import GitService
 from .releaselib.vault_service import VaultService
@@ -47,7 +47,6 @@ def setup_logging(verbose=False, debug=False):
     if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         handler = logging.StreamHandler(sys.stdout)
         formatter = ColoredFormatter(LOG_FORMAT)
-        handler.setFormatter(formatter)
         logger.addHandler(handler)
 
     handler = logger.handlers[0]
@@ -142,11 +141,8 @@ def main():
             logger.info("✓ All schemas are valid.")
 
         elif args.command == "release":
-            manager.run_release(release_version=args.version)
+            manager.run_release_close(release_version=args.version)
 
-    except ManualInterventionRequired as e:
-        logger.warning(str(e))
-        sys.exit(0)
     except ReleaseError as e:
         logger.critical(f"[RELEASE FAILED] {e}")
         sys.exit(1)
