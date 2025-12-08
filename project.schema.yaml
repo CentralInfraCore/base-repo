@@ -1,15 +1,11 @@
 ---
 type: object
 title: "Project Definition Schema"
-description: >-
-  Defines the structure for the project's main descriptor and configuration
-  file (project.yaml).
+description: "Defines the structure for the project's main descriptor and configuration file (project.yaml)."
 required:
-  - project
-  - compiler_settings
-
+  - metadata
 properties:
-  project:
+  metadata:
     type: object
     description: "General metadata about the repository."
     required:
