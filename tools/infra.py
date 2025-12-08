@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import tempfile
+import json # Added import for json
 from pathlib import Path
 
 import requests  # Import requests for API accessibility check
@@ -217,6 +218,26 @@ class ReleaseManager:
             self.logger.info("Assembling the developer-stage project.yaml metadata...")
             project_data = load_yaml(project_yaml_path) or {}
 
+            # Prepare data to be signed
+            data_to_sign = {
+                "name": project_data.get("metadata", {}).get("name", "unknown"),
+                "version": f"v{release_version}",
+                "checksum": repo_checksum,
+                # Add any other relevant metadata that should be part of the signature
+            }
+            # Convert to a canonical JSON string for consistent hashing
+            data_to_sign_json = json.dumps(data_to_sign, sort_keys=True, separators=(',', ':'))
+            data_to_sign_hash = hashlib.sha256(data_to_sign_json.encode('utf-8')).digest()
+            data_to_sign_b64 = base64.b64encode(data_to_sign_hash).decode('utf-8')
+
+            vault_key_name = self.config.get("vault_key_name")
+            if not vault_key_name:
+                raise ConfigurationError("vault_key_name not found in compiler_settings.")
+
+            self.logger.info(f"Signing project metadata with Vault key: {vault_key_name}...")
+            signature = self.vault_service.sign(data_to_sign_b64, vault_key_name)
+            self.logger.info("✓ Project metadata signed successfully.")
+
             metadata = {
                 "name": project_data.get("metadata", {}).get("name", "unknown"),
                 "description": project_data.get("metadata", {}).get("description", ""),
@@ -242,7 +263,7 @@ class ReleaseManager:
                     ).isoformat(),
                 },
                 "checksum": repo_checksum,
-                "sign": "",
+                "sign": signature, # <--- HERE IS THE CHANGE
                 "buildHash": "",
                 "cicSign": "",
                 "cicSignedCA": {"certificate": ""},
