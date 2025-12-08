@@ -76,10 +76,38 @@ metadata:
     until: '2026-12-08T17:09:32.315693+00:00'
   checksum: HsAKF5g3ZB530cJk2qYTMzC7p2TMbzthg2Dn60h8DNQ=
   sign: vault:v1:MEQCIG7JuRrA3Law8Q2oUe1GYV7SSbRvFT3ZvNvUnw2BB8xLAiBbfsf9CV1Q94KrBkyn3i72FLQG7LogZytuXytu7nqEAQ==
-  buildHash: ''
-  cicSign: ''
+  buildHash: vault:v1:MEQCIG7JuRrA3Law8Q2oUe1GYV7SSbRvFT3ZvNvUnw2BB8xLAiBbfsf9CV1Q94KrBkyn3i72FLQG7LogZytuXytu7nqEAQ==
+  cicSign: 'MEYCIQCTlJHjw0tx/UN7sNCzeYmwoQm4RhfkC6h0dmJt9avkxgIhANozYLu1P6eylXiwYOkR5LU9koKypeGbUkEsEMurnKXl'
   cicSignedCA:
-    certificate: ''
+    certificate: '-----BEGIN CERTIFICATE-----
+
+      MIICPDCCAeOgAwIBAgIUCuXu5zvoytWl7tbouWpFcu47FVUwCgYIKoZIzj0EAwIw
+
+      PjELMAkGA1UEBhMCSFUxGTAXBgNVBAoMEENlbnRyYWxJbmZyYUNvcmUxFDASBgNV
+
+      BAMMC0NJQyBSb290IENBMB4XDTI1MDgwNjA2MDUwMloXDTI2MDgwNjA2MDUwMlow
+
+      PjELMAkGA1UEBhMCSFUxGTAXBgNVBAoMEENlbnRyYWxJbmZyYUNvcmUxFDASBgNV
+
+      BAMMC0NJQyBSb290IENBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFHIGqGtI
+
+      3yPXQtoGpWXpO3xDcKvSvgORxxO9N0bD6okADsTk2/3Wl1PeUEcy7uRRSBAwBHoA
+
+      i1gt2iHCt57W3KOBvjCBuzAdBgNVHQ4EFgQUBK96VZD7BlbdiTT0G7k3CixHQQkw
+
+      eQYDVR0jBHIwcIAUBK96VZD7BlbdiTT0G7k3CixHQQmhQqRAMD4xCzAJBgNVBAYT
+
+      AkhVMRkwFwYDVQQKDBBDZW50cmFsSW5mcmFDb3JlMRQwEgYDVQQDDAtDSUMgUm9v
+
+      dCBDQYIUCuXu5zvoytWl7tbouWpFcu47FVUwDwYDVR0TAQH/BAUwAwEB/zAOBgNV
+
+      HQ8BAf8EBAMCAYYwCgYIKoZIzj0EAwIDRwAwRAIgJ7gfxb3oddHx1u8CBA/t5QQM
+
+      av7F6hkOBwVfKA/ErA4CIAZIx2CSJde1c4guvORJCj8qXiJJFNeMBS7Gvq1+r0hG
+
+      -----END CERTIFICATE-----
+
+      '
 compiler_settings:
   component_name: base
   meta_schemas_dir: ./
