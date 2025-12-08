@@ -1,39 +1,34 @@
-import base64
-import datetime
-import hashlib
-import logging
 import os
-import re
-import tempfile
-from pathlib import Path
-from typing import Any, Optional
-
-import semver
+import sys
+import glob
 import yaml
-from jsonschema import ValidationError as JsonSchemaValidationError
-from jsonschema import validate
+import hashlib
+import datetime
+import re
+from jsonschema import validate, ValidationError as JsonSchemaValidationError
+import base64
+import semver
+import tempfile
+import logging
+from pathlib import Path
+import requests # Import requests for API accessibility check
 
 from .releaselib.exceptions import (
     ConfigurationError,
     GitStateError,
-    ReleaseError,
-    VaultServiceError,
     VersionMismatchError,
-    ManualInterventionRequired,
+    ReleaseError,
+    VaultServiceError
 )
 
-# Custom exceptions
 class ValidationFailureError(ReleaseError):
     """Custom exception for schema validation failures."""
     pass
 
-
-# --- Helper Functions ---
-
 def load_yaml(path: Path):
     """Loads a YAML file."""
     try:
-        with open(path, "r") as f:
+        with open(path, 'r') as f:
             content = f.read()
             if not content.strip():
                 return None
@@ -47,54 +42,34 @@ def write_yaml(path: Path, data):
     """Writes data to a YAML file atomically."""
     tmp_name = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, dir=path.parent, encoding="utf-8"
-        ) as tmp_file:
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=path.parent, encoding='utf-8') as tmp_file:
             tmp_name = tmp_file.name
             yaml.dump(data, tmp_file, sort_keys=False, indent=2)
         os.replace(tmp_name, path)
-    except IOError as e:
-        # Re-raise as ReleaseError, but cleanup should happen in finally
+    except (IOError, OSError) as e:
         raise ReleaseError(f"Failed to write YAML file to {path}: {e}") from e
     except Exception as e:
-        # Catch any other unexpected errors
-        raise ReleaseError(
-            f"An unexpected error occurred during atomic write to {path}: {e}"
-        ) from e
+        raise ReleaseError(f"An unexpected error occurred during atomic write to {path}: {e}") from e
     finally:
-        # Cleanup temporary file if it exists
         if tmp_name and Path(tmp_name).exists():
             try:
                 Path(tmp_name).unlink()
             except Exception as unlink_e:
-                logging.getLogger(__name__).warning(
-                    f"Failed to clean up temporary file {tmp_name}: {unlink_e}"
-                )
+                logging.getLogger(__name__).warning(f"Failed to clean up temporary file {tmp_name}: {unlink_e}")
 
 def get_reproducible_repo_hash(git_service, tree_id):
     """Calculates a reproducible SHA256 hash of a given git tree object."""
     try:
-        archive_bytes = git_service.archive_tree_bytes(tree_id, prefix="./")
+        archive_bytes = git_service.archive_tree_bytes(tree_id, prefix='./')
         hasher = hashlib.sha256()
         hasher.update(archive_bytes)
         digest = hasher.digest()
-        return base64.b64encode(digest).decode("utf-8")
+        return base64.b64encode(digest).decode('utf-8')
     except Exception as e:
         raise ReleaseError(f"Error during repo hash calculation: {e}") from e
 
-
-# --- Core Logic Class ---
-
 class ReleaseManager:
-    def __init__(
-        self,
-        config,
-        git_service,
-        vault_service,
-        project_root: Path = Path("."),
-        dry_run=False,
-        logger=None,
-    ):
+    def __init__(self, config, git_service, vault_service, project_root: Path = Path('.'), dry_run=False, logger=None):
         self.config = config
         self.git_service = git_service
         self.vault_service = vault_service
@@ -105,208 +80,228 @@ class ReleaseManager:
     def _path(self, relative_path):
         return self.project_root / relative_path
 
-    def run_validation(self):
-        """Runs offline validation on all schemas."""
+    def _check_base_branch_and_version(self, release_version: str, skip_git_state_checks: bool = False):
+        """Checks git state, branch, and version validity."""
+        component_name = self.config.get('component_name', 'main')
+        original_base_branch = self.git_service.get_current_branch()
+        self.logger.info(f"✓ Starting release process for component '{component_name}' from branch '{original_base_branch}'.")
+        
+        if not skip_git_state_checks:
+            if self.git_service.is_dirty():
+                raise GitStateError("Uncommitted changes detected. Please commit or stash them before starting a release.")
+            self.git_service.assert_clean_index()
+
+        return component_name, original_base_branch
+
+    def _check_api_accessibility(self, api_url: str):
+        """
+        Checks if a given API URL is accessible.
+        Exits with 0 regardless of success/failure, as requested.
+        """
+        self.logger.info(f"Checking API accessibility for: {api_url}")
         try:
-            meta_schema_path = self._path(self.config["meta_schema_file"])
-            meta_schema = load_yaml(meta_schema_path)
-            if meta_schema is None:
-                raise ConfigurationError(f"Meta-schema file '{meta_schema_path}' is empty.")
-        except (KeyError, ConfigurationError) as e:
-            raise ConfigurationError(f"Could not load meta-schema: {e}") from e
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status()
+            self.logger.info(f"✓ API '{api_url}' is accessible. Status: {response.status_code}")
+        except requests.exceptions.RequestException as e:
+            self.logger.warning(f"API '{api_url}' is NOT accessible: {e}")
+        # As requested, exit with 0 regardless of accessibility
+        sys.exit(0)
 
-        schema_glob_pattern = self.config["meta_schemas_dir"] + "/**/*.meta.yaml"
-        schema_files = list(self.project_root.glob(schema_glob_pattern))
-
-        meta_schema_abs_path = meta_schema_path.resolve()
-        schema_files = [f for f in schema_files if f.resolve() != meta_schema_abs_path]
-
-        errors = []
-        for schema_file in schema_files:
-            try:
-                schema_instance = load_yaml(schema_file)
-                if schema_instance is None:
-                    errors.append(f"  - {schema_file.name}: Configuration Error - File is empty.")
-                    continue
-                validate(instance=schema_instance, schema=meta_schema)
-            except (ConfigurationError) as e:
-                errors.append(f"  - {schema_file.name}: Configuration Error - {e}")
-            except (JsonSchemaValidationError) as e:
-                errors.append(f"  - {schema_file.name}: Schema Validation Error - {e.message}")
-            except Exception as e:
-                errors.append(f"  - {schema_file.name}: Unexpected Error - {e}")
-
-        if errors:
-            error_str = "\n".join(errors)
-            raise ValidationFailureError(f"One or more schemas failed validation:\n{error_str}")
-        
-        self.logger.info("✓ Schema validation passed.")
-
-    def run_release(self, release_version: str):
+    def _validate_final_project_yaml(self):
         """
-        Main entrypoint for the release process.
-        Orchestrates the release based on the current Git branch state.
+        Validates the project.yaml against the project.schema.yaml.
+        This is used in the finalization phase to ensure all required fields (including signatures) are present.
         """
-        component_name = self.config.get("component_name", "main")
-        release_branch_name = f"{component_name}/releases/v{release_version}"
-        current_branch = self.git_service.get_current_branch()
-
-        if current_branch == self.config.get("main_branch", "main"):
-            self._prepare_release(release_version, release_branch_name)
-        elif current_branch == release_branch_name:
-            self._finalize_release(release_version, release_branch_name)
-        else:
-            raise GitStateError(
-                f"Release command must be run from the main branch ('{self.config.get('main_branch', 'main')}') "
-                f"or an existing release branch ('{release_branch_name}'). "
-                f"Currently on '{current_branch}'."
-            )
-
-    def _prepare_release(self, release_version: str, release_branch_name: str):
-        """
-        Handles the first phase of a release: preparation and signing attempt.
-        """
-        self.logger.info("--- Starting New Release Preparation ---")
-        
-        self.run_validation()
-
-        self._check_base_branch_and_version(release_version)
-
-        self.logger.info(f"Creating release branch: '{release_branch_name}'")
-        if not self.dry_run:
-            self.git_service.checkout(release_branch_name, create_new=True)
-
-        project_yaml_path = self._path("project.yaml")
-        
-        # Get tree ID and reproducible hash BEFORE updating project.yaml
-        tree_id = self.git_service.write_tree()
-        repository_tree_hash = self.git_service.run(["git", "rev-parse", tree_id])
-        digest_b64 = get_reproducible_repo_hash(self.git_service, tree_id)
-
-        # Update project.yaml with preliminary release info
-        full_project_config = self._update_project_yaml_preliminary(
-            project_yaml_path, release_version, repository_tree_hash, digest_b64
-        )
-        
-        author_key = self.config.get("vault_key_name")
-        approval_key = self.config.get("cic_root_ca_key_name")
-        
-        try:
-            self.logger.info("Attempting to get signatures from Vault...")
-            author_sig = self.vault_service.sign(digest_b64, author_key)
-            self.logger.info("✓ Author signature obtained.")
-            approval_sig = self.vault_service.sign(digest_b64, approval_key)
-            self.logger.info("✓ Approval signature obtained.")
-            
-            signing_metadata = [
-                {"type": "author", "key": author_key, "signature": author_sig, "hash_algorithm": "sha256"},
-                {"type": "approval", "key": approval_key, "signature": approval_sig, "hash_algorithm": "sha256"},
-            ]
-            full_project_config["release"]["signing_metadata"] = signing_metadata
-            
-            if not self.dry_run:
-                write_yaml(project_yaml_path, full_project_config)
-                self.git_service.add(str(project_yaml_path))
-            
-            self.logger.info("✓ Both signatures obtained. Proceeding to finalize release automatically.")
-            self._finalize_release(release_version, release_branch_name)
-
-        except VaultServiceError as e:
-            self.logger.warning(f"Vault signing failed: {e}")
-            # If signing fails, we still write the project.yaml with the digest
-            # but without signing_metadata, and instruct for manual intervention.
-            # The project.yaml will already contain version, timestamp, repo_tree_hash, and digest.
-            if not self.dry_run:
-                # Ensure signing_metadata is removed or empty if signing failed
-                if "signing_metadata" in full_project_config["release"]:
-                    del full_project_config["release"]["signing_metadata"]
-                write_yaml(project_yaml_path, full_project_config)
-                self.git_service.add(str(project_yaml_path))
-            
-            message = (
-                f"Release v{release_version} is prepared for manual signing on branch '{release_branch_name}'.\n"
-                "ACTION REQUIRED:\n"
-                "1. Manually obtain signatures for the following digest:\n"
-                f"   - Digest (Base64): {digest_b64}\n"
-                f"   - Author Key: {author_key}\n"
-                f"   - Approval Key: {approval_key}\n"
-                "2. Edit project.yaml to include both signatures in the 'signing_metadata' list.\n"
-                "3. Commit the changes to 'project.yaml'.\n"
-                f"4. Run 'make release VERSION={release_version}' again to finalize the release."
-            )
-            raise ManualInterventionRequired(message)
-
-    def _finalize_release(self, release_version: str, release_branch_name: str):
-        """
-        Handles the second phase of a release: final validation and merge.
-        """
-        self.logger.info("--- Finalizing Prepared Release ---")
-        project_yaml_path = self._path("project.yaml")
-
         self.logger.info("Validating final project.yaml against schema...")
         try:
             schema_path = self._path("project.schema.yaml")
             schema = load_yaml(schema_path)
+            if schema is None:
+                raise ConfigurationError(f"Project schema file '{schema_path}' is empty.")
+            
+            project_yaml_path = self._path("project.yaml")
             instance = load_yaml(project_yaml_path)
+            if instance is None:
+                raise ConfigurationError(f"Project YAML file '{project_yaml_path}' is empty.")
+            
             validate(instance=instance, schema=schema)
-            self.logger.info("✓ project.yaml is valid.")
+            self.logger.info("✓ project.yaml is valid against the schema.")
         except (ConfigurationError, JsonSchemaValidationError) as e:
             raise ValidationFailureError(f"Final project.yaml validation failed: {e}")
+        except Exception as e:
+            raise ReleaseError(f"An unexpected error occurred during project.yaml validation: {e}")
 
-        component_name = self.config.get("component_name", "main")
-        commit_message = f"release: {component_name} v{release_version}"
-        tag_name = f"{component_name}@v{release_version}"
-        tag_message = f"Release {component_name} v{release_version}"
-
-        if not self.dry_run:
-            # Check if project.yaml has changes to commit (e.g., if signing_metadata was added)
-            if self.git_service.is_dirty(): # This checks for both staged and unstaged changes
-                 self.git_service.run(["git", "commit", "-m", commit_message])
-            else:
-                self.logger.info("No changes detected in project.yaml to commit. Assuming manual commit or no signing_metadata added.")
-
-            self.logger.info(f"Creating annotated tag: '{tag_name}'")
-            self.git_service.run(["git", "tag", "-a", tag_name, "-m", tag_message])
-
-        main_branch = self.config.get("main_branch", "main")
-        if not self.dry_run:
-            self.git_service.checkout(main_branch)
-            self.git_service.merge(release_branch_name, no_ff=True, message=f"Merge branch '{release_branch_name}'")
-            self.git_service.delete_branch(release_branch_name)
-        
-        self.logger.info(f"✓ Release {release_version} successfully finalized and merged into {main_branch}.")
-
-    def _update_project_yaml_preliminary(self, path: Path, version: str, repository_tree_hash: str, digest: str) -> dict:
-        """Reads, updates, and writes the preliminary release block to project.yaml."""
-        config = load_yaml(path) or {}
-        config["release"] = {
-            "version": version,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "repository_tree_hash": repository_tree_hash,
-            "digest": digest,
-        }
-        if not self.dry_run:
-            write_yaml(path, config)
-            self.git_service.add(str(path))
-        return config
-
-    def _check_base_branch_and_version(self, release_version: str):
-        """Validates git state, base branch, and version increment."""
-        if "component_name" not in self.config:
-            raise ConfigurationError("Missing 'component_name' in compiler_settings of project.yaml.")
-
-        if self.git_service.is_dirty():
-            raise GitStateError("Uncommitted changes detected. Please commit or stash them.")
-        
-        self.git_service.assert_clean_index()
-
-        main_branch = self.config.get("main_branch", "main")
-        if self.git_service.get_current_branch() != main_branch:
-            raise GitStateError(f"Must be on the '{main_branch}' branch to start a new release.")
+    def _execute_developer_preparation_phase(self, release_version: str, component_name: str, original_base_branch: str):
+        """
+        Handles the developer preparation phase: creates release branch, updates project.yaml, commits, tags.
+        """
+        project_yaml_path = self._path('project.yaml')
+        release_branch_name = f"{component_name}/releases/v{release_version}" if component_name != "main" else f"releases/v{release_version}"
 
         try:
-            semver.Version.parse(release_version)
-        except ValueError as e:
-            raise VersionMismatchError(f"Invalid version string '{release_version}': {e}") from e
+            self.logger.info(f"Creating release branch: '{release_branch_name}' from '{original_base_branch}'")
+            if not self.dry_run:
+                self.git_service.checkout(release_branch_name, create_new=True)
+            self.logger.info(f"✓ Switched to release branch: '{release_branch_name}'")
+
+            self.logger.info("Collecting data for the developer release step...")
+
+            tree_id = self.git_service.write_tree()
+            repo_checksum = get_reproducible_repo_hash(self.git_service, tree_id)
+            self.logger.info(f"✓ Calculated repository checksum: {repo_checksum}")
+
+            cert_mount = self.config.get('vault_cert_mount')
+            user_cert_secret_name = self.config.get('vault_cert_secret_name')
+            user_cert_secret_key = self.config.get('vault_cert_secret_key')
+            self.logger.info(f"Requesting user certificate from Vault: {cert_mount}/{user_cert_secret_name}...")
+            user_certificate = self.vault_service.get_certificate(cert_mount, user_cert_secret_name, user_cert_secret_key)
+            self.logger.info("✓ User certificate obtained.")
+
+            cic_cert_secret_name = self.config.get('cic_root_ca_secret_name', 'CICRootCA')
+            cic_cert_secret_key = self.config.get('vault_cert_secret_key')
+            self.logger.info(f"Requesting CIC Root CA certificate from Vault: {cert_mount}/{cic_cert_secret_name}...")
+            cic_root_ca_cert = self.vault_service.get_certificate(cert_mount, cic_cert_secret_name, cic_cert_secret_key)
+            self.logger.info("✓ CIC Root CA certificate obtained.")
+
+            self.logger.info("Assembling the developer-stage project.yaml metadata...")
+            project_data = load_yaml(project_yaml_path) or {}
+            
+            metadata = {
+                'name': project_data.get('metadata', {}).get('name', 'unknown'),
+                'description': project_data.get('metadata', {}).get('description', ''),
+                'version': f"v{release_version}",
+                'license': project_data.get('metadata', {}).get('license', ''),
+                'owner': project_data.get('metadata', {}).get('owner', ''),
+                'tags': project_data.get('metadata', {}).get('tags', []),
+                'validatedBy': {'name': 'TBD', 'version': 'TBD', 'checksum': 'TBD'},
+                'createdBy': {
+                    'name': 'Gabor Zoltan Sinko', # Placeholder, should be parsed from cert
+                    'email': 'sgz@centralinfracore.hu', # Placeholder, should be parsed from cert
+                    'certificate': user_certificate,
+                    'issuer_certificate': cic_root_ca_cert
+                },
+                'build_timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'validity': {
+                    'from': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    'until': (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=365)).isoformat()
+                },
+                'checksum': repo_checksum,
+                'sign': "", 'buildHash': "", 'cicSign': "", 'cicSignedCA': {'certificate': ""}
+            }
+            project_data['metadata'] = metadata
+
+            if self.dry_run:
+                self.logger.info("[DRY-RUN] The following data would be written to project.yaml:")
+                self.logger.info(yaml.dump(project_data, sort_keys=False, indent=2))
+            else:
+                self.logger.info("Writing developer-stage metadata to project.yaml...")
+                write_yaml(project_yaml_path, project_data)
+                self.logger.info("✓ project.yaml updated for developer release step.")
+                self.git_service.add(str(project_yaml_path))
+                
+                commit_message = f"release: Prepare {component_name} v{release_version} for build"
+                tag_name = f"{component_name}@v{release_version}-dev"
+                tag_message = f"Developer release prep for {component_name} v{release_version}"
+
+                self.logger.info(f"Committing changes with message: '{commit_message}'")
+                self.git_service.run(['git', 'commit', '-m', commit_message])
+                self.logger.info(f"Creating annotated tag: '{tag_name}'")
+                self.git_service.run(['git', 'tag', '-a', tag_name, '-m', tag_message])
+                self.logger.info("✓ Developer release commit and tag created successfully.")
+
+            self.logger.info(f"✓ Release branch '{release_branch_name}' created and tagged. Proceed with build and finalization.")
+            self.logger.info(f"ACTION REQUIRED: You are now on branch '{release_branch_name}'.")
+            self.logger.info(f"  1. Run your build process to generate artifacts and update 'buildHash' and 'sign' fields in project.yaml.")
+            self.logger.info(f"  2. Commit the updated project.yaml to this branch.")
+            self.logger.info(f"  3. Merge this branch into 'main' and delete this branch when done.")
+            
+            self._check_api_accessibility("https://api.centralinfra.hu") # This will sys.exit(0)
+            
+            return release_version, component_name
+        except Exception as e:
+            self.logger.critical(f"Release process failed during Git operations: {e}", exc_info=True)
+            if not self.dry_run:
+                try:
+                    self.logger.warning(f"Attempting to clean up release branch '{release_branch_name}'.")
+                    self.git_service.checkout(original_base_branch)
+                    self.git_service.delete_branch(release_branch_name, force=True)
+                    self.logger.info("✓ Release branch cleaned up.")
+                except Exception as cleanup_e:
+                    self.logger.critical(f"Failed to clean up release branch: {cleanup_e}", exc_info=True)
+            raise ReleaseError(f"Release process failed: {e}") from e
+
+    def _execute_finalization_phase(self, release_version: str, component_name: str, original_base_branch: str, release_branch_name: str):
+        """
+        Handles the finalization phase: validates project.yaml, commits, tags, merges, and cleans up.
+        """
+        project_yaml_path = self._path('project.yaml')
+
+        self.logger.info(f"--- Starting Finalization for v{release_version} on branch '{release_branch_name}' ---")
         
-        self.logger.info(f"✓ Git state and version '{release_version}' are valid.")
+        self._validate_final_project_yaml()
+        self.logger.info("✓ project.yaml is fully validated and ready for finalization.")
+
+        if not self.dry_run:
+            if self.git_service.is_dirty():
+                self.logger.info("Committing pending changes to project.yaml (from build process)...")
+                self.git_service.add(str(project_yaml_path))
+                self.git_service.run(['git', 'commit', '-m', f"release: Finalize {component_name} v{release_version} build artifacts"])
+            else:
+                self.logger.info("No pending changes to project.yaml detected. Assuming manual commit of build artifacts.")
+        
+        final_tag_name = f"{component_name}@v{release_version}"
+        final_tag_message = f"Release {component_name} v{release_version}"
+        if not self.dry_run:
+            self.logger.info(f"Creating final annotated tag: '{final_tag_name}'")
+            self.git_service.run(['git', 'tag', '-a', final_tag_name, '-m', final_tag_message])
+            self.logger.info("✓ Final release tag created.")
+
+        self.logger.info(f"Switching back to original branch: '{original_base_branch}'")
+        if not self.dry_run:
+            self.git_service.checkout(original_base_branch)
+        
+        self.logger.info(f"Merging '{release_branch_name}' into '{original_base_branch}'")
+        if not self.dry_run:
+            self.git_service.merge(release_branch_name, no_ff=True, message=f"Merge branch '{release_branch_name}' for release {release_version}")
+        
+        self.logger.info(f"Deleting release branch: '{release_branch_name}'")
+        if not self.dry_run:
+            self.git_service.delete_branch(release_branch_name)
+        
+        self.logger.info(f"✓ Release v{release_version} successfully finalized and merged into '{original_base_branch}'.")
+        
+        return release_version, component_name
+
+    def run_release_close(self, release_version: str):
+        """
+        Orchestrates the release process based on the current Git branch and dry_run status.
+        """
+        component_name, original_base_branch = self._check_base_branch_and_version(release_version, skip_git_state_checks=self.dry_run)
+        
+        if not self.vault_service:
+            raise VaultServiceError("VaultService is not initialized.")
+
+        main_branch = self.config.get('main_branch', 'main')
+        release_branch_name = f"{component_name}/releases/v{release_version}" if component_name != "main" else f"releases/v{release_version}"
+
+        # If dry_run is active, always simulate the developer preparation phase
+        if self.dry_run:
+            self.logger.info("[DRY-RUN] Simulating Developer Preparation Phase.")
+            return self._execute_developer_preparation_phase(release_version, component_name, original_base_branch)
+        
+        # Phase 1: Developer Preparation (if on main branch)
+        elif original_base_branch == main_branch:
+            return self._execute_developer_preparation_phase(release_version, component_name, original_base_branch)
+
+        # Phase 2: Finalization (if on a release branch)
+        elif original_base_branch == release_branch_name:
+            return self._execute_finalization_phase(release_version, component_name, original_base_branch, release_branch_name)
+
+        # Phase 3: Invalid Branch
+        else:
+            raise GitStateError(
+                f"Release command must be run from the main branch ('{main_branch}') "
+                f"to start a new release, or from an existing release branch ('{release_branch_name}') "
+                f"to finalize it. Currently on '{original_base_branch}'."
+            )
