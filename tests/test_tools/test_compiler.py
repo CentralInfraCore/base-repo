@@ -43,7 +43,7 @@ class TestMainCLI:
 
         mock_release_manager_class.assert_called_once()
         mock_rm_instance.run_validation.assert_called_once()
-        mock_rm_instance.run_release.assert_not_called()
+        mock_rm_instance.run_release_close.assert_not_called() # Changed from run_release
 
     def test_release_command_requires_version(self, mocker):
         mocker.patch.object(sys, "argv", ["compiler.py", "release"])
@@ -62,8 +62,8 @@ class TestMainCLI:
         main()
 
         mock_release_manager_class.assert_called_once()
-        # The main method now only calls run_release, which orchestrates everything else.
-        mock_rm_instance.run_release.assert_called_once_with(release_version="1.2.3")
+        # The main method now only calls run_release_close, which orchestrates everything else.
+        mock_rm_instance.run_release_close.assert_called_once_with(release_version="1.2.3") # Changed from run_release
         # We no longer check for internal calls like run_validation from this top-level test.
         mock_rm_instance.run_validation.assert_not_called()
 
@@ -102,7 +102,7 @@ class TestMainCLI:
         mocker.patch.object(sys, "argv", ["compiler.py", "release", "--version", "1.0.0"])
         mock_release_manager_class = mocker.patch("tools.compiler.ReleaseManager")
         mock_rm_instance = mock_release_manager_class.return_value
-        mock_rm_instance.run_release.side_effect = ManualInterventionRequired("Do something")
+        mock_rm_instance.run_release_close.side_effect = ManualInterventionRequired("Do something") # Changed from run_release
 
         with pytest.raises(SystemExit) as excinfo:
             main()

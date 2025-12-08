@@ -205,6 +205,7 @@ class ReleaseManager:
 
                 self.logger.info(f"Committing changes with message: '{commit_message}'")
                 self.git_service.run(['git', 'commit', '-m', commit_message])
+                self.git_service.run(['git', 'tag', '-a', f"{component_name}@v{release_version}-dev", '-m', tag_message]) # Added this line
                 self.logger.info("✓ Developer release commit and tag created successfully.")
 
             self.logger.info(f"✓ Release branch '{release_branch_name}' created and tagged. Proceed with build and finalization.")
@@ -233,6 +234,7 @@ class ReleaseManager:
         Handles the finalization phase: validates project.yaml, commits, tags, merges, and cleans up.
         """
         project_yaml_path = self._path('project.yaml')
+        main_branch = self.config.get('main_branch', 'main') # Get main_branch
 
         self.logger.info(f"--- Starting Finalization for v{release_version} on branch '{release_branch_name}' ---")
         
@@ -254,11 +256,11 @@ class ReleaseManager:
             self.git_service.run(['git', 'tag', '-a', final_tag_name, '-m', final_tag_message])
             self.logger.info("✓ Final release tag created.")
 
-        self.logger.info(f"Switching back to original branch: '{original_base_branch}'")
+        self.logger.info(f"Switching back to main branch: '{main_branch}'") # Updated log message
         if not self.dry_run:
-            self.git_service.checkout(original_base_branch)
+            self.git_service.checkout(main_branch) # Checkout main_branch
         
-        self.logger.info(f"Merging '{release_branch_name}' into '{original_base_branch}'")
+        self.logger.info(f"Merging '{release_branch_name}' into '{main_branch}'") # Updated log message
         if not self.dry_run:
             self.git_service.merge(release_branch_name, no_ff=True, message=f"Merge branch '{release_branch_name}' for release {release_version}")
         
@@ -266,7 +268,7 @@ class ReleaseManager:
         if not self.dry_run:
             self.git_service.delete_branch(release_branch_name)
         
-        self.logger.info(f"✓ Release v{release_version} successfully finalized and merged into '{original_base_branch}'.")
+        self.logger.info(f"✓ Release v{release_version} successfully finalized and merged into '{main_branch}'.") # Updated log message
         
         return release_version, component_name
 

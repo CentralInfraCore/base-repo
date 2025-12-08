@@ -3,6 +3,7 @@ import yaml
 from unittest.mock import MagicMock, patch, ANY
 from pathlib import Path
 import logging
+import requests # Import requests for API accessibility check
 
 # Add project root to sys.path
 import sys
@@ -13,6 +14,7 @@ from tools.infra import ReleaseManager, load_yaml, write_yaml, get_reproducible_
 from tools.releaselib.exceptions import VaultServiceError, ReleaseError, ConfigurationError, GitStateError
 from tools.releaselib.git_service import GitService
 from tools.releaselib.vault_service import VaultService
+from jsonschema import ValidationError as JsonSchemaValidationError # Import ValidationError
 
 # --- Fixtures ---
 
@@ -34,8 +36,9 @@ def mock_services(mocker):
     
     mock_git_service.get_current_branch.return_value = "main"
     mock_git_service.write_tree.return_value = "dummy_tree_id"
-    mock_git_service.is_dirty.return_value = False # Added for _check_base_branch_and_version
-    mock_git_service.assert_clean_index.return_value = None # Added for _check_base_branch_and_version
+    # is_dirty will be controlled by individual tests where needed
+    mock_git_service.is_dirty.return_value = False
+    mock_git_service.assert_clean_index.return_value = None
 
     mock_vault_service.sign.return_value = "dummy-signature"
     mock_vault_service.get_certificate.return_value = "-----BEGIN CERTIFICATE-----\nDUMMY-CERT\n-----END CERTIFICATE-----"
@@ -53,8 +56,11 @@ def mock_services(mocker):
     
     mocker.patch('tools.infra.write_yaml')
     mocker.patch('tools.infra.get_reproducible_repo_hash', return_value="dummy_hash_b64")
-    mocker.patch('tools.infra.requests.get') # Mock requests.get for _check_api_accessibility
-    mocker.patch('sys.exit') # Mock sys.exit for _check_api_accessibility
+
+    # Capture the mocked objects for direct assertion in tests, but don't pass them to ReleaseManager
+    mock_requests_get = mocker.patch('tools.infra.requests.get')
+    mock_sys_exit = mocker.patch('sys.exit')
+    mock_infra_validate = mocker.patch('tools.infra.validate')
 
     return {
         "config": mock_config,
@@ -62,7 +68,11 @@ def mock_services(mocker):
         "vault_service": mock_vault_service,
         "logger": mock_logger,
         "project_root": Path('/fake/project'),
-        "dry_run": False
+        "dry_run": False,
+        # These mocks are for assertion in tests, not for ReleaseManager constructor
+        "mocker_requests_get": mock_requests_get,
+        "mocker_sys_exit": mock_sys_exit,
+        "mocker_infra_validate": mock_infra_validate
     }
 
 # --- Test Classes ---
@@ -119,7 +129,14 @@ class TestHelperFunctions:
 
 class TestReleaseManagerPhases:
     def test_developer_preparation_phase_success(self, mock_services):
-        manager = ReleaseManager(**mock_services)
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
         manager.run_release_close(release_version="1.0.0")
 
         # Verify Git operations for branch creation and commit/tag
@@ -133,28 +150,44 @@ class TestReleaseManagerPhases:
         mock_services["vault_service"].get_certificate.assert_any_call("kv", "CICRootCA", "cert") # Assuming 'cert' is the key for CICRootCA too
 
         # Verify sys.exit is called for API check
-        mock_services["sys.exit"].assert_called_once_with(0)
+        mock_services["mocker_sys_exit"].assert_called_once_with(0)
 
     def test_finalization_phase_success(self, mock_services):
         mock_services["git_service"].get_current_branch.return_value = "base/releases/v1.0.0"
-        manager = ReleaseManager(**mock_services)
+        # Simulate dirty repo for finalization commit
+        mock_services["git_service"].is_dirty.side_effect = [False, True]
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
         
         manager.run_release_close(release_version="1.0.0")
 
         # Verify validation is called
-        from tools.infra import validate
-        validate.assert_called_once()
+        mock_services["mocker_infra_validate"].assert_called_once()
+        mock_services["mocker_infra_validate"].assert_called_once_with(instance=ANY, schema=ANY)
 
         # Verify Git operations for finalization
         mock_services["git_service"].run.assert_any_call(['git', 'commit', '-m', 'release: Finalize base v1.0.0 build artifacts'])
         mock_services["git_service"].run.assert_any_call(['git', 'tag', '-a', 'base@v1.0.0', '-m', 'Release base v1.0.0'])
-        mock_services["git_service"].checkout.assert_any_call("main")
+        mock_services["git_service"].checkout.assert_called_once_with(mock_services["config"]["main_branch"])
         mock_services["git_service"].merge.assert_called_once()
         mock_services["git_service"].delete_branch.assert_called_once_with("base/releases/v1.0.0")
 
     def test_dry_run_developer_phase(self, mock_services):
         mock_services['dry_run'] = True
-        manager = ReleaseManager(**mock_services)
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
         
         manager.run_release_close(release_version="1.0.0")
 
@@ -168,35 +201,142 @@ class TestReleaseManagerPhases:
         mock_services["logger"].info.assert_any_call("[DRY-RUN] Simulating Developer Preparation Phase.")
         
         # API check still runs and exits in dry-run
-        mock_services["sys.exit"].assert_called_once_with(0)
+        mock_services["mocker_sys_exit"].assert_called_once_with(0)
 
     def test_invalid_branch(self, mock_services):
         mock_services["git_service"].get_current_branch.return_value = "feature/some-branch"
-        manager = ReleaseManager(**mock_services)
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
         
         with pytest.raises(GitStateError, match="Release command must be run from the main branch"):
             manager.run_release_close(release_version="1.0.0")
 
     def test_api_accessibility_check_failure(self, mock_services):
-        mock_services["requests.get"].side_effect = requests.exceptions.RequestException("API is down")
-        manager = ReleaseManager(**mock_services)
+        mock_services["mocker_requests_get"].side_effect = requests.exceptions.RequestException("API is down")
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
         
         manager.run_release_close(release_version="1.0.0")
         mock_services["logger"].warning.assert_called_once_with(ANY)
-        mock_services["sys.exit"].assert_called_once_with(0)
+        mock_services["mocker_sys_exit"].assert_called_once_with(0)
 
     def test_finalization_phase_validation_failure(self, mock_services):
         mock_services["git_service"].get_current_branch.return_value = "base/releases/v1.0.0"
-        mocker.patch('tools.infra.validate', side_effect=JsonSchemaValidationError("Validation failed"))
-        manager = ReleaseManager(**mock_services)
+        # Use the mocked validate from mock_services
+        mock_services["mocker_infra_validate"].side_effect = JsonSchemaValidationError("Validation failed")
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
         
         with pytest.raises(ReleaseError, match="Final project.yaml validation failed"):
             manager.run_release_close(release_version="1.0.0")
 
     def test_finalization_phase_dirty_repo_commit(self, mock_services):
         mock_services["git_service"].get_current_branch.return_value = "base/releases/v1.0.0"
-        mock_services["git_service"].is_dirty.return_value = True
-        manager = ReleaseManager(**mock_services)
+        # Simulate dirty repo *after* initial clean check, but *before* finalization commit
+        mock_services["git_service"].is_dirty.side_effect = [False, True]
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
         
         manager.run_release_close(release_version="1.0.0")
         mock_services["git_service"].run.assert_any_call(['git', 'commit', '-m', 'release: Finalize base v1.0.0 build artifacts'])
+
+    # New test for _validate_final_project_yaml generic Exception (lines 132-133)
+    def test_validate_final_project_yaml_generic_exception(self, mock_services):
+        mock_services["git_service"].get_current_branch.return_value = "base/releases/v1.0.0"
+        mock_services["mocker_infra_validate"].side_effect = Exception("Unexpected validation error")
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
+        with pytest.raises(ReleaseError, match="An unexpected error occurred during project.yaml validation"):
+            manager._validate_final_project_yaml()
+
+    # New test for _execute_developer_preparation_phase cleanup (lines 220-230)
+    def test_developer_preparation_phase_cleanup_on_error(self, mock_services, mocker):
+        mock_services["git_service"].get_current_branch.return_value = "main"
+        mock_services["git_service"].checkout.side_effect = [
+            None, # Successful checkout to new branch
+            None # Successful checkout back to original branch
+        ]
+        mock_services["vault_service"].get_certificate.side_effect = Exception("Vault error during cert retrieval") # Trigger error
+
+        # Mock _check_api_accessibility to prevent sys.exit(0)
+        mocker.patch.object(ReleaseManager, '_check_api_accessibility', side_effect=None)
+
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
+
+        with pytest.raises(ReleaseError, match="Release process failed: Vault error during cert retrieval"):
+            manager.run_release_close(release_version="1.0.0")
+
+        # Verify cleanup attempts
+        mock_services["git_service"].checkout.assert_any_call("main") # Checkout back to original branch
+        mock_services["git_service"].delete_branch.assert_called_once_with("base/releases/v1.0.0", force=True)
+        mock_services["logger"].critical.assert_any_call(ANY, exc_info=True) # Check for critical log with exc_info
+
+    # New test for _execute_finalization_phase else branch (line 250 - no dirty repo commit)
+    def test_finalization_phase_no_dirty_repo_commit(self, mock_services):
+        mock_services["git_service"].get_current_branch.return_value = "base/releases/v1.0.0"
+        mock_services["git_service"].is_dirty.return_value = False # No dirty changes
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
+
+        manager.run_release_close(release_version="1.0.0")
+
+        mock_services["git_service"].add.assert_not_called() # No add if not dirty
+        mock_services["git_service"].run.assert_any_call(['git', 'tag', '-a', 'base@v1.0.0', '-m', 'Release base v1.0.0']) # Still tags
+        mock_services["logger"].info.assert_any_call("No pending changes to project.yaml detected. Assuming manual commit of build artifacts.")
+
+    # New test for run_release_close VaultServiceError (line 282)
+    def test_run_release_close_vault_service_not_initialized(self, mock_services):
+        mock_services["vault_service"] = None # Simulate uninitialized vault service
+        manager = ReleaseManager(
+            config=mock_services["config"],
+            git_service=mock_services["git_service"],
+            vault_service=mock_services["vault_service"],
+            project_root=mock_services["project_root"],
+            dry_run=mock_services["dry_run"],
+            logger=mock_services["logger"]
+        )
+        with pytest.raises(VaultServiceError, match="VaultService is not initialized."):
+            manager.run_release_close(release_version="1.0.0")

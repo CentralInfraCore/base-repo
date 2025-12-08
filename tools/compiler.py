@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from .infra import ReleaseManager
-from .releaselib.exceptions import ReleaseError
+from .releaselib.exceptions import ReleaseError, ManualInterventionRequired
 from .releaselib.git_service import GitService
 from .releaselib.vault_service import VaultService
 
@@ -143,6 +143,9 @@ def main():
         elif args.command == "release":
             manager.run_release_close(release_version=args.version)
 
+    except ManualInterventionRequired as e:
+        logger.info(f"[ACTION REQUIRED] {e}")
+        sys.exit(0) # Exit with 0 for manual intervention
     except ReleaseError as e:
         logger.critical(f"[RELEASE FAILED] {e}")
         sys.exit(1)
