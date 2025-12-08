@@ -3,6 +3,7 @@ metadata:
   description: Schema Compiler & Signing Infrastructure Template
   version: v0.7.3
   license: CC-BY-NC-SA-4.0
+  main_branch: main
   owner: Gabor Zoltan Sinko
   tags:
   - template
