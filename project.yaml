@@ -70,10 +70,16 @@ metadata:
       -----END CERTIFICATE-----
 
       '
-  build_timestamp: '2025-12-08T14:19:02.225984+00:00'
+  build_timestamp: '2025-12-08T17:09:32.315677+00:00'
   validity:
-    from: '2025-12-08T14:19:02.226017+00:00'
-    until: '2026-12-08T14:19:02.226020+00:00'
+    from: '2025-12-08T17:09:32.315692+00:00'
+    until: '2026-12-08T17:09:32.315693+00:00'
+  checksum: HsAKF5g3ZB530cJk2qYTMzC7p2TMbzthg2Dn60h8DNQ=
+  sign: vault:v1:MEQCIG7JuRrA3Law8Q2oUe1GYV7SSbRvFT3ZvNvUnw2BB8xLAiBbfsf9CV1Q94KrBkyn3i72FLQG7LogZytuXytu7nqEAQ==
+  buildHash: ''
+  cicSign: ''
+  cicSignedCA:
+    certificate: ''
 compiler_settings:
   component_name: base
   meta_schemas_dir: ./
