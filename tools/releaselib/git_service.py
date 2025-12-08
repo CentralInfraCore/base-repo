@@ -72,7 +72,7 @@ class GitService:
                 capture_output=True,
                 cwd=self.cwd,
                 timeout=self.timeout,
-            ) # nosec
+            )  # nosec
             return False
         except subprocess.CalledProcessError:
             return True
@@ -115,11 +115,15 @@ class GitService:
                 check=False,
                 cwd=self.cwd,
                 timeout=self.timeout,
-            ) # nosec
+            )  # nosec
             if result.returncode == 1:
-                raise GitStateError("Staged changes detected in Git index. Please commit them before releasing.")
+                raise GitStateError(
+                    "Staged changes detected in Git index. Please commit them before releasing."
+                )
             elif result.returncode != 0:
-                raise GitServiceError(f"Git command failed with exit code {result.returncode}: git diff-index\n{result.stderr.decode('utf-8', errors='replace')}")
+                raise GitServiceError(
+                    f"Git command failed with exit code {result.returncode}: git diff-index\n{result.stderr.decode('utf-8', errors='replace')}"
+                )
         except subprocess.TimeoutExpired as e:
             raise GitServiceError(f"Git command timed out: git diff-index", cause=e)
         except FileNotFoundError as e:
@@ -142,7 +146,9 @@ class GitService:
         command = ["git", "branch", "-D" if force else "-d", branch_name]
         return self.run(command)
 
-    def merge(self, branch_name: str, no_ff: bool = False, message: Optional[str] = None):
+    def merge(
+        self, branch_name: str, no_ff: bool = False, message: Optional[str] = None
+    ):
         """Merges a Git branch into the current branch."""
         command = ["git", "merge"]
         if no_ff:

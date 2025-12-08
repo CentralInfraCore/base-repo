@@ -13,15 +13,20 @@ if PROJECT_ROOT in sys.path:
     sys.path.remove(PROJECT_ROOT)
 sys.path.insert(0, PROJECT_ROOT)
 
-from tools.compiler import ColoredFormatter, main, setup_logging, load_project_config
-from tools.releaselib.exceptions import ReleaseError, ManualInterventionRequired
+from tools.compiler import ColoredFormatter, load_project_config, main, setup_logging
+from tools.releaselib.exceptions import ManualInterventionRequired, ReleaseError
 
 
 @pytest.fixture(autouse=True)
 def mock_env(mocker):
     """Auto-mock environment and services for all tests in this module."""
-    mocker.patch("tools.compiler.load_project_config", return_value={"compiler_settings": {"some": "config"}})
-    mocker.patch("tools.compiler.setup_logging", return_value=logging.getLogger("test_logger"))
+    mocker.patch(
+        "tools.compiler.load_project_config",
+        return_value={"compiler_settings": {"some": "config"}},
+    )
+    mocker.patch(
+        "tools.compiler.setup_logging", return_value=logging.getLogger("test_logger")
+    )
     mocker.patch("tools.compiler.GitService")
     mocker.patch("tools.compiler.VaultService")
     mocker.patch("os.path.exists", return_value=False)
@@ -43,7 +48,7 @@ class TestMainCLI:
 
         mock_release_manager_class.assert_called_once()
         mock_rm_instance.run_validation.assert_called_once()
-        mock_rm_instance.run_release_close.assert_not_called() # Changed from run_release
+        mock_rm_instance.run_release_close.assert_not_called()  # Changed from run_release
 
     def test_release_command_requires_version(self, mocker):
         mocker.patch.object(sys, "argv", ["compiler.py", "release"])
@@ -63,7 +68,9 @@ class TestMainCLI:
 
         mock_release_manager_class.assert_called_once()
         # The main method now only calls run_release_close, which orchestrates everything else.
-        mock_rm_instance.run_release_close.assert_called_once_with(release_version="1.2.3") # Changed from run_release
+        mock_rm_instance.run_release_close.assert_called_once_with(
+            release_version="1.2.3"
+        )  # Changed from run_release
         # We no longer check for internal calls like run_validation from this top-level test.
         mock_rm_instance.run_validation.assert_not_called()
 
@@ -86,8 +93,11 @@ class TestMainCLI:
         )
 
         def path_exists_side_effect(path):
-            return path in ["/var/run/secrets/vault-token", "/var/run/secrets/vault-ca.crt"]
-        
+            return path in [
+                "/var/run/secrets/vault-token",
+                "/var/run/secrets/vault-ca.crt",
+            ]
+
         mocker.patch("os.path.exists", side_effect=path_exists_side_effect)
         mocker.patch("builtins.open", mock_open(read_data="file-token"))
 
@@ -99,10 +109,14 @@ class TestMainCLI:
 
     def test_main_handles_manual_intervention(self, mocker):
         """Test that main catches ManualInterventionRequired and exits with 0."""
-        mocker.patch.object(sys, "argv", ["compiler.py", "release", "--version", "1.0.0"])
+        mocker.patch.object(
+            sys, "argv", ["compiler.py", "release", "--version", "1.0.0"]
+        )
         mock_release_manager_class = mocker.patch("tools.compiler.ReleaseManager")
         mock_rm_instance = mock_release_manager_class.return_value
-        mock_rm_instance.run_release_close.side_effect = ManualInterventionRequired("Do something") # Changed from run_release
+        mock_rm_instance.run_release_close.side_effect = ManualInterventionRequired(
+            "Do something"
+        )  # Changed from run_release
 
         with pytest.raises(SystemExit) as excinfo:
             main()
@@ -159,16 +173,24 @@ class TestLogging:
     def test_colored_formatter(self):
         formatter = ColoredFormatter("%(message)s")
 
-        dry_run_record = logging.LogRecord("test", logging.INFO, "", 0, "DRY-RUN: test", None, None)
+        dry_run_record = logging.LogRecord(
+            "test", logging.INFO, "", 0, "DRY-RUN: test", None, None
+        )
         assert "\033[96m" in formatter.format(dry_run_record)
 
-        success_record = logging.LogRecord("test", logging.INFO, "", 0, "✓ Success", None, None)
+        success_record = logging.LogRecord(
+            "test", logging.INFO, "", 0, "✓ Success", None, None
+        )
         assert "\033[92m" in formatter.format(success_record)
 
-        error_record = logging.LogRecord("test", logging.ERROR, "", 0, "Error message", None, None)
+        error_record = logging.LogRecord(
+            "test", logging.ERROR, "", 0, "Error message", None, None
+        )
         assert "\033[91m" in formatter.format(error_record)
 
-        info_record = logging.LogRecord("test", logging.INFO, "", 0, "Info message", None, None)
+        info_record = logging.LogRecord(
+            "test", logging.INFO, "", 0, "Info message", None, None
+        )
         formatted_msg = formatter.format(info_record)
         assert "\033[0m" in formatted_msg
         assert "\033[96m" not in formatted_msg

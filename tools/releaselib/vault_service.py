@@ -23,9 +23,7 @@ class VaultService:
     ):
         self.dry_run = dry_run
         self.timeout = timeout
-        self.logger = (
-            logger if logger else logging.getLogger(__name__)
-        )
+        self.logger = logger if logger else logging.getLogger(__name__)
 
         if not self.dry_run:
             if not vault_addr or not vault_token:

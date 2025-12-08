@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from .infra import ReleaseManager
-from .releaselib.exceptions import ReleaseError, ManualInterventionRequired
+from .releaselib.exceptions import ManualInterventionRequired, ReleaseError
 from .releaselib.git_service import GitService
 from .releaselib.vault_service import VaultService
 
@@ -25,6 +25,7 @@ COLOR_CODES = {
 }
 RESET_CODE = "\033[0m"
 
+
 class ColoredFormatter(logging.Formatter):
     def format(self, record):
         log_message = super().format(record)
@@ -39,6 +40,7 @@ class ColoredFormatter(logging.Formatter):
 
         color_code = COLOR_CODES.get(level_name, RESET_CODE)
         return f"{color_code}{log_message}{RESET_CODE}"
+
 
 def setup_logging(verbose=False, debug=False):
     logger = logging.getLogger(__name__)
@@ -56,7 +58,9 @@ def setup_logging(verbose=False, debug=False):
     logger.propagate = False
     return logger
 
+
 logger = logging.getLogger(__name__)
+
 
 # --- Configuration Loader ---
 def load_project_config():
@@ -70,22 +74,45 @@ def load_project_config():
         logger.critical(f"[FATAL] Could not load or parse project.yaml: {e}")
         sys.exit(1)
 
+
 # --- Main Application Logic ---
 def main():
     parent_parser = argparse.ArgumentParser(add_help=False)
-    parent_parser.add_argument("--dry-run", action="store_true", help="Perform a trial run.")
-    parent_parser.add_argument("--git-timeout", type=int, default=60, help="Timeout for Git commands.")
-    parent_parser.add_argument("--vault-timeout", type=int, default=10, help="Timeout for Vault API calls.")
-    parent_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output.")
-    parent_parser.add_argument("-d", "--debug", action="store_true", help="Enable debug output.")
+    parent_parser.add_argument(
+        "--dry-run", action="store_true", help="Perform a trial run."
+    )
+    parent_parser.add_argument(
+        "--git-timeout", type=int, default=60, help="Timeout for Git commands."
+    )
+    parent_parser.add_argument(
+        "--vault-timeout", type=int, default=10, help="Timeout for Vault API calls."
+    )
+    parent_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose output."
+    )
+    parent_parser.add_argument(
+        "-d", "--debug", action="store_true", help="Enable debug output."
+    )
 
-    parser = argparse.ArgumentParser(description="Schema Compiler & Release Tool", parents=[parent_parser])
-    subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
+    parser = argparse.ArgumentParser(
+        description="Schema Compiler & Release Tool", parents=[parent_parser]
+    )
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, help="Available commands"
+    )
 
-    subparsers.add_parser("validate", help="Validate all schemas.", parents=[parent_parser])
-    
-    release_parser = subparsers.add_parser("release", help="Prepare or finalize a release.", parents=[parent_parser])
-    release_parser.add_argument("--version", required=True, help="The semantic version to release (e.g., 1.0.0).")
+    subparsers.add_parser(
+        "validate", help="Validate all schemas.", parents=[parent_parser]
+    )
+
+    release_parser = subparsers.add_parser(
+        "release", help="Prepare or finalize a release.", parents=[parent_parser]
+    )
+    release_parser.add_argument(
+        "--version",
+        required=True,
+        help="The semantic version to release (e.g., 1.0.0).",
+    )
 
     args = parser.parse_args()
 
@@ -104,14 +131,18 @@ def main():
 
         vault_addr = os.getenv("VAULT_ADDR")
         vault_token = os.getenv("VAULT_TOKEN")
-        vault_token_file = os.getenv("CIC_VAULT_TOKEN_FILE", "/var/run/secrets/vault-token")
+        vault_token_file = os.getenv(
+            "CIC_VAULT_TOKEN_FILE", "/var/run/secrets/vault-token"
+        )
         if not vault_token and os.path.exists(vault_token_file):
             try:
                 with open(vault_token_file, "r") as f:
                     vault_token = f.read().strip()
             except IOError as e:
-                logger.warning(f"Could not read Vault token from {vault_token_file}: {e}")
-        
+                logger.warning(
+                    f"Could not read Vault token from {vault_token_file}: {e}"
+                )
+
         vault_cacert = os.getenv("VAULT_CACERT")
         vault_cacert_file = "/var/run/secrets/vault-ca.crt"
         if not vault_cacert and os.path.exists(vault_cacert_file):
@@ -145,13 +176,16 @@ def main():
 
     except ManualInterventionRequired as e:
         logger.info(f"[ACTION REQUIRED] {e}")
-        sys.exit(0) # Exit with 0 for manual intervention
+        sys.exit(0)  # Exit with 0 for manual intervention
     except ReleaseError as e:
         logger.critical(f"[RELEASE FAILED] {e}")
         sys.exit(1)
     except Exception as e:
-        logger.critical(f"[UNEXPECTED ERROR] An unhandled exception occurred: {e}", exc_info=True)
+        logger.critical(
+            f"[UNEXPECTED ERROR] An unhandled exception occurred: {e}", exc_info=True
+        )
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

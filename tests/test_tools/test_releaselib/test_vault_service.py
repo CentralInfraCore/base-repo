@@ -171,9 +171,7 @@ def test_sign_digest_wrong_length(mock_post, vault_service, caplog):
 
 def test_get_certificate_dry_run(dry_run_vault_service):
     """Test that get_certificate in dry-run mode returns a placeholder."""
-    certificate = dry_run_vault_service.get_certificate(
-        "kv/data", "my-secret", "cert"
-    )
+    certificate = dry_run_vault_service.get_certificate("kv/data", "my-secret", "cert")
     assert (
         certificate
         == "-----BEGIN CERTIFICATE-----\nDRY-RUN-PLACEHOLDER\n-----END CERTIFICATE-----"
