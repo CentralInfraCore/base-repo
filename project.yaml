@@ -23,3 +23,7 @@ compiler_settings:
   meta_schema_file: md.meta.schema.yaml
   vault_key_name: cic-my-sign-key
   cic_root_ca_key_name: cic-root-ca-key
+  # Added Vault certificate settings
+  vault_cert_mount: "cic-my-sign-key"
+  vault_cert_secret_name: "crt"
+  vault_cert_secret_key: "bar"
