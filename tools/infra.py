@@ -221,7 +221,7 @@ class ReleaseManager:
             # Prepare data to be signed
             data_to_sign = {
                 "name": project_data.get("metadata", {}).get("name", "unknown"),
-                "version": f"v{release_version}",
+                "version": release_version, # Changed from f"v{release_version}"
                 "checksum": repo_checksum,
                 # Add any other relevant metadata that should be part of the signature
             }
@@ -241,7 +241,7 @@ class ReleaseManager:
             metadata = {
                 "name": project_data.get("metadata", {}).get("name", "unknown"),
                 "description": project_data.get("metadata", {}).get("description", ""),
-                "version": f"v{release_version}",
+                "version": release_version, # Changed from f"v{release_version}"
                 "license": project_data.get("metadata", {}).get("license", ""),
                 "owner": project_data.get("metadata", {}).get("owner", ""),
                 "tags": project_data.get("metadata", {}).get("tags", []),
@@ -263,7 +263,7 @@ class ReleaseManager:
                     ).isoformat(),
                 },
                 "checksum": repo_checksum,
-                "sign": signature, # <--- HERE IS THE CHANGE
+                "sign": signature,
                 "buildHash": "",
                 "cicSign": "",
                 "cicSignedCA": {"certificate": ""},
