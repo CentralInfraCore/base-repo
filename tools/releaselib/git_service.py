@@ -125,7 +125,7 @@ class GitService:
                     f"Git command failed with exit code {result.returncode}: git diff-index\n{result.stderr.decode('utf-8', errors='replace')}"
                 )
         except subprocess.TimeoutExpired as e:
-            raise GitServiceError(f"Git command timed out: git diff-index", cause=e)
+            raise GitServiceError("Git command timed out: git diff-index", cause=e)
         except FileNotFoundError as e:
             raise GitServiceError("Git command not found. Is Git installed?", cause=e)
 

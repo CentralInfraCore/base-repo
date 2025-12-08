@@ -4,11 +4,10 @@ import os
 # Add project root to sys.path
 import sys
 from pathlib import Path
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock
 
 import pytest
 import requests  # Import requests for API accessibility check
-import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 

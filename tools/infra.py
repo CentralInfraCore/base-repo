@@ -1,16 +1,13 @@
 import base64
 import datetime
-import glob
 import hashlib
 import logging
 import os
-import re
 import sys
 import tempfile
 from pathlib import Path
 
 import requests  # Import requests for API accessibility check
-import semver
 import yaml
 from jsonschema import ValidationError as JsonSchemaValidationError
 from jsonschema import validate
@@ -20,7 +17,6 @@ from .releaselib.exceptions import (
     GitStateError,
     ReleaseError,
     VaultServiceError,
-    VersionMismatchError,
 )
 
 
@@ -294,11 +290,11 @@ class ReleaseManager:
                 f"ACTION REQUIRED: You are now on branch '{release_branch_name}'."
             )
             self.logger.info(
-                f"  1. Run your build process to generate artifacts and update 'buildHash' and 'sign' fields in project.yaml."
+                "  1. Run your build process to generate artifacts and update 'buildHash' and 'sign' fields in project.yaml."
             )
-            self.logger.info(f"  2. Commit the updated project.yaml to this branch.")
+            self.logger.info("  2. Commit the updated project.yaml to this branch.")
             self.logger.info(
-                f"  3. Merge this branch into 'main' and delete this branch when done."
+                "  3. Merge this branch into 'main' and delete this branch when done."
             )
 
             self._check_api_accessibility(

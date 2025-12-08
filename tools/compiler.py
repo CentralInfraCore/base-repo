@@ -48,7 +48,6 @@ def setup_logging(verbose=False, debug=False):
 
     if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         handler = logging.StreamHandler(sys.stdout)
-        formatter = ColoredFormatter(LOG_FORMAT)
         logger.addHandler(handler)
 
     handler = logger.handlers[0]
