@@ -22,3 +22,4 @@ compiler_settings:
   source_dir: ./
   meta_schema_file: md.meta.schema.yaml
   vault_key_name: cic-my-sign-key
+  cic_root_ca_key_name: cic-root-ca-key
