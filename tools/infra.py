@@ -298,16 +298,6 @@ class ReleaseManager:
 
                 self.logger.info(f"Committing changes with message: '{commit_message}'")
                 self.git_service.run(["git", "commit", "-m", commit_message])
-                self.git_service.run(
-                    [
-                        "git",
-                        "tag",
-                        "-a",
-                        f"{component_name}@v{release_version}-dev",
-                        "-m",
-                        tag_message,
-                    ]
-                )  # Added this line
                 self.logger.info(
                     "✓ Developer release commit and tag created successfully."
                 )
