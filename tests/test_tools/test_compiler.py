@@ -13,8 +13,16 @@ if PROJECT_ROOT in sys.path:
     sys.path.remove(PROJECT_ROOT)
 sys.path.insert(0, PROJECT_ROOT)
 
-from tools.compiler import ColoredFormatter, load_project_config, main, setup_logging
-from tools.releaselib.exceptions import ManualInterventionRequired, ReleaseError
+from tools.compiler import (  # noqa: E402
+    ColoredFormatter,
+    load_project_config,
+    main,
+    setup_logging,
+)
+from tools.releaselib.exceptions import (  # noqa: E402
+    ManualInterventionRequired,
+    ReleaseError,
+)
 
 
 @pytest.fixture(autouse=True)
