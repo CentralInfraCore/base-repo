@@ -172,25 +172,15 @@ class TestReleaseManagerPhases:
         )
         manager.run_release_close(release_version="1.0.0")
 
-        # Verify Git operations for branch creation and commit/tag
+        # Verify Git operations for branch creation and commit
         mock_services["git_service"].checkout.assert_any_call(
             "base/releases/v1.0.0", create_new=True
         )
         mock_services["git_service"].add.assert_called_once_with(
             "/fake/project/project.yaml"
         )
-        mock_services["git_service"].run.assert_any_call(
+        mock_services["git_service"].run.assert_called_once_with(
             ["git", "commit", "-m", "release: Prepare base v1.0.0 for build"]
-        )
-        mock_services["git_service"].run.assert_any_call(
-            [
-                "git",
-                "tag",
-                "-a",
-                "base@v1.0.0-dev",
-                "-m",
-                "Developer release prep for base v1.0.0",
-            ]
         )
 
         # Verify Vault calls

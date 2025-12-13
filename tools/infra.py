@@ -292,18 +292,14 @@ class ReleaseManager:
                 commit_message = (
                     f"release: Prepare {component_name} v{release_version} for build"
                 )
-                tag_message = (
-                    f"Developer release prep for {component_name} v{release_version}"
-                )
-
                 self.logger.info(f"Committing changes with message: '{commit_message}'")
                 self.git_service.run(["git", "commit", "-m", commit_message])
                 self.logger.info(
-                    "✓ Developer release commit and tag created successfully."
+                    "✓ Developer release commit created successfully."
                 )
 
             self.logger.info(
-                f"✓ Release branch '{release_branch_name}' created and tagged. Proceed with build and finalization."
+                f"✓ Release branch '{release_branch_name}' created. Proceed with build and finalization."
             )
             self.logger.info(
                 f"ACTION REQUIRED: You are now on branch '{release_branch_name}'."
