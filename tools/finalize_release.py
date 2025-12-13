@@ -27,8 +27,8 @@ import yaml
 
 # Assuming the script is run from the project root, so 'tools' is in the path.
 # This allows us to import from our own library.
-from releaselib.exceptions import VaultServiceError
-from releaselib.vault_service import VaultService
+from .releaselib.exceptions import VaultServiceError
+from .releaselib.vault_service import VaultService
 
 # --- Logging Setup ---
 LOG_FORMAT = "%(levelname)s: %(message)s"
