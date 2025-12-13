@@ -3,23 +3,22 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-import yaml
-from jsonschema import ValidationError as JsonSchemaValidationError
 
 from tools.infra import (
-    ReleaseManager,
     ConfigurationError,
     ReleaseError,
+    ReleaseManager,
     ValidationFailureError,
     load_and_resolve_schema,
     load_yaml,
     write_yaml,
 )
-from tools.releaselib.exceptions import GitStateError, VaultServiceError
+from tools.releaselib.exceptions import VaultServiceError
 from tools.releaselib.git_service import GitService
 from tools.releaselib.vault_service import VaultService
 
 # --- Fixtures ---
+
 
 @pytest.fixture
 def mock_git_service(mocker):
@@ -30,11 +29,13 @@ def mock_git_service(mocker):
     service.assert_clean_index.return_value = None
     return service
 
+
 @pytest.fixture
 def mock_vault_service(mocker):
     """Mock VaultService."""
     service = mocker.MagicMock(spec=VaultService)
     return service
+
 
 @pytest.fixture
 def full_mock_config():
@@ -50,6 +51,7 @@ def full_mock_config():
         "meta_schema_file": "project.schema.yaml",
         "canonical_source_file": "sources/index.yaml",
     }
+
 
 @pytest.fixture
 def manager(mock_git_service, mock_vault_service, mocker):
@@ -71,7 +73,9 @@ def manager(mock_git_service, mock_vault_service, mocker):
         logger=logger,
     )
 
+
 # --- Coverage-focused Tests ---
+
 
 class TestInfraCoverage:
     """This class contains tests specifically aimed at increasing code coverage."""
@@ -85,7 +89,9 @@ class TestInfraCoverage:
         """Covers the finally block in write_yaml to ensure cleanup."""
         mock_tmp_file = MagicMock()
         mock_tmp_file.name = "/fake/dir/temp123"
-        mocker.patch("tools.infra.tempfile.NamedTemporaryFile", return_value=mock_tmp_file)
+        mocker.patch(
+            "tools.infra.tempfile.NamedTemporaryFile", return_value=mock_tmp_file
+        )
         mocker.patch("tools.infra.os.replace", side_effect=OSError("permission denied"))
 
         mock_path_instance = MagicMock()
@@ -97,7 +103,9 @@ class TestInfraCoverage:
 
         mock_path_instance.unlink.assert_called_once()
 
-    def test_release_manager_init_no_logger(self, full_mock_config, mock_git_service, mock_vault_service):
+    def test_release_manager_init_no_logger(
+        self, full_mock_config, mock_git_service, mock_vault_service
+    ):
         """Covers the else branch in ReleaseManager.__init__ for the logger."""
         manager = ReleaseManager(
             config=full_mock_config,
@@ -111,7 +119,9 @@ class TestInfraCoverage:
         manager.dry_run = True
         mocker.patch("tools.infra.ReleaseManager._validate_final_project_yaml")
 
-        manager._execute_finalization_phase("1.0.0", "base", "main", "base/releases/v1.0.0")
+        manager._execute_finalization_phase(
+            "1.0.0", "base", "main", "base/releases/v1.0.0"
+        )
 
         # Assert that no git commands that modify state are run
         assert manager.git_service.add.call_count == 0
@@ -119,7 +129,9 @@ class TestInfraCoverage:
         assert manager.git_service.checkout.call_count == 0
         assert manager.git_service.merge.call_count == 0
         assert manager.git_service.delete_branch.call_count == 0
-        manager.logger.info.assert_any_call("✓ Release v1.0.0 successfully finalized and merged into 'main'.")
+        manager.logger.info.assert_any_call(
+            "✓ Release v1.0.0 successfully finalized and merged into 'main'."
+        )
 
     def test_run_release_close_no_vault_service(self, manager):
         """Covers the VaultService not initialized error."""
@@ -134,7 +146,9 @@ class TestInfraCoverage:
 
     def test_validate_final_yaml_empty_schema(self, manager, mocker):
         mocker.patch("tools.infra.load_and_resolve_schema", return_value=None)
-        with pytest.raises(ValidationFailureError, match="Project schema file.*is empty"):
+        with pytest.raises(
+            ValidationFailureError, match="Project schema file.*is empty"
+        ):
             manager._validate_final_project_yaml()
 
     def test_validate_final_yaml_empty_instance(self, manager, mocker):
@@ -144,49 +158,81 @@ class TestInfraCoverage:
             manager._validate_final_project_yaml()
 
     def test_validate_final_yaml_generic_exception(self, manager, mocker):
-        mocker.patch("tools.infra.load_and_resolve_schema", side_effect=Exception("Boom!"))
+        mocker.patch(
+            "tools.infra.load_and_resolve_schema", side_effect=Exception("Boom!")
+        )
         with pytest.raises(ReleaseError, match="An unexpected error occurred"):
             manager._validate_final_project_yaml()
 
-    def test_developer_prep_with_main_component(self, manager, full_mock_config, mocker):
+    def test_developer_prep_with_main_component(
+        self, manager, full_mock_config, mocker
+    ):
         manager.config = full_mock_config
         manager.config["component_name"] = "main"
-        mocker.patch("tools.infra.load_and_resolve_schema", return_value={"spec": {}, "metadata": {}})
+        mocker.patch(
+            "tools.infra.load_and_resolve_schema",
+            return_value={"spec": {}, "metadata": {}},
+        )
         mocker.patch("tools.infra.load_yaml", return_value={})
         mocker.patch("tools.infra.write_yaml")
-        mocker.patch("tools.infra._parse_certificate_info", return_value=("Test", "test@test.com"))
+        mocker.patch(
+            "tools.infra._parse_certificate_info",
+            return_value=("Test", "test@test.com"),
+        )
 
         manager._execute_developer_preparation_phase("1.0.0", "main", "main")
 
-        manager.git_service.checkout.assert_called_once_with("releases/v1.0.0", create_new=True)
+        manager.git_service.checkout.assert_called_once_with(
+            "releases/v1.0.0", create_new=True
+        )
 
     def test_developer_prep_cleanup_fails(self, manager, mocker):
-        mocker.patch("tools.infra.load_and_resolve_schema", side_effect=ValueError("Initial error"))
+        mocker.patch(
+            "tools.infra.load_and_resolve_schema",
+            side_effect=ValueError("Initial error"),
+        )
         manager.git_service.delete_branch.side_effect = Exception("Cleanup failed")
 
         with pytest.raises(ReleaseError, match="Initial error"):
             manager._execute_developer_preparation_phase("1.0.0", "base", "main")
 
-        manager.logger.critical.assert_any_call("Failed to clean up release branch: Cleanup failed", exc_info=True)
+        manager.logger.critical.assert_any_call(
+            "Failed to clean up release branch: Cleanup failed", exc_info=True
+        )
 
     def test_finalization_with_dirty_repo(self, manager, mocker):
         manager.git_service.get_current_branch.return_value = "base/releases/v1.0.0"
         manager.git_service.is_dirty.return_value = True
         mocker.patch("tools.infra.ReleaseManager._validate_final_project_yaml")
 
-        manager._execute_finalization_phase("1.0.0", "base", "base/releases/v1.0.0", "base/releases/v1.0.0")
+        manager._execute_finalization_phase(
+            "1.0.0", "base", "base/releases/v1.0.0", "base/releases/v1.0.0"
+        )
 
-        manager.git_service.run.assert_any_call(["git", "commit", "-m", "release: Finalize base v1.0.0 build artifacts"])
-        manager.logger.info.assert_any_call("Committing pending changes to project.yaml (from build process)...")
+        manager.git_service.run.assert_any_call(
+            ["git", "commit", "-m", "release: Finalize base v1.0.0 build artifacts"]
+        )
+        manager.logger.info.assert_any_call(
+            "Committing pending changes to project.yaml (from build process)..."
+        )
 
     def test_run_validation_value_error(self, manager, mocker):
-        mocker.patch("tools.infra.load_and_resolve_schema", side_effect=ValueError("Some value error"))
+        mocker.patch(
+            "tools.infra.load_and_resolve_schema",
+            side_effect=ValueError("Some value error"),
+        )
         with pytest.raises(ReleaseError, match="Schema validation failed"):
             manager.run_validation()
         manager.logger.critical.assert_any_call("VALIDATION FAILED: Some value error")
 
     def test_run_validation_generic_error(self, manager, mocker):
-        mocker.patch("tools.infra.load_and_resolve_schema", side_effect=Exception("Generic boom"))
-        with pytest.raises(ReleaseError, match="An unexpected error occurred during validation"):
+        mocker.patch(
+            "tools.infra.load_and_resolve_schema", side_effect=Exception("Generic boom")
+        )
+        with pytest.raises(
+            ReleaseError, match="An unexpected error occurred during validation"
+        ):
             manager.run_validation()
-        manager.logger.critical.assert_any_call("UNEXPECTED ERROR during validation: Generic boom")
+        manager.logger.critical.assert_any_call(
+            "UNEXPECTED ERROR during validation: Generic boom"
+        )
