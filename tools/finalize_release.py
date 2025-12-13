@@ -212,7 +212,7 @@ def main():
         logger.critical(f"[UNEXPECTED ERROR] An unhandled exception occurred: {e}", exc_info=logger.level == logging.DEBUG)
         sys.exit(1)
 
-if __name__ == "__main__":
+if __name__ == "__main__": # pragma: no cover
     # This allows the script to be run with `python -m tools.finalize_release ...`
     # which correctly handles the relative imports.
     main()
