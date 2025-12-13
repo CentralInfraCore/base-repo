@@ -1,3 +1,4 @@
+---
 type: object
 required:
   - tags
@@ -90,8 +91,8 @@ properties:
         - fallback_process  # Fallback handling path
         - distribution      # Software distribution process
         - publishing        # Content or release publishing
-        - development-process # Part of the core development process
-        - architecture-review # Architecture review process
+        - development-process    # Part of the core development process
+        - architecture-review    # Architecture review process
   description:
     type: string
     description: Human-readable summary of the document purpose (can be in Hungarian or English).

@@ -19,3 +19,4 @@ isort
 mypy
 yamllint
 semver
+bandit
