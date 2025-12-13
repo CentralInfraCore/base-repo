@@ -29,8 +29,8 @@ infra.build:
 
 infra.fmt:
 	@echo "--- Formatting Python code with Black and Isort ---"
-	@docker compose exec builder python -m black .
-	@docker compose exec builder python -m isort .
+	@docker compose exec builder python -m black --exclude p_venv .
+	@docker compose exec builder python -m isort --skip-glob "p_venv/*" .
 
 infra.lint:
 	@echo "--- Linting Python code with Ruff ---"
@@ -40,9 +40,13 @@ infra.lint:
 
 infra.typecheck:
 	@echo "--- Running static type checking with MyPy ---"
-	@docker compose exec builder python -m mypy .
+	@docker compose exec builder python -m mypy --exclude p_venv .
 
-infra.check: infra.fmt infra.lint infra.typecheck
+infra.security:
+	@echo "--- Running security checks with Bandit ---"
+	@docker compose exec builder python3 -m bandit -r tools
+
+infra.check: infra.fmt infra.lint infra.typecheck infra.security
 	@echo "--- Running all code quality checks (format, lint, typecheck) ---"
 
 # =============================================================================
@@ -63,8 +67,12 @@ infra.deps:
 
 infra.coverage:
 	@echo "--- Generating HTML coverage report ---"
-	@docker compose exec builder python -m pytest --cov=tools.compiler --cov-report=html
+	@docker compose exec builder python -m pytest --ignore p_venv --cov=tools.compiler --cov-report=html
 	@echo "HTML coverage report generated in ./htmlcov/index.html"
+
+infra.test:
+	@echo "--- Running pytest for the compiler infrastructure ---"
+	@docker compose exec builder python -m pytest $(PYTEST_ARGS)
 
 infra.clean:
 	@echo "--- Cleaning up all generated files and caches ---"

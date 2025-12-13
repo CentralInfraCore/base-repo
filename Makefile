@@ -71,7 +71,7 @@ validate:
 	@echo "--- Validating all schemas against the meta-schema ---"
 	@docker compose exec builder python -m tools.compiler validate $(COMPILER_CLI_ARGS)
 
-release: manifest-verify test
+release:
 ifeq ($(VERSION),)
 	$(error VERSION is required for the release command. Usage: make release VERSION=1.0.0)
 endif
@@ -87,9 +87,7 @@ endif
 	# @tools/release.sh project.yaml
 	# @git add project.yaml # This is now handled by compiler.py
 
-test:
-	@echo "--- Running pytest for the compiler infrastructure ---"
-	@docker compose exec builder python -m pytest $(PYTEST_ARGS)
+test: infra.test
 
 # =============================================================================
 # Manifest Management

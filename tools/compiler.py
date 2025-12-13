@@ -1,114 +1,120 @@
-import os
-import sys
-import yaml
 import argparse
 import logging
-from pathlib import Path # Import Path
+import os
+import sys
+from pathlib import Path
 
-from .infra import ReleaseManager # Módosítva: from tools.infra import ReleaseManager
+import yaml
+
+from .infra import ReleaseManager
+from .releaselib.exceptions import ManualInterventionRequired, ReleaseError
 from .releaselib.git_service import GitService
 from .releaselib.vault_service import VaultService
-from .releaselib.exceptions import ReleaseError, VaultServiceError
 
 # --- Logging Setup ---
 LOG_FORMAT = "%(levelname)s: %(message)s"
 COLOR_CODES = {
-    'DEBUG': '\033[90m',    # Grey
-    'INFO': '\033[0m',     # Reset
-    'WARNING': '\033[93m',  # Yellow
-    'ERROR': '\033[91m',    # Red
-    'CRITICAL': '\033[91m', # Red
-    'DRY_RUN': '\033[96m',  # Cyan
-    'SUCCESS': '\033[92m',  # Green
+    "DEBUG": "\033[90m",
+    "INFO": "\033[0m",
+    "WARNING": "\033[93m",
+    "ERROR": "\033[91m",
+    "CRITICAL": "\033[91m",
+    "DRY_RUN": "\033[96m",
+    "SUCCESS": "\033[92m",
+    "MANUAL": "\033[94m",
 }
-RESET_CODE = '\033[0m'
+RESET_CODE = "\033[0m"
+
 
 class ColoredFormatter(logging.Formatter):
     def format(self, record):
         log_message = super().format(record)
         level_name = record.levelname
-        
-        # Custom handling for DRY_RUN and SUCCESS messages
-        if level_name == 'INFO' and 'DRY-RUN' in log_message:
-            level_name = 'DRY_RUN'
-        elif level_name == 'INFO' and '✓' in log_message: # Simple heuristic for success messages
-            level_name = 'SUCCESS'
+
+        if "DRY-RUN" in log_message:
+            level_name = "DRY_RUN"
+        elif "ACTION REQUIRED" in log_message:
+            level_name = "MANUAL"
+        elif "✓" in log_message:
+            level_name = "SUCCESS"
 
         color_code = COLOR_CODES.get(level_name, RESET_CODE)
         return f"{color_code}{log_message}{RESET_CODE}"
 
+
 def setup_logging(verbose=False, debug=False):
     logger = logging.getLogger(__name__)
-    # Set the logger's level to the lowest possible to allow handlers to filter
-    logger.setLevel(logging.DEBUG) 
+    logger.setLevel(logging.DEBUG)
 
-    # Check if a handler with ColoredFormatter already exists to avoid duplicates
-    found_handler = False
-    for handler in logger.handlers:
-        if isinstance(handler, logging.StreamHandler) and isinstance(handler.formatter, ColoredFormatter):
-            handler.setLevel(logging.DEBUG if debug else (logging.INFO if verbose else logging.WARNING))
-            found_handler = True
-            break
-    
-    if not found_handler:
-        # If no such handler exists, create and add a new one
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         handler = logging.StreamHandler(sys.stdout)
-        formatter = ColoredFormatter(LOG_FORMAT)
-        handler.setFormatter(formatter)
-        handler.setLevel(logging.DEBUG if debug else (logging.INFO if verbose else logging.WARNING))
         logger.addHandler(handler)
-    
-    # Propagate to root logger should be False to prevent duplicate messages if root logger also has handlers
+
+    handler = logger.handlers[0]
+    handler.setLevel(
+        logging.DEBUG if debug else (logging.INFO if verbose else logging.WARNING)
+    )
     logger.propagate = False
-    
     return logger
 
-logger = logging.getLogger(__name__) # Initialize global logger for this module
+
+logger = logging.getLogger(__name__)
+
 
 # --- Configuration Loader ---
-
 def load_project_config():
-    """
-    Loads the main project.yaml configuration file and returns the compiler_settings.
-    """
     try:
-        with open('project.yaml', 'r') as f:
-            return yaml.safe_load(f)['compiler_settings']
+        with open("project.yaml", "r") as f:
+            config = yaml.safe_load(f)
+            if "compiler_settings" not in config:
+                raise KeyError("'compiler_settings' not found in project.yaml")
+            return config
     except (IOError, KeyError, TypeError, yaml.YAMLError) as e:
-        logger.critical(f"[FATAL] Could not load or parse compiler settings from project.yaml: {e}")
+        logger.critical(f"[FATAL] Could not load or parse project.yaml: {e}")
         sys.exit(1)
 
+
 # --- Main Application Logic ---
-
 def main():
-    """
-    Main entrypoint for the command-line tool.
-    This function acts as a "wrapper" around the ReleaseManager class,
-    handling user interaction, output, and error handling.
-    """
-    # Create a parent parser for common arguments
     parent_parser = argparse.ArgumentParser(add_help=False)
-    parent_parser.add_argument("--dry-run", action="store_true", help="Perform a trial run without making any changes.")
-    parent_parser.add_argument("--git-timeout", type=int, default=60, help="Timeout for Git commands in seconds.")
-    parent_parser.add_argument("--vault-timeout", type=int, default=10, help="Timeout for Vault API calls in seconds.")
-    parent_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output.")
-    parent_parser.add_argument("-d", "--debug", action="store_true", help="Enable debug output (most verbose).")
+    parent_parser.add_argument(
+        "--dry-run", action="store_true", help="Perform a trial run."
+    )
+    parent_parser.add_argument(
+        "--git-timeout", type=int, default=60, help="Timeout for Git commands."
+    )
+    parent_parser.add_argument(
+        "--vault-timeout", type=int, default=10, help="Timeout for Vault API calls."
+    )
+    parent_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose output."
+    )
+    parent_parser.add_argument(
+        "-d", "--debug", action="store_true", help="Enable debug output."
+    )
 
-    parser = argparse.ArgumentParser(description="Schema Compiler & Release Tool", parents=[parent_parser])
-    
-    # Create subparsers for commands
-    subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
+    parser = argparse.ArgumentParser(
+        description="Schema Compiler & Release Tool", parents=[parent_parser]
+    )
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, help="Available commands"
+    )
 
-    # Validate command
-    validate_parser = subparsers.add_parser("validate", help="Run fast, offline validation of all schemas.", parents=[parent_parser])
-    
-    # Release command
-    release_parser = subparsers.add_parser("release", help="Build, checksum, and sign all non-dev schemas (requires Vault).", parents=[parent_parser])
-    release_parser.add_argument("--version", required=True, help="The semantic version to release (e.g., 1.0.0).")
-    
+    subparsers.add_parser(
+        "validate", help="Validate all schemas.", parents=[parent_parser]
+    )
+
+    release_parser = subparsers.add_parser(
+        "release", help="Prepare or finalize a release.", parents=[parent_parser]
+    )
+    release_parser.add_argument(
+        "--version",
+        required=True,
+        help="The semantic version to release (e.g., 1.0.0).",
+    )
+
     args = parser.parse_args()
-    
-    # Setup logging based on CLI arguments
+
     global logger
     logger = setup_logging(args.verbose, args.debug)
 
@@ -116,92 +122,67 @@ def main():
         if args.dry_run:
             logger.info("--- Starting in DRY-RUN mode. No changes will be made. ---")
 
-        # 1. Load configuration and initialize services
-        config = load_project_config()
-        
-        # Determine project root for GitService
-        project_root = Path(os.getcwd()) # Store as Path object
-        
+        full_config = load_project_config()
+        compiler_config = full_config.get("compiler_settings", {})
+
+        project_root = Path(os.getcwd())
         git_service = GitService(cwd=project_root, timeout=args.git_timeout)
-        
-        vault_service = None
-        if args.command == 'release':
-            vault_addr = os.getenv('VAULT_ADDR')
-            
-            # Try to get VAULT_TOKEN from environment, then from mounted file
-            vault_token = os.getenv('VAULT_TOKEN')
-            vault_token_file = '/var/run/secrets/vault-token'
-            if not vault_token and os.path.exists(vault_token_file):
-                try:
-                    with open(vault_token_file, 'r') as f:
-                        vault_token = f.read().strip()
-                except IOError as e:
-                    logger.warning(f"Could not read Vault token from {vault_token_file}: {e}")
 
-            # Try to get VAULT_CACERT from environment, then from mounted file
-            vault_cacert = os.getenv('VAULT_CACERT')
-            vault_cacert_file = '/var/run/secrets/vault-ca.crt'
-            if not vault_cacert and os.path.exists(vault_cacert_file):
-                vault_cacert = vault_cacert_file # Pass the path directly, VaultService will check existence
+        vault_addr = os.getenv("VAULT_ADDR")
+        vault_token = os.getenv("VAULT_TOKEN")
+        vault_token_file = os.getenv(
+            "CIC_VAULT_TOKEN_FILE", "/var/run/secrets/vault-token"
+        )
+        if not vault_token and os.path.exists(vault_token_file):
+            try:
+                with open(vault_token_file, "r") as f:
+                    vault_token = f.read().strip()
+            except IOError as e:
+                logger.warning(
+                    f"Could not read Vault token from {vault_token_file}: {e}"
+                )
 
-            # TLS warning is now handled by VaultService constructor if not dry-run
-            
-            vault_service = VaultService(
-                vault_addr=vault_addr,
-                vault_token=vault_token,
-                vault_cacert=vault_cacert,
-                dry_run=args.dry_run,
-                timeout=args.vault_timeout,
-                logger=logger # Pass logger to service
-            )
+        vault_cacert = os.getenv("VAULT_CACERT")
+        vault_cacert_file = "/var/run/secrets/vault-ca.crt"
+        if not vault_cacert and os.path.exists(vault_cacert_file):
+            vault_cacert = vault_cacert_file
 
-        manager = ReleaseManager(
-            config, 
-            git_service=git_service, 
-            vault_service=vault_service,
-            project_root=project_root, # Pass project_root to ReleaseManager
+        vault_service = VaultService(
+            vault_addr=vault_addr,
+            vault_token=vault_token,
+            vault_cacert=vault_cacert,
             dry_run=args.dry_run,
-            logger=logger # Pass logger to manager
+            timeout=args.vault_timeout,
+            logger=logger,
         )
 
-        # 2. Execute the requested command
-        if args.command == 'validate':
+        manager = ReleaseManager(
+            compiler_config,
+            git_service=git_service,
+            vault_service=vault_service,
+            project_root=project_root,
+            dry_run=args.dry_run,
+            logger=logger,
+        )
+
+        if args.command == "validate":
             logger.info("--- Running Schema Validation ---")
             manager.run_validation()
             logger.info("✓ All schemas are valid.")
 
-        elif args.command == 'release':
-            logger.info("--- Running Schema Release ---")
-            
-            logger.info("[Phase 1/3] Validating schemas...")
-            manager.run_validation()
-            logger.info("✓ Schemas are valid.")
-            
-            logger.info("[Phase 2/3] Running pre-flight checks...")
-            # Pass the version from CLI args to the check
-            component_name, original_base_branch = manager.run_release_check(release_version=args.version)
-            logger.info(f"✓ All checks passed for version {args.version}.")
-            
-            logger.info("[Phase 3/3] Closing release...")
-            # Pass the version from CLI args to the close
-            release_version, component_name = manager.run_release_close(
-                release_version=args.version
-            )
+        elif args.command == "release":
+            manager.run_release_close(release_version=args.version)
 
-            if args.dry_run:
-                logger.info("[DRY-RUN] Release process simulation complete. Vault signing was simulated.")
-            else:
-                logger.info("✓ Release closed successfully. project.yaml has been finalized.")
-                # The commit and tag are now handled by ReleaseManager.run_release_close()
-                # The push command is now constructed based on the actual component_name and release_version
-                release_branch_name = f"{component_name}/releases/v{release_version}" if component_name != "main" else f"releases/v{release_version}"
-                logger.info(f"ACTION REQUIRED: Please push the changes and the tag: git push origin {release_branch_name} && git push origin {component_name}@v{release_version}")
-
+    except ManualInterventionRequired as e:
+        logger.info(f"[ACTION REQUIRED] {e}")
+        sys.exit(0)  # Exit with 0 for manual intervention
     except ReleaseError as e:
         logger.critical(f"[RELEASE FAILED] {e}")
         sys.exit(1)
     except Exception as e:
-        logger.critical(f"[UNEXPECTED ERROR] An unhandled exception occurred: {e}", exc_info=True)
+        logger.critical(
+            f"[UNEXPECTED ERROR] An unhandled exception occurred: {e}", exc_info=True
+        )
         sys.exit(1)
 
 
