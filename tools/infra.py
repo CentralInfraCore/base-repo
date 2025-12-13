@@ -294,9 +294,7 @@ class ReleaseManager:
                 )
                 self.logger.info(f"Committing changes with message: '{commit_message}'")
                 self.git_service.run(["git", "commit", "-m", commit_message])
-                self.logger.info(
-                    "✓ Developer release commit created successfully."
-                )
+                self.logger.info("✓ Developer release commit created successfully.")
 
             self.logger.info(
                 f"✓ Release branch '{release_branch_name}' created. Proceed with build and finalization."
