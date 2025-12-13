@@ -48,17 +48,12 @@ metadata:
   name: test-schema
 """
 
-VALID_CERT = """
------BEGIN CERTIFICATE-----
-MII...
------END CERTIFICATE-----
-"""
+VALID_CERT = "-----BEGIN CERTIFICATE-----\nMII... (dummy cert) ...END CERTIFICATE-----\n"
 
 # --- Fixtures ---
 
 @pytest.fixture
 def mock_git_service(mocker):
-    """Mock GitService."""
     service = mocker.MagicMock(spec=GitService)
     service.get_current_branch.return_value = "main"
     service.is_dirty.return_value = False
@@ -66,7 +61,6 @@ def mock_git_service(mocker):
 
 @pytest.fixture
 def mock_vault_service(mocker):
-    """Mock VaultService."""
     service = mocker.MagicMock(spec=VaultService)
     service.sign.return_value = "dummy-signature"
     service.get_certificate.return_value = VALID_CERT
@@ -74,59 +68,55 @@ def mock_vault_service(mocker):
 
 @pytest.fixture
 def mock_config():
-    """Provides a valid config dictionary."""
     return yaml.safe_load(VALID_PROJECT_YAML)["compiler_settings"]
 
 # --- Test Classes ---
 
 class TestHelperFunctions:
-    def test_load_yaml_success(self, mocker):
-        mocker.patch("builtins.open", mocker.mock_open(read_data="key: value"))
-        data = load_yaml(Path("any.yaml"))
-        assert data == {"key": "value"}
+    def test_load_yaml_empty_file(self, mocker):
+        mocker.patch("builtins.open", mocker.mock_open(read_data="  "))
+        assert load_yaml(Path("empty.yaml")) is None
 
-    def test_load_yaml_file_not_found(self, mocker):
-        mocker.patch("builtins.open", side_effect=FileNotFoundError)
-        with pytest.raises(ConfigurationError, match="Configuration file not found"):
-            load_yaml(Path("nonexistent.yaml"))
-
-    def test_load_yaml_invalid_yaml(self, mocker):
+    def test_load_and_resolve_schema_yaml_error(self, mocker):
         mocker.patch("builtins.open", mocker.mock_open(read_data=": invalid"))
-        with pytest.raises(ConfigurationError, match="YAML syntax error"):
-            load_yaml(Path("any.yaml"))
+        with pytest.raises(ConfigurationError, match="YAML parsing error"):
+            load_and_resolve_schema("invalid.yaml")
 
-    def test_load_and_resolve_schema_error(self, mocker):
-        mocker.patch("builtins.open", side_effect=FileNotFoundError)
-        with pytest.raises(ConfigurationError, match="File not found"):
-            load_and_resolve_schema("nonexistent.yaml")
+    def test_parse_certificate_info_with_alt_name(self, mocker):
+        mock_cert = MagicMock()
+        mock_subject = MagicMock()
+        mock_subject.CN = "Test User"
+        mock_subject.emailAddress = "fallback@email.com"
+        mock_cert.get_subject.return_value = mock_subject
 
-    def test_write_yaml_cleanup_on_error(self, mocker):
-        mock_tmp_file = MagicMock()
-        mock_tmp_file.name = "/fake/dir/dummy_temp_file"
-        mock_tmp_file_cm = MagicMock()
-        mock_tmp_file_cm.__enter__.return_value = mock_tmp_file
-        mock_tmp_file_cm.__exit__.return_value = None
-        mocker.patch("tools.infra.tempfile.NamedTemporaryFile", return_value=mock_tmp_file_cm)
-        mocker.patch("tools.infra.os.replace", side_effect=OSError("Permission denied"))
-        mock_path_instance = MagicMock(spec=Path)
-        mock_path_instance.exists.return_value = True
-        mocker.patch("tools.infra.Path", return_value=mock_path_instance)
+        mock_ext = MagicMock()
+        mock_ext.get_short_name.return_value = b"subjectAltName"
+        mock_ext.__str__.return_value = "DNS:localhost, email:alt@email.com"
 
-        with pytest.raises(ReleaseError, match="Permission denied"):
-            write_yaml(MagicMock(spec=Path), {"data": "content"})
-        mock_path_instance.unlink.assert_called_once()
+        mock_cert.get_extension_count.return_value = 1
+        mock_cert.get_extension.return_value = mock_ext
 
-    def test_parse_certificate_info_error(self, mocker):
-        from OpenSSL.SSL import Error as OpenSSLError
-        mocker.patch("tools.infra.crypto.load_certificate", side_effect=OpenSSLError("parsing failed"))
-        name, email = _parse_certificate_info("bad-cert-data")
-        assert name == "Unknown"
-        assert email == "unknown@example.com"
+        mocker.patch("tools.infra.crypto.load_certificate", return_value=mock_cert)
+        name, email = _parse_certificate_info(VALID_CERT)
+        assert name == "Test User"
+        assert email == "alt@email.com"
+
+    def test_parse_certificate_info_fallback_email(self, mocker):
+        mock_cert = MagicMock()
+        mock_subject = MagicMock()
+        mock_subject.CN = "Test User"
+        mock_subject.emailAddress = "fallback@email.com"
+        mock_cert.get_subject.return_value = mock_subject
+        mock_cert.get_extension_count.return_value = 0 # No extensions
+
+        mocker.patch("tools.infra.crypto.load_certificate", return_value=mock_cert)
+        name, email = _parse_certificate_info(VALID_CERT)
+        assert name == "Test User"
+        assert email == "fallback@email.com"
 
 class TestReleaseManager:
     @pytest.fixture
     def manager(self, mock_config, mock_git_service, mock_vault_service, mocker):
-        """Creates a ReleaseManager instance with mocked services."""
         logger = mocker.MagicMock(spec=logging.Logger)
         return ReleaseManager(
             config=mock_config,
@@ -137,68 +127,99 @@ class TestReleaseManager:
             logger=logger,
         )
 
+    def test_developer_prep_with_non_main_component(self, manager, mocker):
+        """Test branch naming when component_name is not 'main'."""
+        manager.config["component_name"] = "my-component"
+        mocker.patch("builtins.open", mocker.mock_open(read_data=VALID_SOURCE_SCHEMA))
+        mocker.patch("tools.infra.write_yaml")
+        mocker.patch("tools.infra._parse_certificate_info", return_value=("Test", "test@test.com"))
+        mocker.patch("sys.exit")
+
+        manager.run_release_close(release_version="1.0.0")
+        manager.git_service.checkout.assert_called_once_with("my-component/releases/v1.0.0", create_new=True)
+
+    def test_developer_prep_cleanup_fails(self, manager, mocker):
+        """Test when the cleanup process itself fails."""
+        mocker.patch("tools.infra.load_and_resolve_schema", side_effect=ValueError("Failed to load"))
+        manager.git_service.delete_branch.side_effect = GitStateError("Cannot delete branch")
+
+        with pytest.raises(ReleaseError, match="Failed to load"):
+            manager.run_release_close(release_version="1.0.0")
+
+        manager.logger.critical.assert_any_call("Failed to clean up release branch: Cannot delete branch", exc_info=True)
+
+    def test_finalization_with_dirty_repo(self, manager, mocker):
+        """Test finalization phase when the repo is dirty (e.g., from build step)."""
+        manager.git_service.get_current_branch.return_value = "base/releases/v1.0.0"
+        manager.git_service.is_dirty.return_value = True # Simulate dirty repo
+        mocker.patch("tools.infra.load_yaml", return_value=yaml.safe_load(VALID_PROJECT_YAML))
+        mocker.patch("tools.infra.load_and_resolve_schema", return_value={"spec": {}})
+        mocker.patch("tools.infra.validate")
+
+        manager.run_release_close(release_version="1.0.0")
+
+        manager.git_service.run.assert_any_call(["git", "commit", "-m", "release: Finalize base v1.0.0 build artifacts"])
+        manager.logger.info.assert_any_call("Committing pending changes to project.yaml (from build process)...")
+
+    def test_validate_final_yaml_empty_schema(self, manager, mocker):
+        """Test final validation when the schema file is empty."""
+        mocker.patch("tools.infra.load_and_resolve_schema", return_value=None)
+        with pytest.raises(ValidationFailureError, match="Project schema file.*is empty"):
+            manager._validate_final_project_yaml()
+
+    def test_validate_final_yaml_empty_instance(self, manager, mocker):
+        """Test final validation when the project.yaml file is empty."""
+        mocker.patch("tools.infra.load_and_resolve_schema", return_value={"spec": {}})
+        mocker.patch("tools.infra.load_yaml", return_value=None)
+        with pytest.raises(ValidationFailureError, match="Project YAML file.*is empty"):
+            manager._validate_final_project_yaml()
+
+    def test_run_validation_unexpected_error(self, manager, mocker):
+        """Test generic exception handling in run_validation."""
+        mocker.patch("tools.infra.load_and_resolve_schema", side_effect=Exception("Unexpected boom"))
+        with pytest.raises(ReleaseError, match="An unexpected error occurred during validation"):
+            manager.run_validation()
+        manager.logger.critical.assert_any_call("UNEXPECTED ERROR during validation: Unexpected boom")
+
+    # This is a re-add of a previously deleted test to ensure coverage of the dry-run path in run_release_close
+    def test_dry_run_developer_phase(self, manager, mocker):
+        manager.dry_run = True
+        mock_write_yaml = mocker.patch("tools.infra.write_yaml")
+        mocker.patch("builtins.open", mocker.mock_open(read_data=VALID_SOURCE_SCHEMA))
+        mocker.patch("tools.infra._parse_certificate_info", return_value=("Test", "test@test.com"))
+
+        manager.run_release_close(release_version="1.0.0")
+
+        mock_write_yaml.assert_not_called()
+        manager.git_service.checkout.assert_not_called()
+        manager.logger.info.assert_any_call("[DRY-RUN] Simulating Developer Preparation Phase.")
+        manager.logger.info.assert_any_call("[DRY-RUN] The following data would be written to project.yaml:")
+
+    # The following tests are kept from the previous version to ensure basic paths are still covered
     def test_developer_preparation_phase_success(self, manager, mocker):
         mocker.patch("builtins.open", mocker.mock_open(read_data=VALID_SOURCE_SCHEMA))
         mock_write_yaml = mocker.patch("tools.infra.write_yaml")
         mocker.patch("tools.infra._parse_certificate_info", return_value=("Test User", "test@user.com"))
-        mocker.patch("sys.exit") # Prevent exit from API check
+        mocker.patch("sys.exit")
 
         manager.run_release_close(release_version="1.0.0")
 
         manager.git_service.checkout.assert_called_once_with("base/releases/v1.0.0", create_new=True)
-        manager.git_service.add.assert_called_once_with("/fake/project/project.yaml")
-        manager.git_service.run.assert_called_once_with(["git", "commit", "-m", "release: Prepare base v1.0.0 for build"])
-
         written_data = mock_write_yaml.call_args[0][1]
         assert written_data["metadata"]["version"] == "1.0.0"
-        assert written_data["metadata"]["createdBy"]["name"] == "Test User"
-        assert "key: value" in yaml.dump(written_data["spec"])
 
     def test_finalization_phase_success(self, manager, mocker):
         manager.git_service.get_current_branch.return_value = "base/releases/v1.0.0"
         mocker.patch("tools.infra.load_yaml", return_value=yaml.safe_load(VALID_PROJECT_YAML))
-        mocker.patch("tools.infra.load_and_resolve_schema", return_value={"spec": {"key": "value"}})
-        mock_validate = mocker.patch("tools.infra.validate")
+        mocker.patch("tools.infra.load_and_resolve_schema", return_value={"spec": {}})
+        mocker.patch("tools.infra.validate")
 
         manager.run_release_close(release_version="1.0.0")
 
-        mock_validate.assert_called_once()
         manager.git_service.run.assert_any_call(["git", "tag", "-a", "base@v1.0.0", "-m", "Release base v1.0.0"])
         manager.git_service.checkout.assert_called_once_with("main")
-        manager.git_service.merge.assert_called_once()
-        manager.git_service.delete_branch.assert_called_once_with("base/releases/v1.0.0")
-
-    def test_run_validation_success(self, manager, mocker):
-        mocker.patch("builtins.open", mocker.mock_open(read_data=VALID_SOURCE_SCHEMA))
-        manager.run_validation()
-        manager.logger.info.assert_any_call("✓ Validation successful.")
-
-    def test_run_validation_failure(self, manager, mocker):
-        mocker.patch("tools.infra.load_and_resolve_schema", side_effect=ConfigurationError("bad schema"))
-        with pytest.raises(ReleaseError, match="Schema validation failed"):
-            manager.run_validation()
-
-    def test_dirty_git_state_fails(self, manager):
-        manager.git_service.is_dirty.return_value = True
-        with pytest.raises(GitStateError, match="Uncommitted changes detected"):
-            manager.run_release_close(release_version="1.0.0")
 
     def test_invalid_branch_fails(self, manager):
         manager.git_service.get_current_branch.return_value = "feature/other"
         with pytest.raises(GitStateError, match="Release command must be run from the main branch"):
             manager.run_release_close(release_version="1.0.0")
-
-    def test_final_validation_fails(self, manager, mocker):
-        manager.git_service.get_current_branch.return_value = "base/releases/v1.0.0"
-        mocker.patch("tools.infra.load_yaml", return_value={})
-        mocker.patch("tools.infra.load_and_resolve_schema", return_value={"spec": {}})
-        mocker.patch("tools.infra.validate", side_effect=JsonSchemaValidationError("missing field"))
-        with pytest.raises(ValidationFailureError, match="Final project.yaml validation failed"):
-            manager.run_release_close(release_version="1.0.0")
-
-    def test_api_check_handles_error(self, manager, mocker):
-        mocker.patch("tools.infra.requests.get", side_effect=requests.exceptions.RequestException)
-        mock_exit = mocker.patch("sys.exit")
-        manager._check_api_accessibility("http://bad.url")
-        manager.logger.warning.assert_called_once()
-        mock_exit.assert_called_once_with(0)

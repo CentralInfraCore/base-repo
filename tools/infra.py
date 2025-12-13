@@ -139,18 +139,14 @@ class ReleaseManager:
         return self.project_root / relative_path
 
     def _check_base_branch_and_version(
-        self, release_version: str, skip_git_state_checks: bool = False
+        self, release_version: str
     ):
-        """Checks git state, branch, and version validity."""
+        """Checks git branch and version validity."""
         component_name = self.config.get("component_name", "main")
         original_base_branch = self.git_service.get_current_branch()
         self.logger.info(
             f"✓ Starting release process for component '{component_name}' from branch '{original_base_branch}'."
         )
-        if not skip_git_state_checks:
-            if self.git_service.is_dirty():
-                raise GitStateError("Uncommitted changes detected. Please commit or stash them before starting a release.")
-            self.git_service.assert_clean_index()
         return component_name, original_base_branch
 
     def _check_api_accessibility(self, api_url: str):
@@ -187,6 +183,10 @@ class ReleaseManager:
         self, release_version: str, component_name: str, original_base_branch: str
     ):
         """Handles the developer preparation phase: creates release branch, updates project.yaml, commits."""
+        if self.git_service.is_dirty():
+            raise GitStateError("Uncommitted changes detected. Please commit or stash them before starting a release.")
+        self.git_service.assert_clean_index()
+
         project_yaml_path = self._path("project.yaml")
         release_branch_name = f"{component_name}/releases/v{release_version}" if component_name != "main" else f"releases/v{release_version}"
 
@@ -200,7 +200,6 @@ class ReleaseManager:
             source_file = self._path(self.config.get("canonical_source_file", "sources/index.yaml"))
             source_data = load_and_resolve_schema(source_file)
 
-            # This part is a placeholder for the full validation logic from the old compiler
             self.logger.info("✓ Source schema loaded and resolved.")
 
             self.logger.info("Assembling the developer-stage project.yaml metadata...")
@@ -251,7 +250,7 @@ class ReleaseManager:
                 "cicSignedCA": {"certificate": ""},
             }
             project_data["metadata"] = metadata
-            project_data["spec"] = source_data["spec"] # Overwrite spec with resolved one
+            project_data["spec"] = source_data["spec"]
 
             if self.dry_run:
                 self.logger.info("[DRY-RUN] The following data would be written to project.yaml:")
@@ -320,9 +319,7 @@ class ReleaseManager:
 
     def run_release_close(self, release_version: str):
         """Orchestrates the release process based on the current Git branch and dry_run status."""
-        component_name, original_base_branch = self._check_base_branch_and_version(
-            release_version, skip_git_state_checks=self.dry_run
-        )
+        component_name, original_base_branch = self._check_base_branch_and_version(release_version)
         if not self.vault_service:
             raise VaultServiceError("VaultService is not initialized.")
 
@@ -351,7 +348,6 @@ class ReleaseManager:
             self.logger.info(f"Validating and resolving {source_file}...")
             source_data = load_and_resolve_schema(source_file)
 
-            # Placeholder for full validator logic
             self.logger.info("✓ Schema validation logic to be fully implemented here.")
 
         except (ConfigurationError, JsonSchemaValidationError, ValueError) as e:
