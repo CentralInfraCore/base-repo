@@ -4,24 +4,24 @@
 include mk/infra.mk
 
 # ---- Phony ----
-.PHONY: all help validate release test up down shell build fmt lint check typecheck repo.init manifest-verify manifest-update
+.PHONY: all help validate release-check release-prepare release-close test up down shell build fmt lint check typecheck repo.init manifest-verify manifest-update
 
 # Default to showing help
 all: help
 
 # =============================================================================
-# Compiler Flags (can be overridden on command line, e.g., make release VERBOSE=1)
+# Compiler Flags (can be overridden on command line)
 # =============================================================================
 VERBOSE ?=
 DEBUG ?=
 DRY_RUN ?=
-VERSION ?= # New: Version for release command
+VERSION ?=
 GIT_TIMEOUT ?= 60
 VAULT_TIMEOUT ?= 10
-TEST_FILE ?= # New: Specify a specific test file (e.g., tests/test_compiler.py)
-TEST_NAME ?= # New: Specify a specific test function name (e.g., test_load_yaml_valid)
+TEST_FILE ?=
+TEST_NAME ?=
 
-# Construct COMPILER_CLI_ARGS based on VERBOSE and DEBUG flags
+# Construct COMPILER_CLI_ARGS based on flags
 COMPILER_CLI_ARGS =
 ifeq ($(VERBOSE),1)
     COMPILER_CLI_ARGS += --verbose
@@ -66,21 +66,36 @@ validate:
 	@echo "--- Validating all schemas against the meta-schema ---"
 	@docker compose exec builder python -m tools.compiler validate $(COMPILER_CLI_ARGS)
 
-release:
+release-check:
 ifeq ($(VERSION),)
-	$(error VERSION is required for the release command. Usage: make release VERSION=1.0.0)
+	$(error VERSION is required. Usage: make release-check VERSION=1.0.0)
 endif
-	@echo "--- Building and signing release schemas ---"
-	# Pass Git author and committer identity from host to container for commit operations
+	@echo "--- Running pre-flight checks for release v$(VERSION) ---"
+	@docker compose exec builder python -m tools.compiler check --version $(VERSION) $(COMPILER_CLI_ARGS)
+
+release-prepare:
+ifeq ($(VERSION),)
+	$(error VERSION is required. Usage: make release-prepare VERSION=1.0.0)
+endif
+	@echo "--- Preparing release v$(VERSION) ---"
 	@docker compose exec \
 		-e GIT_AUTHOR_NAME="$(shell git config user.name)" \
 		-e GIT_AUTHOR_EMAIL="$(shell git config user.email)" \
 		-e GIT_COMMITTER_NAME="$(shell git config user.name)" \
 		-e GIT_COMMITTER_EMAIL="$(shell git config user.email)" \
-		builder python -m tools.compiler release --version $(VERSION) $(COMPILER_CLI_ARGS)
-	# The release.sh script is no longer needed as its functionality has been integrated into compiler.py
-	# @tools/release.sh project.yaml
-	# @git add project.yaml # This is now handled by compiler.py
+		builder python -m tools.compiler prepare --version $(VERSION) $(COMPILER_CLI_ARGS)
+
+release-close:
+ifeq ($(VERSION),)
+	$(error VERSION is required. Usage: make release-close VERSION=1.0.0)
+endif
+	@echo "--- Finalizing and closing release v$(VERSION) ---"
+	@docker compose exec \
+		-e GIT_AUTHOR_NAME="$(shell git config user.name)" \
+		-e GIT_AUTHOR_EMAIL="$(shell git config user.email)" \
+		-e GIT_COMMITTER_NAME="$(shell git config user.name)" \
+		-e GIT_COMMITTER_EMAIL="$(shell git config user.email)" \
+		builder python -m tools.compiler close --version $(VERSION) $(COMPILER_CLI_ARGS)
 
 test: infra.test
 
@@ -129,18 +144,22 @@ help:
 	@echo ""
 	@echo "Main Tasks:"
 	@echo "  validate      Run fast, offline validation of all schemas."
-	@echo "  release       Build, checksum, and sign all non-dev schemas (requires Vault)."
 	@echo "  test          Run pytest for the compiler infrastructure code."
+	@echo ""
+	@echo "Release Process (multi-step):"
+	@echo "  release-check    Run pre-flight checks before starting a release."
+	@echo "  release-prepare  Step 1: Create release branch and prepare project.yaml."
+	@echo "  release-close    Step 2: Finalize, tag, merge, and clean up the release."
 	@echo ""
 	@echo "Manifest Management:"
 	@echo "  manifest-verify  Verify the integrity of the repository using MANIFEST.sha256."
 	@echo "  manifest-update  Re-generate the MANIFEST.sha256 file."
 	@echo ""
-	@echo "Options for validate/release:"
+	@echo "Options for validate/release-*:"
 	@echo "  VERBOSE=1     Enable verbose output."
 	@echo "  DEBUG=1       Enable debug output (most verbose)."
 	@echo "  DRY_RUN=1     Perform a trial run without making any changes."
-	@echo "  VERSION=X.Y.Z The semantic version to release (e.g., 1.0.0). Required for 'release' command."
+	@echo "  VERSION=X.Y.Z The semantic version to release (e.g., 1.0.0). Required for all 'release-*' commands."
 	@echo "  GIT_TIMEOUT=N Set Git command timeout in seconds (default: 60)."
 	@echo "  VAULT_TIMEOUT=N Set Vault API call timeout in seconds (default: 10)."
 	@echo ""
