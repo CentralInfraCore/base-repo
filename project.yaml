@@ -1,14 +1,15 @@
 ---
 metadata:
-  name: base
-  description: Schema Compiler & Signing Infrastructure Template
-  version: 0.7.3
+  name: iac-base
+  description: Infrastructure as Code (IaC) Base Template
+  version: 0.1.0
   license: CC-BY-NC-SA-4.0
   main_branch: main
   owner: Gabor Zoltan Sinko
   tags:
     - template
-    - base-repo
+    - iac-base
+    - infrastructure
   validatedBy:
     name: TBD
     version: TBD
@@ -111,7 +112,7 @@ metadata:
 
       '
 compiler_settings:
-  component_name: base
+  component_name: iac-base
   meta_schemas_dir: ./
   meta_schema_file: md.meta.schema.yaml
   vault_key_name: cic-my-sign-key
