@@ -101,6 +101,45 @@
       "indexes": [
         { "name": "idx_inverted_index_chunk_id", "columns": ["chunk_id"] }
       ]
+    },
+    {
+      "name": "chunk_tags",
+      "description": "Tags from companion YAML metadata, one row per chunk-tag pair.",
+      "columns": [
+        { "name": "chunk_id", "type": "TEXT", "not_null": true },
+        { "name": "tag",      "type": "TEXT", "not_null": true }
+      ],
+      "primary_key": ["chunk_id", "tag"],
+      "indexes": [
+        { "name": "idx_chunk_tags_tag",      "columns": ["tag"] },
+        { "name": "idx_chunk_tags_chunk_id", "columns": ["chunk_id"] }
+      ]
+    },
+    {
+      "name": "chunk_categories",
+      "description": "Categories from companion YAML metadata.",
+      "columns": [
+        { "name": "chunk_id",  "type": "TEXT", "not_null": true },
+        { "name": "category",  "type": "TEXT", "not_null": true }
+      ],
+      "primary_key": ["chunk_id", "category"],
+      "indexes": [
+        { "name": "idx_chunk_categories_category", "columns": ["category"] },
+        { "name": "idx_chunk_categories_chunk_id", "columns": ["chunk_id"] }
+      ]
+    },
+    {
+      "name": "chunk_used_in",
+      "description": "used_in values from companion YAML metadata.",
+      "columns": [
+        { "name": "chunk_id", "type": "TEXT", "not_null": true },
+        { "name": "used_in",  "type": "TEXT", "not_null": true }
+      ],
+      "primary_key": ["chunk_id", "used_in"],
+      "indexes": [
+        { "name": "idx_chunk_used_in_used_in",  "columns": ["used_in"] },
+        { "name": "idx_chunk_used_in_chunk_id", "columns": ["chunk_id"] }
+      ]
     }
   ]
 }
