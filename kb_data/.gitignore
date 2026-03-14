@@ -1,0 +1,4 @@
+# Generated knowledge base artifacts - do not commit
+/pkl/*.pkl
+/json/*.json
+/manifest.json

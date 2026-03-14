@@ -1,7 +1,11 @@
 # Makefile for Core Infrastructure Tasks
 
+PYTHON := ./p_venv/bin/python
+MCP_HOST ?= 127.0.0.1
+MCP_PORT ?= 8000
+
 # ---- Phony ----
-.PHONY: infra.up infra.down infra.shell infra.build infra.fmt infra.lint infra.typecheck infra.check infra.repo.init infra.deps infra.coverage infra.clean infra.help
+.PHONY: infra.up infra.down infra.shell infra.build infra.fmt infra.lint infra.typecheck infra.check infra.repo.init infra.deps infra.coverage infra.clean infra.help infra.kb.build infra.mcp.run infra.mcp.run.sse infra.mcp.config
 
 # =============================================================================
 # Container Lifecycle Management
@@ -82,6 +86,27 @@ infra.clean:
 	@rm -rf ./htmlcov
 
 # =============================================================================
+# Knowledge Base & MCP Server
+# =============================================================================
+
+infra.mcp.config:
+	@echo "--- Generating .mcp.json for this repo ---"
+	@sed "s|{{REPO_ROOT}}|$(shell pwd)|g" .mcp.json.tpl > .mcp.json
+	@echo ".mcp.json generated at $(shell pwd)"
+
+infra.kb.build:
+	@echo "--- Building knowledge base from ./source ---"
+	@$(PYTHON) make_source.py
+
+infra.mcp.run:
+	@echo "--- Starting MCP server (stdio) ---"
+	@$(PYTHON) mcp-server/server.py
+
+infra.mcp.run.sse:
+	@echo "--- Starting MCP server (SSE / HTTP) on $(MCP_HOST):$(MCP_PORT) ---"
+	@$(PYTHON) mcp-server/server.py --sse --host $(MCP_HOST) --port $(MCP_PORT)
+
+# =============================================================================
 # Infrastructure Help (Implementation Details)
 # =============================================================================
 
@@ -102,6 +127,14 @@ infra.help:
 	@echo ""
 	@echo "Repository Setup:"
 	@echo "  infra.repo.init     Set up the Git hooks for this repository (pre-commit, commit-msg)."
+	@echo ""
+	@echo "Knowledge Base & MCP Server (uses ./p_venv, no Docker):"
+	@echo "  mcp.config          Generate .mcp.json with absolute paths for this repo."
+	@echo "  kb.build            Build the knowledge base from ./source (make_source.py)."
+	@echo "  mcp.run             Start the MCP server in stdio mode."
+	@echo "  mcp.run.sse         Start the MCP server in SSE/HTTP mode."
+	@echo "    MCP_HOST=x.x.x.x   Bind host (default: 127.0.0.1, env: MCP_HOST)"
+	@echo "    MCP_PORT=XXXX       Bind port (default: 8000, env: MCP_PORT)"
 	@echo ""
 	@echo "Infrastructure & Maintenance:"
 	@echo "  infra.deps          (Re)generate requirements.txt and install dependencies into the cache."

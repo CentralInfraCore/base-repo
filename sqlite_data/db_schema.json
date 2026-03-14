@@ -1,0 +1,106 @@
+{
+  "database_file": "knowledge_base.sqlite",
+  "tables": [
+    {
+      "name": "files",
+      "description": "Stores unique file paths to normalize data.",
+      "columns": [
+        { "name": "id", "type": "INTEGER", "primary_key": true },
+        { "name": "path", "type": "TEXT", "unique": true, "not_null": true }
+      ]
+    },
+    {
+      "name": "terms",
+      "description": "Stores unique words (terms) for the inverted index.",
+      "columns": [
+        { "name": "id", "type": "INTEGER", "primary_key": true },
+        { "name": "term", "type": "TEXT", "unique": true, "not_null": true }
+      ]
+    },
+    {
+      "name": "chunks",
+      "description": "Stores text fragments extracted from source files.",
+      "columns": [
+        { "name": "id", "type": "TEXT", "primary_key": true, "description": "Unique, deterministic identifier for the chunk." },
+        { "name": "file_id", "type": "INTEGER", "not_null": true, "description": "Foreign key to the 'files' table." },
+        { "name": "text", "type": "TEXT", "not_null": true },
+        { "name": "section", "type": "TEXT" },
+        { "name": "start_line", "type": "INTEGER", "not_null": true },
+        { "name": "end_line", "type": "INTEGER", "not_null": true },
+        { "name": "lang", "type": "TEXT" },
+        { "name": "type", "type": "TEXT" }
+      ],
+      "foreign_keys": [
+        { "column": "file_id", "references": "files(id)" }
+      ],
+      "indexes": [
+        { "name": "idx_chunk_location", "columns": ["file_id", "start_line"] }
+      ]
+    },
+    {
+      "name": "nodes",
+      "description": "Represents nodes in the knowledge graph.",
+      "columns": [
+        { "name": "id", "type": "TEXT", "primary_key": true },
+        { "name": "chunk_id", "type": "TEXT", "not_null": true },
+        { "name": "type", "type": "TEXT" },
+        { "name": "label", "type": "TEXT" }
+      ],
+      "foreign_keys": [
+        { "column": "chunk_id", "references": "chunks(id)" }
+      ],
+      "indexes": [
+        { "name": "idx_node_chunk_id", "columns": ["chunk_id"] }
+      ]
+    },
+    {
+      "name": "edges",
+      "description": "Represents relationships between nodes.",
+      "columns": [
+        { "name": "id", "type": "TEXT", "primary_key": true },
+        { "name": "from_node", "type": "TEXT", "not_null": true },
+        { "name": "to_node", "type": "TEXT", "not_null": true },
+        { "name": "type", "type": "TEXT" },
+        { "name": "weight", "type": "REAL", "default": 1.0 }
+      ],
+      "foreign_keys": [
+        { "column": "from_node", "references": "nodes(id)" },
+        { "column": "to_node", "references": "nodes(id)" }
+      ],
+      "indexes": [
+        { "name": "idx_edge_from_node", "columns": ["from_node"] },
+        { "name": "idx_edge_to_node", "columns": ["to_node"] }
+      ]
+    },
+    {
+      "name": "edge_evidence",
+      "description": "Links an edge to a specific chunk as evidence.",
+      "columns": [
+        { "name": "edge_id", "type": "TEXT", "not_null": true },
+        { "name": "chunk_id", "type": "TEXT", "not_null": true }
+      ],
+      "primary_key": ["edge_id", "chunk_id"],
+      "foreign_keys": [
+        { "column": "edge_id", "references": "edges(id)" },
+        { "column": "chunk_id", "references": "chunks(id)" }
+      ]
+    },
+    {
+      "name": "inverted_index",
+      "description": "Maps terms and chunks with their TF-IDF score.",
+      "columns": [
+        { "name": "term_id", "type": "INTEGER", "not_null": true },
+        { "name": "chunk_id", "type": "TEXT", "not_null": true },
+        { "name": "score", "type": "REAL", "not_null": true }
+      ],
+      "primary_key": ["term_id", "chunk_id"],
+      "foreign_keys": [
+        { "column": "term_id", "references": "terms(id)" },
+        { "column": "chunk_id", "references": "chunks(id)" }
+      ],
+      "indexes": [
+        { "name": "idx_inverted_index_chunk_id", "columns": ["chunk_id"] }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,220 @@
+{
+  "manifest": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Manifest Schema",
+    "description": "Schema for the main manifest file, which describes all generated data artifacts.",
+    "type": "object",
+    "required": ["project_name", "generation_timestamp_utc", "files"],
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "The name of the project."
+      },
+      "generation_timestamp_utc": {
+        "type": "string",
+        "format": "date-time",
+        "description": "The UTC timestamp in ISO 8601 format indicating when the data was generated."
+      },
+      "files": {
+        "type": "object",
+        "description": "An object containing metadata for each generated file or group of sharded files.",
+        "additionalProperties": {
+          "$ref": "#/definitions/file_entry"
+        }
+      }
+    },
+    "definitions": {
+      "file_metadata": {
+        "type": "object",
+        "required": ["path", "format"],
+        "properties": {
+          "path": { "type": "string", "description": "The relative path to the file." },
+          "format": { "type": "string", "enum": ["JSON", "Pickle"], "description": "The data format of the file." }
+        }
+      },
+      "sharded_file_metadata": {
+        "type": "object",
+        "required": ["path", "format", "group"],
+        "properties": {
+          "path": { "type": "string", "description": "The relative path to the file." },
+          "format": { "type": "string", "enum": ["JSON", "Pickle"], "description": "The data format of the shards." },
+          "group": { "type": "string", "description": "The group name of the sharded file." }
+        }
+      },
+      "file_entry": {
+        "oneOf": [
+          { "$ref": "#/definitions/file_metadata" },
+          { "$ref": "#/definitions/sharded_file_metadata" }
+        ]
+      }
+    }
+  },
+  "chunks": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Chunks Schema",
+    "description": "Schema for the chunks data object. It's a dictionary mapping chunk IDs to chunk data.",
+    "type": "object",
+    "patternProperties": {
+      "^c\\d+$": {
+        "type": "object",
+        "required": ["id", "text", "file_path", "section", "line_range", "lang", "type"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^c\\d+$" },
+          "text": { "type": "string" },
+          "file_path": { "type": "string" },
+          "section": { "type": "string" },
+          "line_range": { "type": "array", "items": [{ "type": "integer" }, { "type": "integer" }] },
+          "lang": { "type": "string" },
+          "type": { "type": "string" }
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "graph_nodes": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Graph Nodes Schema",
+    "description": "Schema for the graph nodes data object.",
+    "type": "object",
+    "patternProperties": {
+      "^n\\d+$": {
+        "type": "object",
+        "required": ["id", "chunk_id", "type", "label", "aliases", "evidence"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^n\\d+$" },
+          "chunk_id": { "type": "string", "pattern": "^c\\d+$" },
+          "type": { "type": "string" },
+          "label": { "type": "string" },
+          "aliases": { "type": "array", "items": { "type": "string" } },
+          "evidence": { "$ref": "#/definitions/evidence_array" }
+        }
+      }
+    },
+    "additionalProperties": false,
+    "definitions": {
+      "evidence_array": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["file", "lines"],
+          "properties": {
+            "file": { "type": "string" },
+            "lines": { "type": "array", "items": [{ "type": "integer" }, { "type": "integer" }] }
+          }
+        }
+      }
+    }
+  },
+  "graph_edges_shard": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Graph Edges Shard Schema",
+    "description": "Schema for a single shard of the graph edges data. Each shard is a dictionary mapping edge IDs to edge data.",
+    "type": "object",
+    "patternProperties": {
+      "^e\\d+$": {
+        "type": "object",
+        "required": ["id", "from", "to", "type", "weight", "evidence"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^e\\d+$" },
+          "from": { "type": "string", "pattern": "^n\\d+$" },
+          "to": { "type": "string", "pattern": "^n\\d+$" },
+          "type": { "type": "string" },
+          "weight": { "type": "number" },
+          "evidence": { "$ref": "#/definitions/evidence_array" }
+        }
+      }
+    },
+    "additionalProperties": false,
+    "definitions": {
+      "evidence_array": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["file", "lines"],
+          "properties": {
+            "file": { "type": "string" },
+            "lines": { "type": "array", "items": [{ "type": "integer" }, { "type": "integer" }] }
+          }
+        }
+      }
+    }
+  },
+  "inverted_index": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Inverted Index Schema",
+    "description": "Schema for the inverted index.",
+    "type": "object",
+    "additionalProperties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["chunk_id", "score"],
+        "properties": {
+          "chunk_id": { "type": "string", "pattern": "^c\\d+$" },
+          "score": { "type": "number" }
+        }
+      }
+    }
+  },
+  "graph_edge_indexes_from": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Graph Edge Indexes From Schema",
+    "description": "Schema for the 'from_to' part of the graph edge indexes.",
+    "type": "object",
+    "required": ["from_to"],
+    "properties": {
+      "from_to": {
+        "type": "object",
+        "patternProperties": {
+          "^n\\d+$": {
+            "type": "object",
+            "required": ["file", "data"],
+            "properties": {
+              "file": { "type": "string" },
+              "data": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["to_node", "edge_id"],
+                  "properties": {
+                    "to_node": { "type": "string", "pattern": "^n\\d+$" },
+                    "edge_id": { "type": "string", "pattern": "^e\\d+$" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "graph_edge_indexes_to": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Graph Edge Indexes To Schema",
+    "description": "Schema for the 'to_from' part of the graph edge indexes.",
+    "type": "object",
+    "required": ["to_from"],
+    "properties": {
+      "to_from": {
+        "type": "object",
+        "patternProperties": {
+          "^n\\d+$": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["from_node", "edge_id"],
+              "properties": {
+                "from_node": { "type": "string", "pattern": "^n\\d+$" },
+                "edge_id": { "type": "string", "pattern": "^e\\d+$" }
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  }
+}

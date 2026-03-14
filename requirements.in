@@ -7,6 +7,17 @@ cryptography
 pyopenssl
 jsonref
 
+# MCP Server & Knowledge Base
+mcp
+markdown
+pandas
+beautifulsoup4
+langdetect
+scikit-learn
+nltk
+fastapi
+uvicorn
+
 # Testing
 pytest
 pytest-mock

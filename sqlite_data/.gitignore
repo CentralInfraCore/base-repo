@@ -1,0 +1,3 @@
+# Generated SQLite database - do not commit
+*.sqlite
+*.sqlite3

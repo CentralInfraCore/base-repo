@@ -5,3 +5,13 @@
 /*/*/__pycache__/
 /*/__pycache__/
 /.coverage
+
+# MCP config (generated, contains absolute paths)
+/.mcp.json
+
+# Generated knowledge base files
+/kb_data/pkl/
+/kb_data/json/
+/kb_data/manifest.json
+/sqlite_data/*.sqlite
+/sqlite_data/*.sqlite3
