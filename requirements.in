@@ -13,8 +13,10 @@ markdown
 pandas
 beautifulsoup4
 langdetect
-scikit-learn
-nltk
+sentence-transformers
+faiss-cpu
+rank-bm25
+numpy
 fastapi
 uvicorn
 

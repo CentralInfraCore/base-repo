@@ -6,27 +6,14 @@ import datetime
 import pickle
 import sqlite3
 import re
+import numpy as np
 from bs4 import BeautifulSoup
 from langdetect import detect, LangDetectException
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
+from rank_bm25 import BM25Okapi
+import faiss
 
-# --- NLTK Setup ---
-try:
-    from nltk.corpus import stopwords
-    import nltk
-    nltk.download('stopwords', quiet=True)
-    nltk.download('punkt', quiet=True)
-except ImportError:
-    print("NLTK not found. Please install it: pip install nltk")
-    stopwords = None
-
-# --- Data Processing Functions ---
-
-def get_stop_words(lang):
-    if not stopwords: return set()
-    language_map = {'hu': 'hungarian', 'en': 'english'}
-    return set(stopwords.words(language_map[lang])) if lang in language_map else set()
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
 
 def detect_language(text):
     try:
@@ -76,40 +63,53 @@ def process_yaml_file(file_path):
     except (yaml.YAMLError, IOError):
         return []
 
-def clean_text(text, lang):
-    stop_words = get_stop_words(lang)
-    return ' '.join([word for word in text.lower().split() if word.isalpha() and word not in stop_words])
+def create_embeddings(texts, model_name=EMBEDDING_MODEL):
+    """Encode texts using a multilingual sentence transformer model."""
+    print(f"Loading embedding model: {model_name}")
+    model = SentenceTransformer(model_name)
+    embeddings = model.encode(texts, show_progress_bar=True, normalize_embeddings=True, batch_size=64)
+    return model, np.array(embeddings, dtype='float32')
 
-def create_tfidf_vectorizer_and_matrix(texts):
-    vectorizer = TfidfVectorizer(stop_words=None, min_df=5, max_df=0.7)
-    return vectorizer, vectorizer.fit_transform(texts)
+def build_faiss_index(embeddings):
+    """Build FAISS inner-product index (cosine sim with normalized vectors)."""
+    dim = embeddings.shape[1]
+    index = faiss.IndexFlatIP(dim)
+    index.add(embeddings)
+    return index
 
-def create_inverted_index(chunks, tfidf_matrix, vectorizer):
+def build_bm25_index(chunks):
+    """Build BM25 index for lexical search."""
+    tokenized = [chunk['text'].lower().split() for chunk in chunks]
+    return BM25Okapi(tokenized)
+
+def create_bm25_inverted_index(chunks, bm25):
+    """Lightweight inverted index from BM25 scores (for SQLite compat)."""
     inverted_index = {}
-    feature_names = vectorizer.get_feature_names_out()
-    rows, cols = tfidf_matrix.nonzero()
-    for row, col in zip(rows, cols):
-        word, chunk_id, score = feature_names[col], chunks[row]['id'], tfidf_matrix[row, col]
-        if score < 0.01: continue
-        if word not in inverted_index: inverted_index[word] = []
-        inverted_index[word].append({'chunk_id': chunk_id, 'score': float(score)})
-    for word in inverted_index: inverted_index[word].sort(key=lambda x: x['score'], reverse=True)
+    for i, chunk in enumerate(chunks):
+        tokens = set(chunk['text'].lower().split())
+        for word in tokens:
+            score = float(bm25.get_scores([word])[i])
+            if score > 0.01:
+                inverted_index.setdefault(word, []).append({'chunk_id': chunk['id'], 'score': score})
+    for word in inverted_index:
+        inverted_index[word].sort(key=lambda x: x['score'], reverse=True)
     return inverted_index
 
-def create_knowledge_graph_with_content(chunks, tfidf_matrix):
+def create_knowledge_graph_with_content(chunks, embeddings):
+    """Build knowledge graph using embedding cosine similarity."""
     nodes, edges = [], []
     for i, chunk in enumerate(chunks):
         node_id = f"n{i + 1}"
         nodes.append({'id': node_id, 'chunk_id': chunk['id'], 'type': chunk['type'], 'label': chunk['section']})
         if i > 0:
             edges.append({'from': f"n{i}", 'to': node_id, 'type': 'refers-to', 'weight': 0.9, 'evidence_chunk_id': chunk['id']})
-    
-    cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+
+    cosine_sim = embeddings @ embeddings.T
     for i in range(len(chunks)):
         for j in range(i + 1, len(chunks)):
             if cosine_sim[i, j] > 0.7:
                 edges.append({'from': f"n{i + 1}", 'to': f"n{j + 1}", 'type': 'related-to', 'weight': float(cosine_sim[i, j]), 'evidence_chunk_id': chunks[i]['id']})
-    
+
     for i, edge in enumerate(edges):
         edge['id'] = f'e{i+1}'
     return nodes, edges
@@ -125,19 +125,28 @@ def process_directory(directory_path):
                 all_chunks.extend(process_yaml_file(file_path))
     return all_chunks
 
-def build_knowledge_base(source_directory):
+def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
     chunks_list = process_directory(source_directory)
     chunks_list.sort(key=lambda x: (x['file_path'], x['start_line']))
     for i, chunk in enumerate(chunks_list):
         chunk['id'] = f'c{i+1}'
-    
-    cleaned_texts = [clean_text(chunk['text'], chunk['lang']) for chunk in chunks_list]
-    vectorizer, tfidf_matrix = create_tfidf_vectorizer_and_matrix(cleaned_texts)
-    
-    temp_inverted_index = create_inverted_index(chunks_list, tfidf_matrix, vectorizer)
-    
-    nodes_list, edges_list = create_knowledge_graph_with_content(chunks_list, tfidf_matrix)
-    
+
+    texts = [chunk['text'] for chunk in chunks_list]
+
+    print("Building embeddings...")
+    model, embeddings = create_embeddings(texts, model_name)
+
+    print("Building BM25 index...")
+    bm25 = build_bm25_index(chunks_list)
+
+    print("Building FAISS index...")
+    faiss_index = build_faiss_index(embeddings)
+
+    print("Building inverted index (BM25 scores for SQLite)...")
+    inverted_index = create_bm25_inverted_index(chunks_list, bm25)
+
+    nodes_list, edges_list = create_knowledge_graph_with_content(chunks_list, embeddings)
+
     for edge in edges_list:
         if 'evidence_chunk_id' in edge:
             chunk = next((c for c in chunks_list if c['id'] == edge['evidence_chunk_id']), None)
@@ -148,9 +157,11 @@ def build_knowledge_base(source_directory):
         "chunks": {item['id']: item for item in chunks_list},
         "nodes": {item['id']: item for item in nodes_list},
         "edges": {item['id']: item for item in edges_list},
-        "inverted_index": temp_inverted_index,
-        "vectorizer": vectorizer,
-        "tfidf_matrix": tfidf_matrix
+        "inverted_index": inverted_index,
+        "bm25": bm25,
+        "bm25_chunk_ids": [c['id'] for c in chunks_list],
+        "faiss_index": faiss_index,
+        "model_name": model_name,
     }
 
 def save_knowledge_base_legacy(kb_data, output_dir="kb_data", save_json=True, save_pickle=True):
@@ -174,6 +185,23 @@ def save_knowledge_base_legacy(kb_data, output_dir="kb_data", save_json=True, sa
         for name, data in legacy_data.items():
             with open(os.path.join(output_dir, 'pkl', f"{name}.pkl"), 'wb') as f:
                 pickle.dump(data, f)
+
+        faiss_index = kb_data.get("faiss_index")
+        if faiss_index is not None:
+            faiss.write_index(faiss_index, os.path.join(output_dir, 'pkl', 'faiss.index'))
+
+        bm25 = kb_data.get("bm25")
+        if bm25 is not None:
+            with open(os.path.join(output_dir, 'pkl', 'bm25.pkl'), 'wb') as f:
+                pickle.dump(bm25, f)
+
+        bm25_chunk_ids = kb_data.get("bm25_chunk_ids")
+        if bm25_chunk_ids is not None:
+            with open(os.path.join(output_dir, 'pkl', 'chunk_ids.pkl'), 'wb') as f:
+                pickle.dump(bm25_chunk_ids, f)
+
+        with open(os.path.join(output_dir, 'pkl', 'model_name.pkl'), 'wb') as f:
+            pickle.dump(kb_data.get("model_name", EMBEDDING_MODEL), f)
 
 def save_kb_to_sqlite(kb_data, output_dir="sqlite_data"):
     os.makedirs(output_dir, exist_ok=True)

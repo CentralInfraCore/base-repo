@@ -22,11 +22,14 @@ import os
 import pickle
 import re
 import argparse
+import numpy as np
+import faiss
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
+from sentence_transformers import SentenceTransformer
 
 mcp = FastMCP("cic-graph")
 
@@ -38,6 +41,10 @@ CHUNKS_PKL = Path(os.environ.get("CHUNKS_PKL", str(DATA_DIR / "chunks.pkl")))
 NODES_PKL = Path(os.environ.get("NODES_PKL", str(DATA_DIR / "graph_nodes.pkl")))
 EDGES_PKL = Path(os.environ.get("EDGES_PKL", str(DATA_DIR / "graph_edges.pkl")))
 INVERTED_PKL = Path(os.environ.get("INVERTED_PKL", str(DATA_DIR / "inverted_index.pkl")))
+FAISS_INDEX = Path(os.environ.get("FAISS_INDEX", str(DATA_DIR / "faiss.index")))
+BM25_PKL = Path(os.environ.get("BM25_PKL", str(DATA_DIR / "bm25.pkl")))
+CHUNK_IDS_PKL = Path(os.environ.get("CHUNK_IDS_PKL", str(DATA_DIR / "chunk_ids.pkl")))
+MODEL_NAME_PKL = Path(os.environ.get("MODEL_NAME_PKL", str(DATA_DIR / "model_name.pkl")))
 
 # Limits and Configuration
 DEFAULT_TOPK = int(os.environ.get("TOPK", "10"))
@@ -189,6 +196,27 @@ def load_kb() -> dict[str, Any]:
         # legacy: inverted_index.pkl == {"inverted_index": {token: [...]}}
         inverted_index = inverted.get("inverted_index", inverted)
 
+    # Load FAISS index
+    faiss_idx = None
+    faiss_chunk_ids: list[str] = []
+    if FAISS_INDEX.exists() and CHUNK_IDS_PKL.exists():
+        faiss_idx = faiss.read_index(str(FAISS_INDEX))
+        with CHUNK_IDS_PKL.open("rb") as f:
+            faiss_chunk_ids = pickle.load(f)
+
+    # Load BM25 index
+    bm25 = None
+    if BM25_PKL.exists():
+        with BM25_PKL.open("rb") as f:
+            bm25 = pickle.load(f)
+
+    # Load embedding model (used for query encoding)
+    model_name = "paraphrase-multilingual-MiniLM-L12-v2"
+    if MODEL_NAME_PKL.exists():
+        with MODEL_NAME_PKL.open("rb") as f:
+            model_name = pickle.load(f)
+    embedding_model = SentenceTransformer(model_name) if faiss_idx is not None else None
+
     return {
         "chunks": chunks_by_id,
         "nodes": nodes_by_id,
@@ -196,6 +224,10 @@ def load_kb() -> dict[str, Any]:
         "adj": adj,
         "chunk_to_nodes": chunk_to_nodes,
         "inverted": inverted_index,
+        "faiss_index": faiss_idx,
+        "faiss_chunk_ids": faiss_chunk_ids,
+        "bm25": bm25,
+        "embedding_model": embedding_model,
     }
 
 
@@ -306,6 +338,18 @@ def kb_status() -> dict:
                 "mtime": INVERTED_PKL.stat().st_mtime if INVERTED_PKL.exists() else None,
                 "size": INVERTED_PKL.stat().st_size if INVERTED_PKL.exists() else None,
             },
+            "faiss": {
+                "path": str(FAISS_INDEX),
+                "exists": FAISS_INDEX.exists(),
+                "mtime": FAISS_INDEX.stat().st_mtime if FAISS_INDEX.exists() else None,
+                "size": FAISS_INDEX.stat().st_size if FAISS_INDEX.exists() else None,
+            },
+            "bm25": {
+                "path": str(BM25_PKL),
+                "exists": BM25_PKL.exists(),
+                "mtime": BM25_PKL.stat().st_mtime if BM25_PKL.exists() else None,
+                "size": BM25_PKL.stat().st_size if BM25_PKL.exists() else None,
+            },
         }
     }
 
@@ -365,88 +409,92 @@ def list_node_types() -> list[str]:
 
 @mcp.tool()
 def search_token(token: str, top_k: int = DEFAULT_TOPK) -> list[dict]:
-    """Search a single token in the inverted index.
+    """Lexical single-token search using BM25.
 
     Returns a list of {chunk_id, score}.
     """
     kb = load_kb()
-    t = token.strip().lower()
-    hits = kb["inverted"].get(t, [])
-    hits_sorted = sorted(
-        (h for h in hits if isinstance(h, dict) and "chunk_id" in h),
-        key=lambda x: float(x.get("score", 0.0)),
-        reverse=True,
-    )
-    return hits_sorted[:_clamp_topk(top_k)]
+    bm25 = kb.get("bm25")
+    chunk_ids = kb.get("faiss_chunk_ids", [])
+
+    if bm25 is None or not chunk_ids:
+        # fallback: inverted index
+        t = token.strip().lower()
+        hits = kb["inverted"].get(t, [])
+        hits_sorted = sorted(
+            (h for h in hits if isinstance(h, dict) and "chunk_id" in h),
+            key=lambda x: float(x.get("score", 0.0)),
+            reverse=True,
+        )
+        return hits_sorted[:_clamp_topk(top_k)]
+
+    scores = bm25.get_scores([token.strip().lower()])
+    indexed = [(chunk_ids[i], float(s)) for i, s in enumerate(scores) if s > 0.01]
+    indexed.sort(key=lambda x: x[1], reverse=True)
+    return [{"chunk_id": cid, "score": sc} for cid, sc in indexed[:_clamp_topk(top_k)]]
 
 
 @mcp.tool()
 def search_query(query: str, top_k: int = DEFAULT_TOPK, threshold: float = 0.0) -> list[dict]:
-    """Multi-token search using inverted index (simple OR + sum scores).
+    """Semantic search using FAISS + multilingual embeddings.
 
-    Returns ranked chunks: {chunk_id, score, matched_tokens, file_path, line_range}.
+    Returns ranked chunks: {chunk_id, score, file_path, line_range}.
+    Falls back to BM25 inverted index if FAISS is not available.
     """
     kb = load_kb()
-    tokens = _tokenize(query)
-    if not tokens:
-        return []
+    faiss_idx = kb.get("faiss_index")
+    model = kb.get("embedding_model")
+    chunk_ids = kb.get("faiss_chunk_ids", [])
 
-    scores: dict[str, float] = {}
-    matched: dict[str, set[str]] = {}
+    if faiss_idx is None or model is None or not chunk_ids:
+        # fallback: BM25 / inverted index
+        tokens = _tokenize(query)
+        if not tokens:
+            return []
+        scores: dict[str, float] = {}
+        matched: dict[str, set[str]] = {}
+        for t in tokens:
+            for h in kb["inverted"].get(t, []):
+                if not isinstance(h, dict):
+                    continue
+                cid = str(h.get("chunk_id", ""))
+                if not cid:
+                    continue
+                s = float(h.get("score", 0.0))
+                scores[cid] = scores.get(cid, 0.0) + s
+                matched.setdefault(cid, set()).add(t)
+        ranked = sorted([(c, s) for c, s in scores.items() if s >= threshold], key=lambda x: x[1], reverse=True)
+        results = []
+        for cid, sc in ranked[:_clamp_topk(top_k)]:
+            chunk = kb["chunks"].get(cid, {})
+            meta = chunk.get("metadata", {}) or {}
+            results.append({
+                "chunk_id": cid,
+                "score": sc,
+                "matched_tokens": sorted(matched.get(cid, set())),
+                "file_path": chunk.get("file_path") or meta.get("file_path"),
+                "line_range": _normalize_line_range(chunk.get("line_range") or meta.get("line_range")),
+            })
+        return results
 
-    for t in tokens:
-        for h in kb["inverted"].get(t, []):
-            if not isinstance(h, dict):
-                continue
-            cid = h.get("chunk_id")
-            if not cid:
-                continue
-            cid = str(cid)
-            s = float(h.get("score", 0.0))
-            scores[cid] = scores.get(cid, 0.0) + s
-            matched.setdefault(cid, set()).add(t)
-
-    # Filter by threshold and sort
-    ranked = [
-        (cid, sc) for cid, sc in scores.items()
-        if sc >= threshold
-    ]
-    ranked.sort(key=lambda kv: kv[1], reverse=True)
-    ranked = ranked[:_clamp_topk(top_k)]
+    query_vec = model.encode([query], normalize_embeddings=True).astype("float32")
+    k = _clamp_topk(top_k)
+    scores_arr, indices = faiss_idx.search(query_vec, k)
 
     results = []
-    for cid, sc in ranked:
+    for score, idx in zip(scores_arr[0], indices[0]):
+        if idx < 0 or float(score) < threshold:
+            continue
+        cid = chunk_ids[idx]
         chunk = kb["chunks"].get(cid, {})
-        # Extract metadata
-        meta = chunk.get("metadata", {})
-        if not isinstance(meta, dict):
-            meta = {}
-
-        # Try to find file path in various places
-        file_path = (
-            chunk.get("file_path") or
-            meta.get("file_path") or
-            chunk.get("path") or
-            meta.get("path")
-        )
-
-        # Try to find line range
-        raw_lines = (
-            chunk.get("line_range") or
-            meta.get("line_range") or
-            chunk.get("lines") or
-            meta.get("lines")
-        )
-        line_range = _normalize_line_range(raw_lines)
-
+        meta = chunk.get("metadata", {}) or {}
         results.append({
             "chunk_id": cid,
-            "score": sc,
-            "matched_tokens": sorted(matched.get(cid, set())),
-            "file_path": file_path,
-            "line_range": line_range,
+            "score": float(score),
+            "matched_tokens": [],
+            "file_path": chunk.get("file_path") or meta.get("file_path"),
+            "line_range": _normalize_line_range(chunk.get("line_range") or meta.get("line_range")),
         })
-
     return results
 
 
