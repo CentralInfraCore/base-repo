@@ -45,6 +45,7 @@ FAISS_INDEX = Path(os.environ.get("FAISS_INDEX", str(DATA_DIR / "faiss.index")))
 BM25_PKL = Path(os.environ.get("BM25_PKL", str(DATA_DIR / "bm25.pkl")))
 CHUNK_IDS_PKL = Path(os.environ.get("CHUNK_IDS_PKL", str(DATA_DIR / "chunk_ids.pkl")))
 MODEL_NAME_PKL = Path(os.environ.get("MODEL_NAME_PKL", str(DATA_DIR / "model_name.pkl")))
+METADATA_INDEX_PKL = Path(os.environ.get("METADATA_INDEX_PKL", str(DATA_DIR / "metadata_index.pkl")))
 
 # Limits and Configuration
 DEFAULT_TOPK = int(os.environ.get("TOPK", "10"))
@@ -234,6 +235,7 @@ def load_kb() -> dict[str, Any]:
         "faiss_chunk_ids": faiss_chunk_ids,
         "bm25": bm25,
         "embedding_model": embedding_model,
+        "meta_idx": load_one(METADATA_INDEX_PKL) if METADATA_INDEX_PKL.exists() else {},
     }
 
 
@@ -571,47 +573,66 @@ def search_code(code_snippet: str, top_k: int = DEFAULT_TOPK) -> list[dict]:
 
 @mcp.tool()
 def search_nodes(query: str, top_k: int = DEFAULT_TOPK) -> list[dict]:
-    """Search for nodes by name, label, type, or tags.
+    """Search for nodes by name, label, type, tags, or category.
 
-    Useful when you know the concept name but not the exact text content.
+    Uses the metadata index for O(1) tag/category lookup, then augments
+    with linear label/type scan for full coverage.
     """
     kb = load_kb()
     q = query.lower().strip()
-    results = []
     limit = _clamp_topk(top_k)
+    meta_idx = kb.get("meta_idx", {})
 
+    # Collect candidate chunk_ids from metadata index (O(1))
+    boosted_chunks: dict[str, int] = {}
+    for tag, cids in meta_idx.get("tag_index", {}).items():
+        if q in tag.lower():
+            for cid in cids:
+                boosted_chunks[cid] = boosted_chunks.get(cid, 0) + 2
+    for cat, cids in meta_idx.get("category_index", {}).items():
+        if q in cat.lower():
+            for cid in cids:
+                boosted_chunks[cid] = boosted_chunks.get(cid, 0) + 2
+
+    # Map chunk_ids back to node_ids for boosted set
+    chunk_to_nodes = kb.get("chunk_to_nodes", {})
+    boosted_nodes: dict[str, int] = {}
+    for cid, bonus in boosted_chunks.items():
+        for nid in chunk_to_nodes.get(cid, []):
+            boosted_nodes[nid] = boosted_nodes.get(nid, 0) + bonus
+
+    # Linear scan for label/type/id matches
+    scores: dict[str, int] = dict(boosted_nodes)
     for nid, node in kb["nodes"].items():
         if not isinstance(node, dict):
             continue
-
-        score = 0
-        # Check ID
+        s = scores.get(nid, 0)
         if q in str(nid).lower():
-            score += 4
-        # Check Label/Name
+            s += 4
         label = str(node.get("label") or node.get("name") or "")
         if q in label.lower():
-            score += 3
-        # Check Type/Category
-        cat = str(node.get("type") or node.get("category") or "")
+            s += 3
+        cat = str(node.get("type") or "")
         if q in cat.lower():
-            score += 2
-        # Check Tags
-        tags = node.get("tags") or []
-        if isinstance(tags, list):
-            for t in tags:
-                if q in str(t).lower():
-                    score += 1
-                    break
+            s += 1
+        if s > 0:
+            scores[nid] = s
 
-        if score > 0:
-            results.append({
-                "node_id": nid,
-                "score": score,
-                "label": label,
-                "type": cat,
-                "chunk_id": node.get("chunk_id")
-            })
+    results = []
+    for nid, score in scores.items():
+        node = kb["nodes"].get(nid)
+        if not isinstance(node, dict):
+            continue
+        label = str(node.get("label") or node.get("name") or "")
+        results.append({
+            "node_id": nid,
+            "score": score,
+            "label": label,
+            "type": str(node.get("type") or ""),
+            "tags": node.get("tags", []),
+            "category": node.get("category", []),
+            "chunk_id": node.get("chunk_id"),
+        })
 
     # Sort by score
     results.sort(key=lambda x: x["score"], reverse=True)
@@ -907,49 +928,51 @@ def find_nodes(
     category: Optional[str] = None,
     tag: Optional[str] = None,
     used_in: Optional[str] = None,
-    limit: int = 50,
+    top_k: int = 50,
 ) -> list[dict]:
-    """Filter nodes by metadata (if present).
+    """Filter nodes by metadata using the prebuilt metadata index (O(1) lookup).
 
-    Expects node payload to possibly contain fields like:
-    - category (str or list)
-    - tags (list[str])
-    - used_in (list[str] or str)
+    Args:
+        category: Filter by category (exact match).
+        tag:      Filter by tag (exact match).
+        used_in:  Filter by used_in context (exact match).
+        top_k:    Max results.
     """
     kb = load_kb()
+    meta_idx = kb.get("meta_idx", {})
+    chunk_to_nodes = kb.get("chunk_to_nodes", {})
+    limit = _clamp_topk(top_k)
+
+    # Start with the full set of chunk_ids, then intersect per filter
+    candidate_sets: list[set[str]] = []
+
+    if tag:
+        cids = set(meta_idx.get("tag_index", {}).get(tag.lower(), []))
+        candidate_sets.append(cids)
+    if category:
+        cids = set(meta_idx.get("category_index", {}).get(category.lower(), []))
+        candidate_sets.append(cids)
+    if used_in:
+        cids = set(meta_idx.get("used_in_index", {}).get(used_in.lower(), []))
+        candidate_sets.append(cids)
+
+    if not candidate_sets:
+        return []
+
+    # Intersect all filter sets
+    matched_chunks = candidate_sets[0]
+    for s in candidate_sets[1:]:
+        matched_chunks = matched_chunks & s
+
+    # Resolve chunk_ids → nodes
     out: list[dict] = []
-    cat = category.lower() if category else None
-    tg = tag.lower() if tag else None
-    ui = used_in.lower() if used_in else None
-
-    for n in kb["nodes"].values():
-        if not isinstance(n, dict):
-            continue
-
-        if cat:
-            v = n.get("category")
-            ok = (isinstance(v, str) and v.lower() == cat) or (isinstance(v, list) and any(str(x).lower() == cat for x in v))
-            if not ok:
-                continue
-
-        if tg:
-            v = n.get("tags") or []
-            if isinstance(v, str):
-                v = [v]
-            if not (isinstance(v, list) and any(str(x).lower() == tg for x in v)):
-                continue
-
-        if ui:
-            v = n.get("used_in") or []
-            if isinstance(v, str):
-                v = [v]
-            if not (isinstance(v, list) and any(str(x).lower() == ui for x in v)):
-                continue
-
-        out.append(n)
-        if len(out) >= _clamp_topk(limit):
-            break
-
+    for cid in matched_chunks:
+        for nid in chunk_to_nodes.get(cid, []):
+            node = kb["nodes"].get(nid)
+            if isinstance(node, dict):
+                out.append(node)
+            if len(out) >= limit:
+                return out
     return out
 
 
