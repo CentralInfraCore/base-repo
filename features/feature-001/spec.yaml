@@ -1,0 +1,12 @@
+tags:
+  - doc
+  - core
+related_nodes:
+  - ../../feature-list
+category:
+  - concept
+entrypoint: false
+used_in:
+  - development-process
+description: |
+  Feature-001 specification: administering new features and specifications in the base-repo template system.

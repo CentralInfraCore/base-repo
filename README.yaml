@@ -1,0 +1,16 @@
+tags:
+  - doc
+  - core
+  - platform-engineering
+related_nodes:
+  - docs/en/concept/declarative_ecosystem_integration
+  - docs/hu/concept/declarative_ecosystem_integration
+  - feature-list
+category:
+  - concept
+entrypoint: true
+used_in:
+  - onboarding
+  - development-process
+description: |
+  Root README for the CentralInfraCore base-repo template. Entry point for understanding the repository structure, available make targets, and the overall CIC template system.

@@ -1,0 +1,12 @@
+tags:
+  - doc
+  - core
+related_nodes:
+  - ../../feature-list
+category:
+  - concept
+entrypoint: false
+used_in:
+  - development-process
+description: |
+  Feature-002 specification for the base-repo template system.

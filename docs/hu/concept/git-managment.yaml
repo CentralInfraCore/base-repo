@@ -1,0 +1,15 @@
+tags:
+  - doc
+  - core
+  - ci-cd
+related_nodes:
+  - docs/en/concept/git-management
+  - docs/hu/concept/declarative_ecosystem_integration
+category:
+  - concept
+  - ci-cd
+entrypoint: false
+used_in:
+  - development-process
+description: |
+  Git kezelési és fejlesztési workflow leírás magyarul. Branch-elnevezési konvenciók, commit üzenet szabályok, release és verziózási folyamat, PR folyamat.
