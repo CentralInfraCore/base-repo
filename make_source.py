@@ -79,7 +79,7 @@ def build_faiss_index(embeddings):
 
 def build_bm25_index(chunks):
     """Build BM25 index for lexical search."""
-    tokenized = [chunk['text'].lower().split() for chunk in chunks]
+    tokenized = [chunk['text'].lower().split() or [""] for chunk in chunks]
     return BM25Okapi(tokenized)
 
 def create_bm25_inverted_index(chunks, bm25):
