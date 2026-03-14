@@ -215,7 +215,13 @@ def load_kb() -> dict[str, Any]:
     if MODEL_NAME_PKL.exists():
         with MODEL_NAME_PKL.open("rb") as f:
             model_name = pickle.load(f)
-    embedding_model = SentenceTransformer(model_name) if faiss_idx is not None else None
+    if faiss_idx is not None:
+        try:
+            embedding_model = SentenceTransformer(model_name, local_files_only=True)
+        except Exception:
+            embedding_model = SentenceTransformer(model_name)
+    else:
+        embedding_model = None
 
     return {
         "chunks": chunks_by_id,
@@ -564,7 +570,7 @@ def search_code(code_snippet: str, top_k: int = DEFAULT_TOPK) -> list[dict]:
 
 
 @mcp.tool()
-def search_nodes(query: str, limit: int = 10) -> list[dict]:
+def search_nodes(query: str, top_k: int = DEFAULT_TOPK) -> list[dict]:
     """Search for nodes by name, label, type, or tags.
 
     Useful when you know the concept name but not the exact text content.
@@ -572,7 +578,7 @@ def search_nodes(query: str, limit: int = 10) -> list[dict]:
     kb = load_kb()
     q = query.lower().strip()
     results = []
-    limit = _clamp_topk(limit)
+    limit = _clamp_topk(top_k)
 
     for nid, node in kb["nodes"].items():
         if not isinstance(node, dict):
@@ -727,7 +733,7 @@ def neighbors(node_id: str, edge_type: Optional[str] = None, limit: int = 50) ->
     return outs[:max_n]
 
 @mcp.tool()
-def focus_pack(query: str, depth: int = 1, limit: int = 5, max_rules: int = 3) -> dict:
+def focus_pack(query: str, depth: int = 1, top_k: int = 5, max_rules: int = 3) -> dict:
     """
     Build an enriched task context bundle.
 
@@ -740,7 +746,7 @@ def focus_pack(query: str, depth: int = 1, limit: int = 5, max_rules: int = 3) -
 
     # Safety limits
     depth = max(0, min(int(depth), 2))
-    limit = max(1, min(int(limit), MAX_TOPK))
+    limit = max(1, min(int(top_k), MAX_TOPK))
     max_rules = max(1, min(int(max_rules), 10))
 
     # 1) Base search
