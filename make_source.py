@@ -86,6 +86,79 @@ def process_md_file(file_path):
             chunks.append(chunk)
     return chunks
 
+def process_go_yaml(file_path):
+    """Process a .go.yaml companion file as structured knowledge chunks.
+
+    The .go source file is not indexed (code excluded by design); this YAML
+    is the sole knowledge source for Go files in the KB.
+
+    Produces one chunk per object defined in the file.
+    File-level metadata (tags, category, used_in) is applied to all chunks.
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            return []
+    except (yaml.YAMLError, IOError):
+        return []
+
+    meta = {
+        'tags':          _normalize_list(data.get('tags')),
+        'category':      _normalize_list(data.get('category')),
+        'used_in':       _normalize_list(data.get('used_in')),
+        'related_nodes': _normalize_list(data.get('related_nodes')),
+        'entrypoint':    bool(data.get('entrypoint', False)),
+        'description':   str(data.get('description', '')).strip(),
+    }
+
+    package = data.get('package', '') or os.path.basename(file_path)
+    objects = data.get('objects', [])
+
+    if not objects:
+        text = f"package {package}"
+        if meta['description']:
+            text += f"\n{meta['description']}"
+        return [{
+            'text': text, 'file_path': file_path,
+            'section': package, 'start_line': 1, 'end_line': 1,
+            'lang': 'go', 'type': 'go_package', **meta,
+        }]
+
+    chunks = []
+    for i, obj in enumerate(objects):
+        name     = obj.get('name', '')
+        kind     = obj.get('kind', '')
+        receiver = obj.get('receiver', '')
+        desc     = str(obj.get('description', '')).strip()
+        refs     = obj.get('references', [])
+        impl     = obj.get('implements', [])
+
+        # Build searchable text: signature + description + references
+        sig = f"method ({receiver}) {name}" if receiver else f"{kind} {name}"
+        lines = [sig]
+        if desc:
+            lines.append(desc)
+        if refs:
+            lines.append(f"references: {', '.join(refs)}")
+        if impl:
+            lines.append(f"implements: {', '.join(impl)}")
+
+        chunk = {
+            'text': '\n'.join(lines),
+            'file_path': file_path,
+            'section': name,
+            'start_line': i + 1,
+            'end_line': i + 1,
+            'lang': 'go',
+            'type': f'go_{kind}' if kind else 'go_object',
+        }
+        chunk.update(meta)
+        chunks.append(chunk)
+
+    return chunks
+
+
 def process_yaml_file(file_path):
     """Processes a YAML file as a single, large chunk to preserve context."""
     try:
@@ -242,23 +315,35 @@ def create_knowledge_graph_with_content(chunks, embeddings):
 
 def process_directory(directory_path):
     all_chunks = []
-    # Collect companion yaml paths to skip standalone processing
-    companion_yamls = set()
+
+    # First pass: classify YAML files by their sibling source file type
+    md_companion_yamls = set()   # .yaml next to .md  → merged into md chunks, skip standalone
+    go_companion_yamls = set()   # .yaml next to .go  → process via process_go_yaml
+
     for root, _, files in os.walk(directory_path):
         for file in files:
+            base = os.path.splitext(os.path.join(root, file))[0]
             if file.endswith('.md'):
-                base = os.path.splitext(os.path.join(root, file))[0]
                 candidate = base + '.yaml'
                 if os.path.exists(candidate):
-                    companion_yamls.add(candidate)
+                    md_companion_yamls.add(candidate)
+            elif file.endswith('.go'):
+                candidate = base + '.yaml'
+                if os.path.exists(candidate):
+                    go_companion_yamls.add(candidate)
 
+    # Second pass: process files with correct handler
     for root, _, files in os.walk(directory_path):
         for file in files:
             file_path = os.path.join(root, file)
             if file.endswith('.md'):
                 all_chunks.extend(process_md_file(file_path))
-            elif file.endswith(('.yaml', '.yml')) and file_path not in companion_yamls:
-                all_chunks.extend(process_yaml_file(file_path))
+            elif file.endswith(('.yaml', '.yml')):
+                if file_path in go_companion_yamls:
+                    all_chunks.extend(process_go_yaml(file_path))
+                elif file_path not in md_companion_yamls:
+                    all_chunks.extend(process_yaml_file(file_path))
+
     return all_chunks
 
 def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
