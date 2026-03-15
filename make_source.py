@@ -313,6 +313,17 @@ def create_knowledge_graph_with_content(chunks, embeddings):
         edge['id'] = f'e{i+1}'
     return nodes, edges
 
+def _is_go_meta_yaml(file_path):
+    """Return True if the YAML file is a Go meta companion (has 'package' + 'objects').
+    Used when the sibling .go file is absent (e.g. in docs-only submodules)."""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        return isinstance(data, dict) and 'package' in data and 'objects' in data
+    except Exception:
+        return False
+
+
 def process_directory(directory_path):
     all_chunks = []
 
@@ -341,7 +352,12 @@ def process_directory(directory_path):
             elif file.endswith(('.yaml', '.yml')):
                 if file_path in go_companion_yamls:
                     all_chunks.extend(process_go_yaml(file_path))
-                elif file_path not in md_companion_yamls:
+                elif file_path in md_companion_yamls:
+                    pass  # handled by process_md_file
+                elif _is_go_meta_yaml(file_path):
+                    # Go meta YAML without sibling .go (e.g. in docs-only submodule)
+                    all_chunks.extend(process_go_yaml(file_path))
+                else:
                     all_chunks.extend(process_yaml_file(file_path))
 
     return all_chunks
