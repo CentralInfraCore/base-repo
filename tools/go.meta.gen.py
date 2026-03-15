@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""go.meta.gen.py — Companion YAML skeleton generator for Go source files.
+
+Parses Go source files and generates a .yaml companion following go.meta.schema.yaml.
+The skeleton contains all detected objects with their external references pre-filled.
+Semantic fields (description, tags, category, used_in, related_nodes) are left empty
+for human completion.
+
+Usage:
+    python tools/go.meta.gen.py <file.go> [<file.go> ...]
+    python tools/go.meta.gen.py --dir <directory> [--recursive] [--overwrite]
+
+Options:
+    --dir         Process all .go files in directory (default: non-recursive)
+    --recursive   Recurse into subdirectories (use with --dir)
+    --overwrite   Overwrite existing .yaml files (default: skip)
+    --skip-tests  Skip _test.go files (default: include)
+    --dry-run     Print what would be generated without writing files
+"""
+
+import re
+import sys
+import argparse
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    print("PyYAML not found. Install with: pip install pyyaml", file=sys.stderr)
+    sys.exit(1)
+
+# Standard library package names — used to filter out stdlib refs.
+# This list covers the most common ones; false negatives are acceptable
+# (the user can trim the references list manually).
+_STDLIB = {
+    "fmt", "os", "io", "net", "http", "context", "sync", "time", "strings",
+    "bytes", "errors", "log", "math", "sort", "strconv", "encoding", "json",
+    "bufio", "path", "filepath", "runtime", "reflect", "testing", "atomic",
+    "rand", "crypto", "tls", "url", "signal", "flag", "exec", "regexp",
+    "unicode", "utf8", "binary", "hex", "base64", "hash", "sha256", "sha512",
+    "md5", "hmac", "x509", "pem", "rsa", "ecdsa", "big", "bits", "atomic",
+    "unsafe", "builtin", "syscall", "unicode", "utf16", "gob", "xml", "csv",
+    "template", "tabwriter", "scanner", "token", "ast", "parser", "printer",
+    "build", "doc", "format", "importer", "types", "constant", "heap",
+    "list", "ring", "multipart", "textproto", "cookiejar", "httptest",
+    "httputil", "pprof", "trace", "expvar", "plugin", "tar", "zip", "gzip",
+    "flate", "bzip2", "lzw", "zlib", "color", "draw", "gif", "jpeg", "png",
+    "sql", "driver", "smtp", "mail", "rpc", "jsonrpc",
+}
+
+
+# ---------------------------------------------------------------------------
+# Source cleaning
+# ---------------------------------------------------------------------------
+
+def _remove_comments(source: str) -> str:
+    """Remove // and /* */ comments."""
+    source = re.sub(r'/\*.*?\*/', '', source, flags=re.DOTALL)
+    source = re.sub(r'//[^\n]*', '', source)
+    return source
+
+
+def _remove_strings(source: str) -> str:
+    """Replace string/rune literals with placeholders to avoid false matches.
+    Must be called after comment removal so apostrophes in comments don't confuse
+    the rune literal pattern."""
+    # Raw strings: `...`
+    source = re.sub(r'`[^`]*`', '``', source, flags=re.DOTALL)
+    # Interpreted strings: "..."
+    source = re.sub(r'"(?:[^"\\]|\\.)*"', '""', source)
+    # Rune literals: 'x' '\n' '\u0041' — max ~6 chars, never multiline
+    source = re.sub(r"'(?:[^'\\]|\\.){1,6}'", "''", source)
+    return source
+
+
+def _clean(source: str) -> str:
+    # Comments first — prevents apostrophes in comments from poisoning rune literal regex
+    return _remove_strings(_remove_comments(source))
+
+
+# ---------------------------------------------------------------------------
+# Block extraction (brace-matching)
+# ---------------------------------------------------------------------------
+
+def _extract_block_content(source: str, open_pos: int) -> str:
+    """Return content between matching { } starting at open_pos (the '{')."""
+    depth = 0
+    content = []
+    for i in range(open_pos, len(source)):
+        c = source[i]
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                break
+        elif depth > 0:
+            content.append(c)
+    return ''.join(content)
+
+
+# ---------------------------------------------------------------------------
+# Import parsing
+# ---------------------------------------------------------------------------
+
+def _parse_imports(source: str) -> dict[str, str]:
+    """Return {local_alias: import_path} for all imports in source.
+    Parses comment-stripped source so inline comments don't interfere,
+    but keeps string contents so import paths remain readable."""
+    imports: dict[str, str] = {}
+    no_comments = _remove_comments(source)  # keep strings intact
+
+    # Single: import "path"  or  import alias "path"
+    for m in re.finditer(r'^\s*import\s+(?:(\w+)\s+)?"([^"]+)"', no_comments, re.MULTILINE):
+        alias = m.group(1) or m.group(2).split('/')[-1]
+        imports[alias] = m.group(2)
+
+    # Block: import ( ... )
+    block_m = re.search(r'\bimport\s*\(([^)]+)\)', no_comments, re.DOTALL)
+    if block_m:
+        for line in block_m.group(1).splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # alias "path"
+            m = re.match(r'(\w+|_|\.)\s+"([^"]+)"', line)
+            if m:
+                alias = m.group(1) if m.group(1) not in ('_', '.') else m.group(2).split('/')[-1]
+                imports[alias] = m.group(2)
+                continue
+            # "path"
+            m = re.match(r'"([^"]+)"', line)
+            if m:
+                alias = m.group(1).split('/')[-1]
+                imports[alias] = m.group(1)
+
+    return imports
+
+
+def _find_module_name(go_file: Path) -> str:
+    """Walk up from go_file to find go.mod and return the module name."""
+    for parent in go_file.parents:
+        mod = parent / "go.mod"
+        if mod.exists():
+            for line in mod.read_text().splitlines():
+                m = re.match(r'^\s*module\s+(\S+)', line)
+                if m:
+                    return m.group(1)
+    return ""
+
+
+def _is_external(pkg: str, imports: dict[str, str], module_name: str = "") -> bool:
+    """True if pkg is a non-stdlib import (includes same-module cross-package refs).
+    Both third-party (github.com/...) and internal module packages (e.g. centralrelay/core/cabinet)
+    are included — only stdlib is excluded."""
+    if pkg in _STDLIB:
+        return False
+    if pkg not in imports:
+        return False
+    path = imports[pkg]
+    first_segment = path.split('/')[0]
+    # Pure stdlib: single-word segment that is in our known stdlib set
+    if '.' not in first_segment and first_segment in _STDLIB:
+        return False
+    return True
+
+
+def _extract_refs(text: str, imports: dict[str, str], module_name: str = "") -> list[str]:
+    """Find all pkg.Type references in text that are external imports."""
+    seen: dict[str, None] = {}  # ordered set
+    for m in re.finditer(r'\b(\w+)\.([A-Z]\w*)', text):
+        pkg, typ = m.group(1), m.group(2)
+        if _is_external(pkg, imports, module_name):
+            ref = f"{pkg}.{typ}"
+            seen[ref] = None
+    return list(seen)
+
+
+# ---------------------------------------------------------------------------
+# Object parsing
+# ---------------------------------------------------------------------------
+
+def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") -> list[dict]:
+    objects: list[dict] = []
+    clean = _clean(source)
+
+    # --- structs ---
+    for m in re.finditer(r'\btype\s+(\w+)\s+struct\s*\{', clean):
+        name = m.group(1)
+        body = _extract_block_content(clean, m.end() - 1)
+        refs = _extract_refs(body, imports, module_name)
+        obj: dict = {"name": name, "kind": "struct", "description": "",
+                     "implements": [], "references": refs}
+        objects.append(obj)
+
+    struct_names = {o["name"] for o in objects}
+
+    # --- interfaces ---
+    for m in re.finditer(r'\btype\s+(\w+)\s+interface\s*\{', clean):
+        name = m.group(1)
+        body = _extract_block_content(clean, m.end() - 1)
+        refs = _extract_refs(body, imports, module_name)
+        objects.append({"name": name, "kind": "interface",
+                        "description": "", "references": refs})
+
+    iface_names = {o["name"] for o in objects if o["kind"] == "interface"}
+
+    # --- type aliases (not struct/interface) ---
+    for m in re.finditer(r'\btype\s+(\w+)\s+(?!struct\b|interface\b)(\S+)', clean, re.MULTILINE):
+        name = m.group(1)
+        if name in struct_names or name in iface_names:
+            continue
+        underlying = m.group(2)
+        refs = _extract_refs(underlying, imports, module_name)
+        objects.append({"name": name, "kind": "type",
+                        "description": "", "references": refs})
+
+    # --- funcs and methods ---
+    # func (recv *RecvType) FuncName(params...) (returns...)
+    func_re = re.compile(
+        r'\bfunc\s+'
+        r'(?:\(\s*\w+\s+\*?(\w+)\s*\)\s*)?'   # group 1: receiver type (optional)
+        r'(\w+)\s*'                              # group 2: func name
+        r'\(([^)]*(?:\([^)]*\)[^)]*)*)\)'       # group 3: params (handles nested parens)
+        r'([^{]*)',                              # group 4: return types
+        re.MULTILINE,
+    )
+    for m in func_re.finditer(clean):
+        recv_type = m.group(1)
+        func_name = m.group(2)
+        params = m.group(3) or ''
+        returns = m.group(4) or ''
+        refs = _extract_refs(f"{params} {returns}", imports, module_name)
+
+        if recv_type:
+            objects.append({
+                "name": func_name,
+                "kind": "method",
+                "receiver": recv_type,
+                "description": "",
+                "references": refs,
+            })
+        else:
+            objects.append({
+                "name": func_name,
+                "kind": "func",
+                "description": "",
+                "references": refs,
+            })
+
+    # --- package-level vars ---
+    for m in re.finditer(r'^var\s+(\w+)', clean, re.MULTILINE):
+        objects.append({"name": m.group(1), "kind": "var",
+                        "description": "", "references": []})
+
+    # --- package-level consts (block form handled separately) ---
+    # Single: const Name = ...
+    for m in re.finditer(r'^const\s+(\w+)\b', clean, re.MULTILINE):
+        objects.append({"name": m.group(1), "kind": "const",
+                        "description": "", "references": []})
+
+    return objects
+
+
+# ---------------------------------------------------------------------------
+# Main generator
+# ---------------------------------------------------------------------------
+
+def generate(go_file: Path) -> dict:
+    source = go_file.read_text(encoding="utf-8")
+
+    pkg_m = re.search(r'^\s*package\s+(\w+)', source, re.MULTILINE)
+    package = pkg_m.group(1) if pkg_m else ""
+
+    module_name = _find_module_name(go_file)
+    imports = _parse_imports(source)
+    objects = _parse_objects(source, imports, module_name)
+
+    return {
+        "package": package,
+        "description": "",
+        "tags": [],
+        "category": [],
+        "used_in": [],
+        "entrypoint": package == "main",
+        "related_nodes": [],
+        "objects": objects,
+    }
+
+
+def _write_yaml(data: dict, path: Path) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("---\n")
+        yaml.dump(data, f, allow_unicode=True, default_flow_style=False,
+                  sort_keys=False)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate companion YAML skeletons for Go source files.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument("files", nargs="*", metavar="FILE",
+                        help="Go source files to process")
+    parser.add_argument("--dir", metavar="DIR",
+                        help="Process all .go files in DIR")
+    parser.add_argument("--recursive", action="store_true",
+                        help="Recurse into subdirectories (use with --dir)")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Overwrite existing YAML files")
+    parser.add_argument("--skip-tests", action="store_true",
+                        help="Skip _test.go files")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print actions without writing files")
+    args = parser.parse_args()
+
+    files: list[Path] = [Path(f) for f in args.files]
+    if args.dir:
+        d = Path(args.dir)
+        glob = d.rglob("*.go") if args.recursive else d.glob("*.go")
+        files += list(glob)
+
+    if not files:
+        parser.print_help()
+        sys.exit(1)
+
+    generated = skipped = errors = 0
+    for go_file in sorted(set(files)):
+        if not go_file.exists():
+            print(f"NOT FOUND: {go_file}", file=sys.stderr)
+            errors += 1
+            continue
+        if args.skip_tests and go_file.name.endswith("_test.go"):
+            continue
+
+        yaml_file = go_file.with_suffix(".yaml")
+        if yaml_file.exists() and not args.overwrite:
+            print(f"SKIP (exists): {yaml_file}")
+            skipped += 1
+            continue
+
+        try:
+            data = generate(go_file)
+        except Exception as e:
+            print(f"ERROR: {go_file}: {e}", file=sys.stderr)
+            errors += 1
+            continue
+
+        obj_count = len(data["objects"])
+        ref_count = sum(len(o.get("references", [])) for o in data["objects"])
+
+        if args.dry_run:
+            print(f"DRY-RUN: {yaml_file}  [{obj_count} objects, {ref_count} refs]")
+        else:
+            _write_yaml(data, yaml_file)
+            print(f"GENERATED: {yaml_file}  [{obj_count} objects, {ref_count} refs]")
+        generated += 1
+
+    print(f"\nDone: {generated} generated, {skipped} skipped, {errors} errors")
+    if errors:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
