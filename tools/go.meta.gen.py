@@ -163,14 +163,50 @@ def _is_external(pkg: str, imports: dict[str, str], module_name: str = "") -> bo
     return not _is_stdlib_path(imports[pkg])
 
 
-def _extract_refs(text: str, imports: dict[str, str], module_name: str = "") -> list[str]:
-    """Find all pkg.Type references in text that are external imports."""
-    seen: dict[str, None] = {}  # ordered set
-    for m in re.finditer(r'\b(\w+)\.([A-Z]\w*)', text):
-        pkg, typ = m.group(1), m.group(2)
+def _extract_local_typed_vars(text: str, imports: dict[str, str], module_name: str = "") -> dict[str, str]:
+    """Return {var_name: pkg_alias} for explicitly typed local variable declarations.
+
+    Recognises these Go patterns:
+        var db *sql.DB          -> {"db": "sql"}
+        var c http.Client       -> {"c": "http"}
+        var r []types.Relay     -> {"r": "types"}
+
+    Only variables whose type package is a non-stdlib import are included.
+    Short declarations (:=) are intentionally not handled — too fragile without AST.
+    """
+    result: dict[str, str] = {}
+    # var <name> [*[]][<pkg>.<Type>]
+    pattern = re.compile(r'\bvar\s+(\w+)\s+(?:\[\]|\*)*(\w+)\.([A-Z]\w*)')
+    for m in pattern.finditer(text):
+        var_name, pkg = m.group(1), m.group(2)
         if _is_external(pkg, imports, module_name):
-            ref = f"{pkg}.{typ}"
-            seen[ref] = None
+            result[var_name] = pkg
+    return result
+
+
+def _extract_refs(text: str, imports: dict[str, str], module_name: str = "") -> list[str]:
+    """Find non-stdlib pkg.Name references in text.
+
+    Two passes:
+    1. Direct package references: pkg.ExportedName  (types, funcs, consts)
+    2. Typed variable method calls: var db *sql.DB → db.QueryRow → sql.QueryRow
+    """
+    seen: dict[str, None] = {}  # ordered set preserving insertion order
+
+    # Pass 1 — direct: json.Marshal, relay.Actor, http.NewRequest, ...
+    for m in re.finditer(r'\b(\w+)\.([A-Z]\w*)', text):
+        pkg, name = m.group(1), m.group(2)
+        if _is_external(pkg, imports, module_name):
+            seen[f"{pkg}.{name}"] = None
+
+    # Pass 2 — typed variable methods: var db *sql.DB → db.QueryRow()
+    local_vars = _extract_local_typed_vars(text, imports, module_name)
+    for m in re.finditer(r'\b(\w+)\.([A-Z]\w*)\s*\(', text):
+        var_name, method = m.group(1), m.group(2)
+        pkg = local_vars.get(var_name)
+        if pkg:
+            seen[f"{pkg}.{method}"] = None
+
     return list(seen)
 
 
