@@ -29,23 +29,20 @@ except ImportError:
     print("PyYAML not found. Install with: pip install pyyaml", file=sys.stderr)
     sys.exit(1)
 
-# Standard library package names — used to filter out stdlib refs.
-# This list covers the most common ones; false negatives are acceptable
-# (the user can trim the references list manually).
-_STDLIB = {
-    "fmt", "os", "io", "net", "http", "context", "sync", "time", "strings",
-    "bytes", "errors", "log", "math", "sort", "strconv", "encoding", "json",
-    "bufio", "path", "filepath", "runtime", "reflect", "testing", "atomic",
-    "rand", "crypto", "tls", "url", "signal", "flag", "exec", "regexp",
-    "unicode", "utf8", "binary", "hex", "base64", "hash", "sha256", "sha512",
-    "md5", "hmac", "x509", "pem", "rsa", "ecdsa", "big", "bits", "atomic",
-    "unsafe", "builtin", "syscall", "unicode", "utf16", "gob", "xml", "csv",
-    "template", "tabwriter", "scanner", "token", "ast", "parser", "printer",
-    "build", "doc", "format", "importer", "types", "constant", "heap",
-    "list", "ring", "multipart", "textproto", "cookiejar", "httptest",
-    "httputil", "pprof", "trace", "expvar", "plugin", "tar", "zip", "gzip",
-    "flate", "bzip2", "lzw", "zlib", "color", "draw", "gif", "jpeg", "png",
-    "sql", "driver", "smtp", "mail", "rpc", "jsonrpc",
+# Known first path segments of Go standard library packages.
+# Used to filter out stdlib imports when deciding if a reference is external.
+# Detection is path-based (not alias-based) to avoid false positives from
+# project-internal packages that happen to use common alias names like "types".
+_STDLIB_ROOTS = {
+    # single-segment stdlib
+    "builtin", "unsafe",
+    # multi-segment stdlib roots (first path component)
+    "archive", "bufio", "bytes", "compress", "container", "context",
+    "crypto", "database", "debug", "embed", "encoding", "errors", "expvar",
+    "flag", "fmt", "go", "hash", "html", "image", "io", "log", "math",
+    "mime", "net", "os", "path", "plugin", "reflect", "regexp", "runtime",
+    "sort", "strconv", "strings", "sync", "syscall", "testing", "text",
+    "time", "unicode", "unique", "slices", "maps", "cmp",
 }
 
 
@@ -149,20 +146,21 @@ def _find_module_name(go_file: Path) -> str:
     return ""
 
 
+def _is_stdlib_path(path: str) -> bool:
+    """True if the import path is a Go standard library package.
+    Stdlib paths have no dots and their first segment is a known stdlib root."""
+    if '.' in path:
+        return False  # third-party always has dots (github.com, gopkg.in, etc.)
+    return path.split('/')[0] in _STDLIB_ROOTS
+
+
 def _is_external(pkg: str, imports: dict[str, str], module_name: str = "") -> bool:
-    """True if pkg is a non-stdlib import (includes same-module cross-package refs).
-    Both third-party (github.com/...) and internal module packages (e.g. centralrelay/core/cabinet)
-    are included — only stdlib is excluded."""
-    if pkg in _STDLIB:
-        return False
+    """True if pkg refers to a non-stdlib import.
+    Includes both third-party (github.com/...) and same-module cross-package refs
+    (e.g. centralrelay/core/cabinet). Only pure stdlib is excluded."""
     if pkg not in imports:
         return False
-    path = imports[pkg]
-    first_segment = path.split('/')[0]
-    # Pure stdlib: single-word segment that is in our known stdlib set
-    if '.' not in first_segment and first_segment in _STDLIB:
-        return False
-    return True
+    return not _is_stdlib_path(imports[pkg])
 
 
 def _extract_refs(text: str, imports: dict[str, str], module_name: str = "") -> list[str]:
@@ -230,7 +228,11 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
         func_name = m.group(2)
         params = m.group(3) or ''
         returns = m.group(4) or ''
-        refs = _extract_refs(f"{params} {returns}", imports, module_name)
+        # scan signature types + function body calls
+        # group 4 ([^{]*) ends right before the opening {
+        brace_pos = clean.find('{', m.end())
+        body = _extract_block_content(clean, brace_pos) if brace_pos != -1 else ''
+        refs = _extract_refs(f"{params} {returns} {body}", imports, module_name)
 
         if recv_type:
             objects.append({
