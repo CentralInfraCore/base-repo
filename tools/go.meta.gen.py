@@ -456,6 +456,56 @@ def generate(go_file: Path) -> dict:
     }
 
 
+def _merge_data(new_data: dict, old_data: dict) -> dict:
+    """Merge freshly generated data into an existing YAML.
+
+    Auto fields (always updated from source):
+      package, entrypoint, objects.references, objects.kind, objects.receiver
+
+    Description fields (updated only if doc comment exists in source):
+      description (file-level), objects[].description
+      If the new description is empty, the existing value is preserved.
+
+    Manual fields (never touched):
+      tags, category, used_in, related_nodes, objects[].implements
+
+    Objects:
+      - New objects (added to Go source) → appended
+      - Removed objects (deleted from Go source) → dropped
+      - Existing objects → merged per field rules above
+    """
+    merged = dict(new_data)
+
+    # preserve all manual top-level fields
+    merged['tags'] = old_data.get('tags', new_data.get('tags', []))
+    merged['category'] = old_data.get('category', [])
+    merged['used_in'] = old_data.get('used_in', [])
+    merged['related_nodes'] = old_data.get('related_nodes', [])
+
+    # description: keep new if non-empty (from doc comment), else preserve old
+    if not merged.get('description'):
+        merged['description'] = old_data.get('description', '')
+
+    # merge objects by name
+    old_by_name: dict[str, dict] = {o['name']: o for o in old_data.get('objects', [])}
+    merged_objects = []
+    for new_obj in new_data.get('objects', []):
+        name = new_obj['name']
+        if name in old_by_name:
+            old_obj = old_by_name[name]
+            obj = dict(new_obj)                          # structural fields from new
+            if obj.get('kind') == 'struct':              # implements only meaningful on structs
+                obj['implements'] = old_obj.get('implements', [])
+            if not obj.get('description'):               # keep manual description if no doc comment
+                obj['description'] = old_obj.get('description', '')
+        else:
+            obj = new_obj                                # new object — use as-is
+        merged_objects.append(obj)
+
+    merged['objects'] = merged_objects
+    return merged
+
+
 def _write_yaml(data: dict, path: Path) -> None:
     with open(path, "w", encoding="utf-8") as f:
         f.write("---\n")
@@ -476,7 +526,11 @@ def main() -> None:
     parser.add_argument("--recursive", action="store_true",
                         help="Recurse into subdirectories (use with --dir)")
     parser.add_argument("--overwrite", action="store_true",
-                        help="Overwrite existing YAML files")
+                        help="Overwrite existing YAML files completely")
+    parser.add_argument("--merge", action="store_true",
+                        help="Update auto fields (references, descriptions from doc comments) "
+                             "while preserving manual fields (tags, category, used_in, "
+                             "related_nodes, implements). Implies --overwrite for existing files.")
     parser.add_argument("--skip-tests", action="store_true",
                         help="Skip _test.go files")
     parser.add_argument("--dry-run", action="store_true",
@@ -493,7 +547,7 @@ def main() -> None:
         parser.print_help()
         sys.exit(1)
 
-    generated = skipped = errors = 0
+    generated = merged_count = skipped = errors = 0
     for go_file in sorted(set(files)):
         if not go_file.exists():
             print(f"NOT FOUND: {go_file}", file=sys.stderr)
@@ -503,7 +557,9 @@ def main() -> None:
             continue
 
         yaml_file = go_file.with_suffix(".yaml")
-        if yaml_file.exists() and not args.overwrite:
+        existing = yaml_file.exists()
+
+        if existing and not args.overwrite and not args.merge:
             print(f"SKIP (exists): {yaml_file}")
             skipped += 1
             continue
@@ -515,17 +571,32 @@ def main() -> None:
             errors += 1
             continue
 
+        if existing and args.merge:
+            try:
+                with open(yaml_file) as f:
+                    old_data = yaml.safe_load(f) or {}
+                data = _merge_data(data, old_data)
+                action = "MERGED"
+                merged_count += 1
+            except Exception as e:
+                print(f"ERROR reading existing {yaml_file}: {e}", file=sys.stderr)
+                errors += 1
+                continue
+        else:
+            action = "GENERATED"
+            generated += 1
+
         obj_count = len(data["objects"])
         ref_count = sum(len(o.get("references", [])) for o in data["objects"])
 
         if args.dry_run:
-            print(f"DRY-RUN: {yaml_file}  [{obj_count} objects, {ref_count} refs]")
+            print(f"DRY-RUN ({action}): {yaml_file}  [{obj_count} objects, {ref_count} refs]")
         else:
             _write_yaml(data, yaml_file)
-            print(f"GENERATED: {yaml_file}  [{obj_count} objects, {ref_count} refs]")
-        generated += 1
+            print(f"{action}: {yaml_file}  [{obj_count} objects, {ref_count} refs]")
 
-    print(f"\nDone: {generated} generated, {skipped} skipped, {errors} errors")
+    summary = f"\nDone: {generated} generated, {merged_count} merged, {skipped} skipped, {errors} errors"
+    print(summary)
     if errors:
         sys.exit(1)
 
