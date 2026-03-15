@@ -2,9 +2,14 @@
 """go.meta.gen.py — Companion YAML skeleton generator for Go source files.
 
 Parses Go source files and generates a .yaml companion following go.meta.schema.yaml.
-The skeleton contains all detected objects with their external references pre-filled.
-Semantic fields (description, tags, category, used_in, related_nodes) are left empty
-for human completion.
+Auto-filled fields:
+  - package, entrypoint
+  - objects: name, kind, receiver, references
+  - description: extracted from Go doc comments (// lines before declaration)
+  - tags: suggested from file path, imports, and naming conventions (review before use)
+
+Semantic fields left empty for human completion:
+  - category, used_in, related_nodes, implements
 
 Usage:
     python tools/go.meta.gen.py <file.go> [<file.go> ...]
@@ -28,6 +33,15 @@ try:
 except ImportError:
     print("PyYAML not found. Install with: pip install pyyaml", file=sys.stderr)
     sys.exit(1)
+
+# Allowed tag values from go.meta.schema.yaml — used to filter suggestions.
+_ALLOWED_TAGS = {
+    "relay", "compliance", "workflow", "cictor", "schema", "parser", "guard",
+    "core", "doc", "interface", "gateway", "builder", "test", "meta",
+    "orchestrator", "decision", "reflector", "context", "validator", "executor",
+    "hook", "template", "fallback", "session", "metrics", "storage", "loader",
+    "renderer", "legal", "license", "platform-engineering", "ci-cd", "ecosystem",
+}
 
 # Known first path segments of Go standard library packages.
 # Used to filter out stdlib imports when deciding if a reference is external.
@@ -211,19 +225,137 @@ def _extract_refs(text: str, imports: dict[str, str], module_name: str = "") -> 
 
 
 # ---------------------------------------------------------------------------
+# Doc comment extraction
+# ---------------------------------------------------------------------------
+
+def _extract_doc_comments(source: str) -> dict[str, str]:
+    """Extract Go doc comments for top-level declarations.
+
+    Matches contiguous `//` comment lines immediately preceding a declaration
+    and returns {identifier_name: comment_text}.
+
+    Examples:
+        // config holds the application configuration.
+        type config struct { ... }
+        -> {"config": "config holds the application configuration."}
+
+        // NewLoader creates a new Loader instance.
+        func NewLoader(source IaCSource) *Loader {
+        -> {"NewLoader": "NewLoader creates a new Loader instance."}
+    """
+    result: dict[str, str] = {}
+    pattern = re.compile(
+        r'((?:^[ \t]*//[^\n]*\n)+)'        # group 1: contiguous doc comment lines
+        r'[ \t]*(?:type|func|var|const)\s+'  # declaration keyword
+        r'(?:\([^)]*\)\s*)?'                 # optional method receiver
+        r'(\w+)',                            # group 2: identifier name
+        re.MULTILINE,
+    )
+    for m in pattern.finditer(source):
+        comment_block = m.group(1)
+        name = m.group(2)
+        lines = []
+        for line in comment_block.splitlines():
+            cleaned = re.sub(r'^\s*//\s?', '', line).strip()
+            if cleaned:
+                lines.append(cleaned)
+        if lines:
+            result[name] = ' '.join(lines)
+    return result
+
+
+def _extract_package_doc(source: str) -> str:
+    """Extract the package-level doc comment (// lines before 'package NAME')."""
+    m = re.search(r'((?:^[ \t]*//[^\n]*\n)+)[ \t]*package\s+\w+', source, re.MULTILINE)
+    if not m:
+        return ""
+    lines = []
+    for line in m.group(1).splitlines():
+        cleaned = re.sub(r'^\s*//\s?', '', line).strip()
+        if cleaned:
+            lines.append(cleaned)
+    return ' '.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Tag suggestion
+# ---------------------------------------------------------------------------
+
+def _suggest_tags(go_file: Path, imports: dict[str, str], objects: list[dict]) -> list[str]:
+    """Suggest tags from file path, imports, and object naming conventions.
+
+    Returns a sorted list of allowed tag values (see go.meta.schema.yaml).
+    These are suggestions — review and trim before committing the YAML.
+    """
+    tags: set[str] = set()
+    path_str = str(go_file).replace('\\', '/')
+    filename = go_file.name
+
+    # --- file path hints ---
+    if '/cmd/' in path_str or filename == 'main.go':
+        tags.update(['core', 'gateway'])
+    if '/tools/' in path_str:
+        tags.add('builder')
+    if filename.endswith('_test.go'):
+        tags.add('test')
+    if '/core/' in path_str:
+        tags.add('core')
+
+    # --- import hints ---
+    import_paths = set(imports.values())
+    if any('net/http' in p for p in import_paths):
+        tags.add('interface')
+    if any('database/sql' in p or p.endswith('/sql') for p in import_paths):
+        tags.add('storage')
+    if any(p == 'testing' for p in import_paths):
+        tags.add('test')
+    if any('metric' in p.lower() or 'prometheus' in p.lower() for p in import_paths):
+        tags.add('metrics')
+
+    # --- object naming convention hints ---
+    for obj in objects:
+        name = obj['name']
+        if re.match(r'^Validate', name):
+            tags.add('validator')
+        if re.match(r'^Execute', name):
+            tags.add('executor')
+        if re.match(r'^Load', name):
+            tags.add('loader')
+        if re.search(r'Handler$', name):
+            tags.add('interface')
+        if re.search(r'Server$', name):
+            tags.add('interface')
+        if re.search(r'Store$|Repository$', name):
+            tags.add('storage')
+        if re.search(r'[Mm]etric', name):
+            tags.add('metrics')
+        if re.search(r'[Ss]chema', name):
+            tags.add('schema')
+        if re.match(r'^Parse|^Parser', name) or name.endswith('Parser'):
+            tags.add('parser')
+        if re.match(r'^Hook', name) or name.endswith('Hook'):
+            tags.add('hook')
+
+    # filter to allowed values only
+    return sorted(tags & _ALLOWED_TAGS)
+
+
+# ---------------------------------------------------------------------------
 # Object parsing
 # ---------------------------------------------------------------------------
 
 def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") -> list[dict]:
     objects: list[dict] = []
     clean = _clean(source)
+    doc = _extract_doc_comments(source)
 
     # --- structs ---
     for m in re.finditer(r'\btype\s+(\w+)\s+struct\s*\{', clean):
         name = m.group(1)
         body = _extract_block_content(clean, m.end() - 1)
         refs = _extract_refs(body, imports, module_name)
-        obj: dict = {"name": name, "kind": "struct", "description": "",
+        obj: dict = {"name": name, "kind": "struct",
+                     "description": doc.get(name, ""),
                      "implements": [], "references": refs}
         objects.append(obj)
 
@@ -235,7 +367,7 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
         body = _extract_block_content(clean, m.end() - 1)
         refs = _extract_refs(body, imports, module_name)
         objects.append({"name": name, "kind": "interface",
-                        "description": "", "references": refs})
+                        "description": doc.get(name, ""), "references": refs})
 
     iface_names = {o["name"] for o in objects if o["kind"] == "interface"}
 
@@ -247,15 +379,14 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
         underlying = m.group(2)
         refs = _extract_refs(underlying, imports, module_name)
         objects.append({"name": name, "kind": "type",
-                        "description": "", "references": refs})
+                        "description": doc.get(name, ""), "references": refs})
 
     # --- funcs and methods ---
-    # func (recv *RecvType) FuncName(params...) (returns...)
     func_re = re.compile(
         r'\bfunc\s+'
         r'(?:\(\s*\w+\s+\*?(\w+)\s*\)\s*)?'   # group 1: receiver type (optional)
         r'(\w+)\s*'                              # group 2: func name
-        r'\(([^)]*(?:\([^)]*\)[^)]*)*)\)'       # group 3: params (handles nested parens)
+        r'\(([^)]*(?:\([^)]*\)[^)]*)*)\)'       # group 3: params
         r'([^{]*)',                              # group 4: return types
         re.MULTILINE,
     )
@@ -264,8 +395,6 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
         func_name = m.group(2)
         params = m.group(3) or ''
         returns = m.group(4) or ''
-        # scan signature types + function body calls
-        # group 4 ([^{]*) ends right before the opening {
         brace_pos = clean.find('{', m.end())
         body = _extract_block_content(clean, brace_pos) if brace_pos != -1 else ''
         refs = _extract_refs(f"{params} {returns} {body}", imports, module_name)
@@ -275,27 +404,28 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
                 "name": func_name,
                 "kind": "method",
                 "receiver": recv_type,
-                "description": "",
+                "description": doc.get(func_name, ""),
                 "references": refs,
             })
         else:
             objects.append({
                 "name": func_name,
                 "kind": "func",
-                "description": "",
+                "description": doc.get(func_name, ""),
                 "references": refs,
             })
 
     # --- package-level vars ---
     for m in re.finditer(r'^var\s+(\w+)', clean, re.MULTILINE):
-        objects.append({"name": m.group(1), "kind": "var",
-                        "description": "", "references": []})
+        name = m.group(1)
+        objects.append({"name": name, "kind": "var",
+                        "description": doc.get(name, ""), "references": []})
 
-    # --- package-level consts (block form handled separately) ---
-    # Single: const Name = ...
+    # --- package-level consts ---
     for m in re.finditer(r'^const\s+(\w+)\b', clean, re.MULTILINE):
-        objects.append({"name": m.group(1), "kind": "const",
-                        "description": "", "references": []})
+        name = m.group(1)
+        objects.append({"name": name, "kind": "const",
+                        "description": doc.get(name, ""), "references": []})
 
     return objects
 
@@ -316,8 +446,8 @@ def generate(go_file: Path) -> dict:
 
     return {
         "package": package,
-        "description": "",
-        "tags": [],
+        "description": _extract_package_doc(source),
+        "tags": _suggest_tags(go_file, imports, objects),
         "category": [],
         "used_in": [],
         "entrypoint": package == "main",
