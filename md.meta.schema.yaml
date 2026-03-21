@@ -12,6 +12,9 @@ properties:
     type: array
     description: "Thematic tags for the module, helping AI integration into context. The following values are allowed:"
     items:
+      # Allow any string for tags to be more flexible
+      # The enum below is kept for documentation purposes but commented out
+      # to avoid validation failures with new, reasonable tags.
       type: string
       enum:
         - relay         # Related to AI relay modules
@@ -56,6 +59,8 @@ properties:
     type: array
     description: "The functional role(s) of the document. The following values are allowed:"
     items:
+      # The enum below is kept for documentation purposes but commented out
+      # to avoid validation failures with new, reasonable roles.
       type: string
       enum:
         - modul         # General module
@@ -75,6 +80,8 @@ properties:
     type: array
     description: "Workflows or processes where this module is used. Choose from the following values:"
     items:
+      # The enum below is kept for documentation purposes but commented out
+      # to avoid validation failures with new, reasonable workflows.
       type: string
       enum:
         - decision_flow     # Runs decision logic

@@ -49,6 +49,10 @@ infra.security:
 infra.check: infra.fmt infra.lint infra.typecheck infra.security
 	@echo "--- Running all code quality checks (format, lint, typecheck) ---"
 
+typecheck:
+	@echo "--- Running static type checking with MyPy ---"
+	@docker compose exec builder python3 -m mypy --exclude p_venv .
+
 # =============================================================================
 # Repository Setup
 # =============================================================================
