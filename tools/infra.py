@@ -422,18 +422,33 @@ class ReleaseManager:
                 f"to finalize it. Currently on '{original_base_branch}'."
             )
 
+    def _get_repo_type(self) -> str:
+        return self.config.get("repo_type", "module")
+
+    def _require_repo_type(self, command: str, required: str):
+        """Raises ReleaseError if repo_type doesn't match the required type."""
+        repo_type = self._get_repo_type()
+        if repo_type != required:
+            raise ReleaseError(
+                f"Command '{command}' is only available for repo_type='{required}'. "
+                f"This repo is configured as repo_type='{repo_type}'."
+            )
+
     def run_release_dependency(self, release_version: str):
         """Releases a validator/meta schema into the dependencies/ directory."""
+        self._require_repo_type("release-dependency", "schema")
         self.logger.info("--- Releasing Dependency Schema ---")
         self._execute_schema_release(release_version, tier="dependency")
 
     def run_release_schema(self, release_version: str):
         """Releases an application schema into the release/ directory."""
+        self._require_repo_type("release-schema", "schema")
         self.logger.info("--- Releasing Application Schema ---")
         self._execute_schema_release(release_version, tier="application")
 
     def run_validation(self):
-        """Runs offline validation on the canonical source schema."""
+        """Runs offline validation on the canonical source schema (schema repos only)."""
+        self._require_repo_type("validate", "schema")
         self.logger.info("--- Running Schema Validation ---")
         source_file = self._path(
             self.config.get("canonical_source_file", "sources/index.yaml")

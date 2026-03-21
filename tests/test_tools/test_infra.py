@@ -28,6 +28,7 @@ VALID_PROJECT_YAML = """
 metadata:
   name: base
 compiler_settings:
+  repo_type: schema
   component_name: base
   main_branch: main
   vault_key_name: user-key

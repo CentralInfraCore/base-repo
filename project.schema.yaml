@@ -87,11 +87,16 @@ properties:
     type: object
     description: "Configuration for the build and release tools."
     required:
+      - repo_type
       - meta_schemas_dir
       - source_dir
       - meta_schema_file
       - vault_key_name
     properties:
+      repo_type:
+        type: string
+        description: "The type of repository. Controls which compiler commands are available."
+        enum: ["schema", "workflow", "module"]
       meta_schemas_dir:
         type: string
       source_dir:
@@ -101,6 +106,39 @@ properties:
       vault_key_name:
         type: string
         description: "The Vault key name for the author's signature."
+      component_name:
+        type: string
+        description: "Used in release branch and tag naming."
+      main_branch:
+        type: string
+        description: "The target branch for merge-back after release."
+      canonical_source_file:
+        type: string
+        description: "Path to the canonical source schema file (schema repos only)."
+      dependencies_dir:
+        type: string
+        description: "Directory for validator schemas (schema repos only)."
+      release_dir:
+        type: string
+        description: "Output directory for released schemas (schema repos only)."
+      cic_root_ca_key_name:
+        type: string
+        description: "Vault key name for the CIC Root CA (used in finalize step)."
+      vault_cert_mount:
+        type: string
+        description: "Vault KV mount path for certificates."
+      vault_cert_secret_name:
+        type: string
+        description: "Secret name in Vault KV for the developer certificate."
+      vault_cert_secret_key:
+        type: string
+        description: "Key within the KV secret containing the PEM certificate."
+      cic_root_ca_secret_name:
+        type: string
+        description: "Secret name in Vault KV for the CIC Root CA certificate."
+      validity_days:
+        type: integer
+        description: "How many days a release artifact remains valid."
 
   release:
     type: object

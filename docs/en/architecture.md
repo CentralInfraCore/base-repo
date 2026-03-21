@@ -40,6 +40,27 @@ The system uses a single, unified `compiler.py` script, whose role is dual depen
 
 This unified approach ensures that production repositories always use exactly the same logic and tools to manufacture their own products as the template repo uses to maintain itself.
 
+## The `tools/` Module Structure
+
+The compiler tooling is organized into three layers:
+
+```
+tools/
+├── compiler.py          # CLI entry point — argument parsing, service wiring
+├── infra.py             # ReleaseManager — orchestrates the full release workflow
+├── schemalib/           # Schema pipeline library (schema repos only)
+│   ├── loader.py        # YAML loading with $ref resolution (JsonRef + round-trip)
+│   ├── validator.py     # Validator integrity check + jsonschema validation
+│   └── artifact.py      # Checksum, signing payload, artifact assembly
+├── releaselib/          # Git/Vault service abstractions
+│   ├── git_service.py   # GitService: branch, commit, tag, merge operations
+│   ├── vault_service.py # VaultService: sign, get_certificate API calls
+│   └── exceptions.py    # Shared exception hierarchy
+└── finalize_release.py  # TEMPORARY: CIC central signing (will be replaced by relay)
+```
+
+The `schemalib/` library is only invoked when `compiler_settings.repo_type = schema` in `project.yaml`. Module repos and workflow repos use only the Git/Vault workflow path in `infra.py`.
+
 ## The Path of Changes and the Branching Model
 
 Changes follow a strictly defined path through the systems.

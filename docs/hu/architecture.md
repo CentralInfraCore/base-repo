@@ -40,6 +40,27 @@ A rendszer egyetlen, egységes `compiler.py` scriptet használ, amelynek a szere
 
 Ez az egységes megközelítés biztosítja, hogy a termelési repók mindig pontosan ugyanazt a logikát és eszközt használják a saját termékük gyártására, mint amit a sablon repo használ a saját maga karbantartására.
 
+## A `tools/` Modul Szerkezete
+
+A fordítói eszközkészlet három rétegbe szerveződik:
+
+```
+tools/
+├── compiler.py          # CLI belépési pont — argumentum elemzés, service bekötés
+├── infra.py             # ReleaseManager — a teljes kiadási munkafolyamat koordinálása
+├── schemalib/           # Séma pipeline könyvtár (csak schema repo-khoz)
+│   ├── loader.py        # YAML betöltés $ref feloldással (JsonRef + round-trip)
+│   ├── validator.py     # Validátor integritás ellenőrzés + jsonschema validálás
+│   └── artifact.py      # Ellenőrzőösszeg, aláírási payload, artefaktum összeállítás
+├── releaselib/          # Git/Vault szolgáltatás absztrakciók
+│   ├── git_service.py   # GitService: ág, commit, tag, merge műveletek
+│   ├── vault_service.py # VaultService: sign, get_certificate API hívások
+│   └── exceptions.py    # Közös kivétel hierarchia
+└── finalize_release.py  # IDEIGLENES: CIC központi aláírás (relay váltja fel)
+```
+
+A `schemalib/` könyvtár csak akkor kerül meghívásra, ha a `project.yaml`-ban `compiler_settings.repo_type = schema` van beállítva. A modul és workflow típusú repók csak az `infra.py` Git/Vault munkafolyamat útvonalát használják.
+
 ## A Változások Útja és a Branching Modell
 
 A változások egy szigorúan definiált útvonalon haladnak a rendszereken keresztül.

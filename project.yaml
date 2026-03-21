@@ -111,6 +111,7 @@ metadata:
 
       '
 compiler_settings:
+  repo_type: module
   component_name: base
   meta_schemas_dir: ./
   meta_schema_file: md.meta.schema.yaml

@@ -59,6 +59,7 @@ def manager(mock_git_service, mock_vault_service, mocker):
     logger = mocker.MagicMock(spec=logging.Logger)
     # Use a minimal config by default
     config = {
+        "repo_type": "schema",
         "component_name": "base",
         "main_branch": "main",
         "meta_schema_file": "project.schema.yaml",
