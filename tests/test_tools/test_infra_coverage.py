@@ -90,13 +90,13 @@ class TestInfraCoverage:
         mock_tmp_file = MagicMock()
         mock_tmp_file.name = "/fake/dir/temp123"
         mocker.patch(
-            "tools.infra.tempfile.NamedTemporaryFile", return_value=mock_tmp_file
+            "tools.schemalib.loader.tempfile.NamedTemporaryFile", return_value=mock_tmp_file
         )
-        mocker.patch("tools.infra.os.replace", side_effect=OSError("permission denied"))
+        mocker.patch("tools.schemalib.loader.os.replace", side_effect=OSError("permission denied"))
 
         mock_path_instance = MagicMock()
         mock_path_instance.exists.return_value = True
-        mocker.patch("tools.infra.Path", return_value=mock_path_instance)
+        mocker.patch("tools.schemalib.loader.Path", return_value=mock_path_instance)
 
         with pytest.raises(ReleaseError):
             write_yaml(Path("any.yaml"), {})

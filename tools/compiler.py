@@ -101,7 +101,9 @@ def main():
     )
 
     subparsers.add_parser(
-        "validate", help="Validate all schemas.", parents=[parent_parser]
+        "validate",
+        help="Validate source schema against its declared validator.",
+        parents=[parent_parser],
     )
 
     release_parser = subparsers.add_parser(
@@ -111,6 +113,34 @@ def main():
         "--version",
         required=True,
         help="The semantic version to release (e.g., 1.0.0).",
+    )
+
+    release_dep_parser = subparsers.add_parser(
+        "release-dependency",
+        help="Release a validator/meta schema into dependencies/.",
+        parents=[parent_parser],
+    )
+    release_dep_parser.add_argument(
+        "--version",
+        required=True,
+        help="The target release version (e.g., v1.0.0).",
+    )
+
+    release_schema_parser = subparsers.add_parser(
+        "release-schema",
+        help="Release an application schema into release/.",
+        parents=[parent_parser],
+    )
+    release_schema_parser.add_argument(
+        "--version",
+        required=True,
+        help="The target release version (e.g., v1.0.0).",
+    )
+
+    subparsers.add_parser(
+        "get-name",
+        help="Print the metadata.name from project.yaml.",
+        parents=[parent_parser],
     )
 
     args = parser.parse_args()
@@ -124,6 +154,15 @@ def main():
 
         full_config = load_project_config()
         compiler_config = full_config.get("compiler_settings", {})
+
+        if args.command == "get-name":
+            name = full_config.get("metadata", {}).get("name")
+            if name:
+                print(name)
+                sys.exit(0)
+            else:
+                logger.critical("'metadata.name' not found in project.yaml")
+                sys.exit(1)
 
         project_root = Path(os.getcwd())
         git_service = GitService(cwd=project_root, timeout=args.git_timeout)
@@ -166,12 +205,16 @@ def main():
         )
 
         if args.command == "validate":
-            logger.info("--- Running Schema Validation ---")
             manager.run_validation()
-            logger.info("✓ All schemas are valid.")
 
         elif args.command == "release":
             manager.run_release_close(release_version=args.version)
+
+        elif args.command == "release-dependency":
+            manager.run_release_dependency(release_version=args.version)
+
+        elif args.command == "release-schema":
+            manager.run_release_schema(release_version=args.version)
 
     except ManualInterventionRequired as e:
         logger.info(f"[ACTION REQUIRED] {e}")

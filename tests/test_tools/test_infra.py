@@ -100,7 +100,7 @@ class TestHelperFunctions:
         mock_cert.get_extension_count.return_value = 1
         mock_cert.get_extension.return_value = mock_ext
 
-        mocker.patch("tools.infra.crypto.load_certificate", return_value=mock_cert)
+        mocker.patch("tools.schemalib.artifact.crypto.load_certificate", return_value=mock_cert)
         name, email = _parse_certificate_info(VALID_CERT)
         assert name == "Test User"
         assert email == "alt@email.com"
@@ -113,7 +113,7 @@ class TestHelperFunctions:
         mock_cert.get_subject.return_value = mock_subject
         mock_cert.get_extension_count.return_value = 0  # No extensions
 
-        mocker.patch("tools.infra.crypto.load_certificate", return_value=mock_cert)
+        mocker.patch("tools.schemalib.artifact.crypto.load_certificate", return_value=mock_cert)
         name, email = _parse_certificate_info(VALID_CERT)
         assert name == "Test User"
         assert email == "fallback@email.com"
@@ -173,7 +173,7 @@ class TestReleaseManager:
             "tools.infra.load_yaml", return_value=yaml.safe_load(VALID_PROJECT_YAML)
         )
         mocker.patch("tools.infra.load_and_resolve_schema", return_value={"spec": {}})
-        mocker.patch("tools.infra.validate")
+        mocker.patch("tools.infra.run_validation")
 
         manager.run_release_close(release_version="1.0.0")
 
@@ -258,7 +258,7 @@ class TestReleaseManager:
             "tools.infra.load_yaml", return_value=yaml.safe_load(VALID_PROJECT_YAML)
         )
         mocker.patch("tools.infra.load_and_resolve_schema", return_value={"spec": {}})
-        mocker.patch("tools.infra.validate")
+        mocker.patch("tools.infra.run_validation")
 
         manager.run_release_close(release_version="1.0.0")
 

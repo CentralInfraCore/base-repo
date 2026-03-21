@@ -1,20 +1,10 @@
-import base64
 import datetime
-import hashlib
-import json
 import logging
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 import requests
 import yaml
-from jsonref import JsonRef
-from jsonschema import ValidationError as JsonSchemaValidationError
-from jsonschema import validate
-from OpenSSL import crypto
-from OpenSSL.SSL import Error as OpenSSLError
 
 from .releaselib.exceptions import (
     ConfigurationError,
@@ -22,105 +12,31 @@ from .releaselib.exceptions import (
     ReleaseError,
     VaultServiceError,
 )
+from .schemalib.artifact import (
+    build_signing_payload,
+    compute_spec_checksum,
+    generate_signed_artifact,
+    parse_certificate_info,
+)
+from .schemalib.loader import load_and_resolve_schema, load_yaml, write_yaml
+from .schemalib.validator import ValidationFailureError, get_validator_schema, run_validation
 
+# Back-compat aliases for tests and external consumers
+_parse_certificate_info = parse_certificate_info
 
-class ValidationFailureError(ReleaseError):
-    """Custom exception for schema validation failures."""
-
-    pass
-
-
-def to_canonical_json(data):
-    """Converts a Python object to a canonical (sorted, no whitespace) JSON string."""
-    return json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
-
-
-def get_sha256_hex(data_bytes):
-    """Calculates the SHA256 hash and returns it as a hex digest."""
-    return hashlib.sha256(data_bytes).hexdigest()
-
-
-def _parse_certificate_info(pem_cert_data):
-    """
-    Parses a PEM-encoded certificate to extract Common Name and Email.
-    Returns (name, email).
-    """
-    try:
-        cert = crypto.load_certificate(
-            crypto.FILETYPE_PEM, pem_cert_data.encode("utf-8")
-        )
-        subject = cert.get_subject()
-        name = subject.CN
-        email = None
-        for i in range(cert.get_extension_count()):
-            ext = cert.get_extension(i)
-            if ext.get_short_name() == b"subjectAltName":
-                alt_names = str(ext).split(", ")
-                for alt_name in alt_names:
-                    if alt_name.startswith("email:"):
-                        email = alt_name[len("email:") :]
-                        break
-        if not email:
-            email = subject.emailAddress
-        return name, email
-    except (OpenSSLError, Exception) as e:
-        logging.getLogger(__name__).warning(
-            f"Could not parse certificate with pyOpenSSL: {e}"
-        )
-        return "Unknown", "unknown@example.com"
-
-
-def load_and_resolve_schema(path):
-    """
-    Loads a YAML file and resolves all $ref references.
-    The base URI is the directory of the file, allowing for relative references.
-    """
-    try:
-        with open(path, "r") as f:
-            base_uri = f"file://{os.path.dirname(os.path.abspath(path))}/"
-            unresolved_data = yaml.safe_load(f)
-            resolved_data = JsonRef.replace_refs(unresolved_data, base_uri=base_uri)
-            return resolved_data
-    except FileNotFoundError as e:
-        raise ConfigurationError(f"File not found: {path}") from e
-    except yaml.YAMLError as e:
-        raise ConfigurationError(f"YAML parsing error in {path}: {e}") from e
-
-
-def load_yaml(path: Path):
-    """Loads a YAML file."""
-    try:
-        with open(path, "r") as f:
-            content = f.read()
-            if not content.strip():
-                return None
-            return yaml.safe_load(content)
-    except FileNotFoundError as e:
-        raise ConfigurationError(f"Configuration file not found at: {path}") from e
-    except yaml.YAMLError as e:
-        raise ConfigurationError(f"YAML syntax error in {path}: {e}") from e
-
-
-def write_yaml(path: Path, data):
-    """Writes data to a YAML file atomically."""
-    tmp_name = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, dir=path.parent, encoding="utf-8"
-        ) as tmp_file:
-            tmp_name = tmp_file.name
-            yaml.dump(data, tmp_file, sort_keys=False, indent=2)
-        os.replace(tmp_name, path)
-    except (IOError, OSError) as e:
-        raise ReleaseError(f"Failed to write YAML file to {path}: {e}") from e
-    finally:
-        if tmp_name and Path(tmp_name).exists():
-            try:
-                Path(tmp_name).unlink()
-            except Exception as unlink_e:
-                logging.getLogger(__name__).warning(
-                    f"Failed to clean up temporary file {tmp_name}: {unlink_e}"
-                )
+__all__ = [
+    "ReleaseManager",
+    "ValidationFailureError",
+    "load_and_resolve_schema",
+    "load_yaml",
+    "write_yaml",
+    "_parse_certificate_info",
+    "parse_certificate_info",
+    "ConfigurationError",
+    "GitStateError",
+    "ReleaseError",
+    "VaultServiceError",
+]
 
 
 class ReleaseManager:
@@ -183,9 +99,9 @@ class ReleaseManager:
                 raise ConfigurationError(
                     f"Project YAML file '{project_yaml_path}' is empty."
                 )
-            validate(instance=instance, schema=schema["spec"])
+            run_validation(instance, schema)
             self.logger.info("✓ project.yaml is valid against the schema.")
-        except (ConfigurationError, JsonSchemaValidationError) as e:
+        except (ValidationFailureError, ConfigurationError) as e:
             raise ValidationFailureError(f"Final project.yaml validation failed: {e}")
         except Exception as e:
             raise ReleaseError(
@@ -222,13 +138,9 @@ class ReleaseManager:
                 self.config.get("canonical_source_file", "sources/index.yaml")
             )
             source_data = load_and_resolve_schema(source_file)
-
             self.logger.info("✓ Source schema loaded and resolved.")
 
-            self.logger.info("Assembling the developer-stage project.yaml metadata...")
-
-            spec_bytes = to_canonical_json(source_data["spec"])
-            checksum = get_sha256_hex(spec_bytes)
+            checksum = compute_spec_checksum(source_data["spec"])
             self.logger.info(f"✓ Calculated spec checksum: {checksum[:12]}...")
 
             user_certificate = self.vault_service.get_certificate(
@@ -243,26 +155,16 @@ class ReleaseManager:
             )
             self.logger.info("✓ User and CIC Root CA certificates obtained from Vault.")
 
-            name, email = _parse_certificate_info(user_certificate)
-            self.logger.info(f"✓ Parsed user certificate: {name} <{email}>")
+            build_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            schema_name = source_data.get("metadata", {}).get("name", "unknown")
 
-            metadata_for_signing = {
-                "name": source_data.get("metadata", {}).get("name", "unknown"),
-                "version": release_version,
-                "checksum": checksum,
-                "build_timestamp": datetime.datetime.now(
-                    datetime.timezone.utc
-                ).isoformat(),
-            }
-
-            digest_bytes = to_canonical_json(metadata_for_signing)
-            digest_b64 = base64.b64encode(hashlib.sha256(digest_bytes).digest()).decode(
-                "utf-8"
+            digest_b64 = build_signing_payload(
+                name=schema_name,
+                version=release_version,
+                checksum=checksum,
+                build_timestamp=build_timestamp,
             )
-
-            signature = self.vault_service.sign(
-                digest_b64, self.config["vault_key_name"]
-            )
+            signature = self.vault_service.sign(digest_b64, self.config["vault_key_name"])
             self.logger.info("✓ Project metadata signed successfully.")
 
             project_data = load_yaml(project_yaml_path) or {}
@@ -271,10 +173,10 @@ class ReleaseManager:
                 "version": release_version,
                 "checksum": checksum,
                 "sign": signature,
-                "build_timestamp": metadata_for_signing["build_timestamp"],
+                "build_timestamp": build_timestamp,
                 "createdBy": {
-                    "name": name,
-                    "email": email,
+                    "name": None,
+                    "email": None,
                     "certificate": user_certificate,
                     "issuer_certificate": cic_root_ca_cert,
                 },
@@ -282,8 +184,12 @@ class ReleaseManager:
                 "cicSign": "",
                 "cicSignedCA": {"certificate": ""},
             }
+            cert_name, cert_email = parse_certificate_info(user_certificate)
+            metadata["createdBy"]["name"] = cert_name
+            metadata["createdBy"]["email"] = cert_email
+            self.logger.info(f"✓ Parsed user certificate: {cert_name} <{cert_email}>")
+
             project_data["metadata"] = metadata
-            project_data["spec"] = source_data["spec"]
 
             if self.dry_run:
                 self.logger.info(
@@ -394,6 +300,90 @@ class ReleaseManager:
             f"✓ Release v{release_version} successfully finalized and merged into '{main_branch}'."
         )
 
+    def _execute_schema_release(self, release_version: str, tier: str):
+        """
+        Schema-only release: validate source, generate signed artifact, write to output dir.
+        tier: "dependency" -> dependencies/ directory
+        tier: "application" -> release/ directory
+        """
+        output_dir = self._path(
+            self.config.get("dependencies_dir", "dependencies")
+            if tier == "dependency"
+            else self.config.get("release_dir", "release")
+        )
+        dependencies_dir = self._path(self.config.get("dependencies_dir", "dependencies"))
+        source_file = self._path(
+            self.config.get("canonical_source_file", "sources/index.yaml")
+        )
+
+        self.logger.info(f"Loading source schema from {source_file}...")
+        source_data = load_and_resolve_schema(source_file)
+
+        validated_by = source_data.get("metadata", {}).get("validatedBy", {})
+        validator_name = validated_by.get("name")
+        validator_version = validated_by.get("version")
+
+        if not validator_name or not validator_version:
+            raise ConfigurationError(
+                "Source schema is missing 'metadata.validatedBy.name' or 'version'."
+            )
+
+        self.logger.info(f"Fetching and verifying validator '{validator_name}@{validator_version}'...")
+        validator_schema = get_validator_schema(
+            validator_name, validator_version, source_data, dependencies_dir
+        )
+        run_validation(source_data, validator_schema)
+        self.logger.info("✓ Source schema is valid.")
+
+        checksum = compute_spec_checksum(source_data["spec"])
+        build_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        schema_name = source_data.get("metadata", {}).get("name", "unknown")
+
+        user_certificate = self.vault_service.get_certificate(
+            self.config["vault_cert_mount"],
+            self.config["vault_cert_secret_name"],
+            self.config["vault_cert_secret_key"],
+        )
+        cic_root_ca_cert = self.vault_service.get_certificate(
+            self.config["vault_cert_mount"],
+            self.config.get("cic_root_ca_secret_name", "CICRootCA"),
+            self.config["vault_cert_secret_key"],
+        )
+
+        digest_b64 = build_signing_payload(
+            name=schema_name,
+            version=release_version,
+            checksum=checksum,
+            build_timestamp=build_timestamp,
+        )
+        signature = self.vault_service.sign(digest_b64, self.config["vault_key_name"])
+        self.logger.info("✓ Artifact signed successfully.")
+
+        validator_checksum = compute_spec_checksum(validator_schema["spec"])
+        artifact = generate_signed_artifact(
+            spec=source_data["spec"],
+            name=schema_name,
+            version=release_version,
+            checksum=checksum,
+            build_timestamp=build_timestamp,
+            developer_cert=user_certificate,
+            issuer_cert=cic_root_ca_cert,
+            signature=signature,
+            validator_name=validator_name,
+            validator_version=validator_version,
+            validator_checksum=validator_checksum,
+        )
+
+        output_filename = f"{schema_name}-{release_version}.yaml"
+        output_path = output_dir / output_filename
+
+        if self.dry_run:
+            self.logger.info(f"[DRY-RUN] Would write artifact to: {output_path}")
+            self.logger.info(yaml.dump(artifact, sort_keys=False, indent=2))
+        else:
+            write_yaml(output_path, artifact)
+            self.logger.info(f"✓ Artifact written to {output_path}")
+
     def run_release_close(self, release_version: str):
         """Orchestrates the release process based on the current Git branch and dry_run status."""
         component_name, original_base_branch = self._check_base_branch_and_version(
@@ -432,25 +422,46 @@ class ReleaseManager:
                 f"to finalize it. Currently on '{original_base_branch}'."
             )
 
+    def run_release_dependency(self, release_version: str):
+        """Releases a validator/meta schema into the dependencies/ directory."""
+        self.logger.info("--- Releasing Dependency Schema ---")
+        self._execute_schema_release(release_version, tier="dependency")
+
+    def run_release_schema(self, release_version: str):
+        """Releases an application schema into the release/ directory."""
+        self.logger.info("--- Releasing Application Schema ---")
+        self._execute_schema_release(release_version, tier="application")
+
     def run_validation(self):
         """Runs offline validation on the canonical source schema."""
         self.logger.info("--- Running Schema Validation ---")
         source_file = self._path(
             self.config.get("canonical_source_file", "sources/index.yaml")
         )
-        self.logger.info(f"Validating and resolving {source_file}...")
+        dependencies_dir = self._path(self.config.get("dependencies_dir", "dependencies"))
+        self.logger.info(f"Loading and resolving {source_file}...")
+
         try:
             source_data = load_and_resolve_schema(source_file)
-            # Placeholder for full validation logic. Using the loaded data prevents the lint error.
-            self.logger.info(
-                f"Schema '{source_data.get('metadata', {}).get('name', 'N/A')}' loaded."
+
+            validated_by = source_data.get("metadata", {}).get("validatedBy", {})
+            validator_name = validated_by.get("name")
+            validator_version = validated_by.get("version")
+
+            if not validator_name or not validator_version:
+                raise ConfigurationError(
+                    "Source schema is missing 'metadata.validatedBy.name' or 'version'."
+                )
+
+            validator_schema = get_validator_schema(
+                validator_name, validator_version, source_data, dependencies_dir
             )
-            self.logger.info("✓ Schema validation logic to be fully implemented here.")
-        except (ConfigurationError, JsonSchemaValidationError, ValueError) as e:
+            run_validation(source_data, validator_schema)
+            self.logger.info("✓ Validation successful.")
+
+        except (ValidationFailureError, ConfigurationError, ValueError) as e:
             self.logger.critical(f"VALIDATION FAILED: {e}")
             raise ReleaseError("Schema validation failed.") from e
         except Exception as e:
             self.logger.critical(f"UNEXPECTED ERROR during validation: {e}")
             raise ReleaseError("An unexpected error occurred during validation.") from e
-
-        self.logger.info("✓ Validation successful.")
