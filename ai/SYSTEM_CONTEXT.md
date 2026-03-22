@@ -59,21 +59,6 @@ A `project.yaml` `compiler_settings.repo_type` értéke határozza meg, mely par
 
 ---
 
-## Docker infrastruktúra (jelenlegi)
-
-```
-Dockerfile              builder image (Python 3.11-slim)
-docker-compose.yml      setup + builder service
-  setup:  pip-compile + install → ./p_venv
-  builder: tail -f /dev/null, PYTHONPATH=/app:/app/p_venv
-```
-
-Vault csatlakozás a builderből: `https://host.docker.internal:18200`
-Token: `$XDG_RUNTIME_DIR/vault/sign-token` (bind mount `/var/run/secrets/vault-token`)
-CA cert: `$XDG_RUNTIME_DIR/vault/server.crt` (bind mount `/var/run/secrets/vault-ca.crt`)
-
----
-
 ## Nyitott trust bootstrap probléma
 
 A `finalize_release.py` ideiglenes megoldás a CIC central signing-re.

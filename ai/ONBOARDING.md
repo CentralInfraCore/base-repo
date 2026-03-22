@@ -22,12 +22,6 @@ Olvasd el: `ai/SYSTEM_CONTEXT.md`
 | `tools/compiler.py` subcommands | Kész |
 | `tools/git_hook_commit-msg.sh` signing hook | Referencia implementáció |
 
-**Ami scaffold/hiányzik (ezekre van nyitott sprint):**
-
-| Terület | Sprint |
-|---|---|
-| `docker/renovate/` — Vault-signing Renovate image | renovate-vault-signing |
-
 ## Hogyan ellenőrzöl
 
 ```bash
