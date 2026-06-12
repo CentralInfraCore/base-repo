@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from .infra import ReleaseManager
-from .releaselib.exceptions import ReleaseError
+from .releaselib.exceptions import ManualInterventionRequired, ReleaseError
 from .releaselib.git_service import GitService
 from .releaselib.vault_service import VaultService
 
@@ -58,8 +58,11 @@ def setup_logging(verbose=False, debug=False):
     return logger
 
 
+logger = logging.getLogger(__name__)
+
+
 # --- Configuration Loader ---
-def load_project_config(logger):
+def load_project_config():
     try:
         with open("project.yaml", "r") as f:
             config = yaml.safe_load(f)
@@ -97,48 +100,70 @@ def main():
         dest="command", required=True, help="Available commands"
     )
 
-    # 'validate' command
     subparsers.add_parser(
         "validate", help="Validate all schemas.", parents=[parent_parser]
     )
 
-    # 'check' command
-    check_parser = subparsers.add_parser(
-        "check", help="Run pre-flight checks for a release.", parents=[parent_parser]
+    release_parser = subparsers.add_parser(
+        "release", help="Prepare or finalize a release.", parents=[parent_parser]
     )
-    check_parser.add_argument(
-        "--version", required=True, help="The semantic version to check."
-    )
-
-    # 'prepare' command
-    prepare_parser = subparsers.add_parser(
-        "prepare", help="Prepare a new release.", parents=[parent_parser]
-    )
-    prepare_parser.add_argument(
+    release_parser.add_argument(
         "--version",
         required=True,
         help="The semantic version to release (e.g., 1.0.0).",
     )
 
-    # 'close' command
-    close_parser = subparsers.add_parser(
-        "close", help="Finalize and close a release.", parents=[parent_parser]
+    build_hash_parser = subparsers.add_parser(
+        "set-build-hash",
+        help="Compute sha256(artifact) and write it to project.yaml metadata.buildHash.",
+        parents=[parent_parser],
     )
-    close_parser.add_argument(
-        "--version",
-        required=True,
-        help="The semantic version to close (e.g., 1.0.0).",
+    build_hash_parser.add_argument(
+        "--file", required=True, help="Path to the build artifact (e.g. module.wasm)."
+    )
+    build_hash_parser.add_argument(
+        "--project", default="project.yaml", help="Path to project.yaml."
     )
 
     args = parser.parse_args()
 
+    global logger
     logger = setup_logging(args.verbose, args.debug)
+
+    if args.command == "set-build-hash":
+        # stdlib-only: hashlib + a targeted regex edit of the metadata.buildHash
+        # line. Deliberately avoids importing tools.infra (and its pyyaml/
+        # requests/jsonschema deps) so this command works even before the
+        # builder's p_venv cache (infra.deps) has been populated.
+        import hashlib
+        import re
+
+        artifact = Path(args.file)
+        project_yaml_path = Path(args.project)
+        if not artifact.is_file():
+            logger.critical(f"[FATAL] Artifact not found: {artifact}")
+            sys.exit(1)
+
+        build_hash = hashlib.sha256(artifact.read_bytes()).hexdigest()
+
+        content = project_yaml_path.read_text(encoding="utf-8")
+        pattern = re.compile(r"^(\s*buildHash:\s*).*$", re.MULTILINE)
+        if not pattern.search(content):
+            logger.critical(
+                f"[FATAL] metadata.buildHash field not found in {project_yaml_path}"
+            )
+            sys.exit(1)
+        content = pattern.sub(rf"\g<1>{build_hash}", content, count=1)
+        project_yaml_path.write_text(content, encoding="utf-8")
+
+        logger.info(f"✓ metadata.buildHash = {build_hash}")
+        return
 
     try:
         if args.dry_run:
             logger.info("--- Starting in DRY-RUN mode. No changes will be made. ---")
 
-        full_config = load_project_config(logger)
+        full_config = load_project_config()
         compiler_config = full_config.get("compiler_settings", {})
 
         project_root = Path(os.getcwd())
@@ -183,18 +208,15 @@ def main():
 
         if args.command == "validate":
             logger.info("--- Running Schema Validation ---")
-            # manager.run_validation() # Assuming a validation method exists
-            logger.info("✓ Schema validation command is placeholder.")
+            manager.run_validation()
+            logger.info("✓ All schemas are valid.")
 
-        elif args.command == "check":
-            manager.run_check(release_version=args.version)
+        elif args.command == "release":
+            manager.run_release_close(release_version=args.version)
 
-        elif args.command == "prepare":
-            manager.run_prepare_release(release_version=args.version)
-
-        elif args.command == "close":
-            manager.run_finalize_release(release_version=args.version)
-
+    except ManualInterventionRequired as e:
+        logger.info(f"[ACTION REQUIRED] {e}")
+        sys.exit(0)  # Exit with 0 for manual intervention
     except ReleaseError as e:
         logger.critical(f"[RELEASE FAILED] {e}")
         sys.exit(1)

@@ -1,14 +1,15 @@
 ---
 metadata:
-  name: base
-  description: Schema Compiler & Signing Infrastructure Template
-  version: 0.7.3
+  name: wasm-module-template
+  description: WASM guest module template (iSDK boilerplate + release/signing pipeline)
+  version: 0.1.0
   license: CC-BY-NC-SA-4.0
-  main_branch: main
+  main_branch: wasm/main
   owner: Gabor Zoltan Sinko
   tags:
     - template
-    - base-repo
+    - wasm
+    - isdk
   validatedBy:
     name: TBD
     version: TBD
@@ -78,7 +79,12 @@ metadata:
     until: '2026-12-08T17:09:32.315693+00:00'
   checksum: HsAKF5g3ZB530cJk2qYTMzC7p2TMbzthg2Dn60h8DNQ=
   sign: vault:v1:MEQCIG7JuRrA3Law8Q2oUe1GYV7SSbRvFT3ZvNvUnw2BB8xLAiBbfsf9CV1Q94KrBkyn3i72FLQG7LogZytuXytu7nqEAQ==
-  buildHash: vault:v1:MEQCIG7JuRrA3Law8Q2oUe1GYV7SSbRvFT3ZvNvUnw2BB8xLAiBbfsf9CV1Q94KrBkyn3i72FLQG7LogZytuXytu7nqEAQ==
+  # buildHash is intentionally empty in the template — `make wasm.build` /
+  # wasm.buildhash (mk/wasm.mk) fills it from sha256(module/module.wasm) in
+  # the build-gap between the prepare and finalize release phases. The
+  # finalization phase (tools/infra.py: _resign_with_build_hash) requires
+  # this to be non-empty and re-signs metadata.sign to cover it.
+  buildHash: ""
   cicSign: 'MEYCIQCTlJHjw0tx/UN7sNCzeYmwoQm4RhfkC6h0dmJt9avkxgIhANozYLu1P6eylXiwYOkR5LU9koKypeGbUkEsEMurnKXl'
   cicSignedCA:
     certificate: '-----BEGIN CERTIFICATE-----
@@ -111,7 +117,7 @@ metadata:
 
       '
 compiler_settings:
-  component_name: base
+  component_name: wasm-module
   meta_schemas_dir: ./
   meta_schema_file: md.meta.schema.yaml
   vault_key_name: cic-my-sign-key

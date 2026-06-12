@@ -50,5 +50,10 @@ services:
       - VAULT_ADDR=https://host.docker.internal:18200
       - CIC_VAULT_TOKEN_FILE=/var/run/secrets/vault-token
       - CIC_VAULT_CA_FILE=/var/run/secrets/vault-ca.crt
+      # HOME for the non-root user — TinyGo/Go caches (GOCACHE/GOPATH) need a
+      # writable home directory; the host UID has no /etc/passwd entry.
+      - HOME=/tmp/home
+      - GOCACHE=/tmp/home/.cache/go-build
+      - GOPATH=/tmp/home/go
     # Keep the container running in the background
     command: ["tail", "-f", "/dev/null"]
