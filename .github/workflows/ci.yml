@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Build Docker images
         run: make build
@@ -48,7 +48,7 @@ jobs:
         run: make test
 
       - name: Upload coverage report artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: html-coverage-report
           path: htmlcov/
