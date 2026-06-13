@@ -43,6 +43,9 @@ jobs:
       - name: Verify repository manifest
         run: make manifest-verify
 
+      - name: Check internal documentation links
+        run: make docs.link-check
+
       - name: Run code quality checks
         run: make check
 
@@ -51,6 +54,9 @@ jobs:
 
       - name: Build WASM guest module (TinyGo)
         run: make wasm.build
+
+      - name: Verify reproducible WASM build (rebuild-verify)
+        run: make wasm.rebuild-verify
 
       - name: Host-load test against the relay cabinet ABI
         run: make wasm.test

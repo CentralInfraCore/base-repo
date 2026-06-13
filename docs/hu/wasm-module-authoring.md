@@ -102,6 +102,18 @@ A `make wasm.test` a `module/module_loadtest_test.go`-t futtatja, amely:
 Ha a `module.wasm` még nem létezik, a teszt skip-elve fut, a `make
 wasm.build`-re mutató üzenettel.
 
+## Reprodukálható build ellenőrzés
+
+A `make wasm.rebuild-verify` újraépíti a guest modult egy ideiglenes helyre
+(a builder konténer `/tmp` mappájába — a commitolt `module/module.wasm`-ot
+sosem írja felül), kiszámolja a sha256-ját, és összeveti a `project.yaml`
+`metadata.buildHash` mezőjével. Eltérés esetén vagy a commitolt
+`module.wasm` elavult (valaki módosította a `module/`-t `make wasm.build`
+futtatása nélkül), vagy a TinyGo build nem reprodukálható ebben a
+környezetben — mindkét esetben a parancs nem-nulla exit kóddal hibázik, és a
+`make wasm.build` futtatására hívja fel a figyelmet a két fájl frissítéséhez.
+Ez a CI-ban közvetlenül a `wasm.build` után fut (`.github/workflows/ci.yml`).
+
 ## Go quality gate
 
 A `mk/golang.mk` a `module/`-ra van bekötve (`GO_MODULE_DIR=module`):

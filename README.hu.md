@@ -15,6 +15,10 @@ pipeline-nal.
 - **Build és host-load teszt:** a `make wasm.build` TinyGo-val fordítja a
   guest modult; a `make wasm.test` betölti a `module/module.wasm`-ot ugyanazzal
   a wazero runtime-mal, amit a relay cabinet használ, és végigteszteli az ABI-t.
+- **ABI manifest:** a `project.yaml` `abi:` blokkja (exports/operations/
+  envelopeVersion) deklarálja a guest <-> host szerződést; a `make wasm.test`
+  elbukik, ha a `module/module.wasm` nem exportálja mindazt, amit deklarál.
+  Lásd: **[WASM ABI szerződés](docs/contracts/hu/wasm-abi.md)**.
 - **Eredetigazolás (provenance):** minden release aláírja a forrás-spec
   checksumot (`project.yaml`) ÉS a felépített artifact `buildHash`-ét
   (`sha256(module/module.wasm)`), így a kiadott modul végponttól végpontig
@@ -70,6 +74,7 @@ A környezeted most már készen áll. A napi fejlesztési feladatokról és a k
 A `Makefile` egy egyszerű interfészt biztosít az összes gyakori feladathoz.
 
 - `make wasm.build`: A `module/module.wasm` felépítése TinyGo-val és a `buildHash` kiszámítása.
+- `make wasm.rebuild-verify`: A guest modul újraépítése egy ideiglenes helyre, és a sha256 összevetése a `project.yaml` `metadata.buildHash` mezőjével — elkapja, ha a `module.wasm` elavult vagy nem reprodukálható.
 - `make wasm.test`: A `module.wasm` host-load tesztje a relay cabinet ABI ellen (wazero).
 - `make validate`: A helyi séma módosításainak validálása.
 - `make test`: A Python tesztcsomag futtatása.
