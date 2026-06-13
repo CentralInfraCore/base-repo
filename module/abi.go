@@ -9,7 +9,6 @@ package main
 import "C"
 
 import (
-	"encoding/json"
 	"unsafe"
 )
 
@@ -23,18 +22,6 @@ func allocate(size uint32) uintptr {
 //export deallocate
 func deallocate(ptr uintptr, size uint32) {
 	C.free(unsafe.Pointer(ptr))
-}
-
-// guestResult mirrors the host's GuestResult (cicwasm.go:346): {data, error}.
-type guestResult struct {
-	Data  json.RawMessage `json:"data"`
-	Error json.RawMessage `json:"error"`
-}
-
-// guestError mirrors the error-codes contract (KB c689): INPUT|RUNTIME|INTERNAL|RESOURCE|TIMEOUT.
-type guestError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
 }
 
 //export Call
@@ -55,10 +42,13 @@ func Call(opPtr, opLen, authPtr, authLen, dataPtr, dataLen uint32) uint64 {
 	case "notify":
 		out, derr = Notify(auth, data)
 	default:
-		return pack(marshalErr("INPUT", "unknown op: "+op))
+		return pack(marshalErr(CodeInput, "unknown op: "+op))
 	}
 	if derr != nil {
-		return pack(marshalErr("RUNTIME", derr.Error()))
+		if ge, ok := derr.(*GuestError); ok {
+			return pack(marshalErr(ge.Code, ge.Message))
+		}
+		return pack(marshalErr(CodeRuntime, derr.Error()))
 	}
 	return pack(marshalData(out))
 }
@@ -89,28 +79,4 @@ func readBytes(ptr, length uint32) []byte {
 	out := make([]byte, length)
 	copy(out, src)
 	return out
-}
-
-// marshalData wraps a handler's raw JSON payload into the {data, error} envelope.
-func marshalData(data []byte) []byte {
-	if data == nil {
-		data = []byte("null")
-	}
-	b, err := json.Marshal(guestResult{Data: json.RawMessage(data), Error: json.RawMessage("null")})
-	if err != nil {
-		return marshalErr("INTERNAL", err.Error())
-	}
-	return b
-}
-
-// marshalErr wraps an error code/message into the {data, error} envelope.
-// Error codes ∈ INPUT|RUNTIME|INTERNAL|RESOURCE|TIMEOUT (KB c689).
-func marshalErr(code, message string) []byte {
-	errBytes, _ := json.Marshal(guestError{Code: code, Message: message})
-	b, err := json.Marshal(guestResult{Data: json.RawMessage("null"), Error: json.RawMessage(errBytes)})
-	if err != nil {
-		// last-resort fallback — must never fail to produce valid JSON
-		return []byte(`{"data":null,"error":{"code":"INTERNAL","message":"marshal failure"}}`)
-	}
-	return b
 }

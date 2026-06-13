@@ -25,6 +25,18 @@ func Get(auth, data []byte) ([]byte, error)     { /* idempotent read */ return [
 func Notify(auth, data []byte) ([]byte, error)  { /* v1 stub */ return nil, nil }
 ```
 
+To report a specific error code instead of the `RUNTIME` default, return a
+`*GuestError` via `NewGuestError` (`module/envelope.go`):
+
+```go
+func Get(auth, data []byte) ([]byte, error) {
+	if len(data) > 0 && !json.Valid(data) {
+		return nil, NewGuestError(CodeInput, "data must be valid JSON")
+	}
+	return []byte(`{"status":"ok"}`), nil
+}
+```
+
 ## The contract (iSDK v1, KB `c689`)
 
 Each handler receives two JSON byte slices — `auth` (the auth/context object)
@@ -32,13 +44,20 @@ and `data` (the op's input payload) — and returns `(dataJSON, error)`:
 
 - On success, return the JSON payload for `data` (or `nil` for an empty
   result) and a `nil` error.
-- On failure, return a non-nil `error`; `abi.go` wraps it as
-  `{"data":null,"error":{"code":"RUNTIME","message":"..."}}`.
+- On failure, return a non-nil `error`:
+  - A plain `error` (e.g. from `fmt.Errorf`) is wrapped by `abi.go` as
+    `{"data":null,"error":{"code":"RUNTIME","message":"..."}}` — the default
+    code for unexpected/internal failures.
+  - To report a specific code, return `*GuestError` via
+    `NewGuestError(code, message)` (`module/envelope.go`). `abi.go` unwraps
+    it and uses `code` directly instead of the `RUNTIME` default.
 - `op` ∈ `{init, process, get, notify}`. An unknown op returns
   `{"error":{"code":"INPUT", ...}}` — you never see it in `handlers.go`.
-- Error codes: `INPUT | RUNTIME | INTERNAL | RESOURCE | TIMEOUT`. Use `INPUT`
-  for bad caller data (e.g. JSON you can't parse), `RESOURCE` /  `TIMEOUT`
-  for environment-level failures, `INTERNAL` for bugs.
+- Error codes (`module/envelope.go`: `CodeInput`, `CodeRuntime`, `CodeInternal`,
+  `CodeResource`, `CodeTimeout`): `INPUT | RUNTIME | INTERNAL | RESOURCE |
+  TIMEOUT`. Use `INPUT` for bad caller data (e.g. JSON you can't parse),
+  `RESOURCE` / `TIMEOUT` for environment-level failures, `INTERNAL` for bugs
+  — see `Get` in `handlers.go` for a `CodeInput` example.
 - v1 is **synchronous, deterministic, WASI-off**: no goroutines, no network,
   no filesystem, no wall-clock-dependent behaviour. `notify` is an optional
   stub in v1.

@@ -26,6 +26,18 @@ func Get(auth, data []byte) ([]byte, error)     { /* idempotens olvasás */ retu
 func Notify(auth, data []byte) ([]byte, error)  { /* v1 stub */ return nil, nil }
 ```
 
+Ha az alapértelmezett `RUNTIME` helyett konkrét hibakódot akarsz visszaadni,
+adj vissza `*GuestError`-t a `NewGuestError`-rel (`module/envelope.go`):
+
+```go
+func Get(auth, data []byte) ([]byte, error) {
+	if len(data) > 0 && !json.Valid(data) {
+		return nil, NewGuestError(CodeInput, "data must be valid JSON")
+	}
+	return []byte(`{"status":"ok"}`), nil
+}
+```
+
 ## A contract (iSDK v1, KB `c689`)
 
 Minden handler két JSON byte-slice-t kap — `auth` (az auth/context objektum)
@@ -33,13 +45,21 @@ Minden handler két JSON byte-slice-t kap — `auth` (az auth/context objektum)
 
 - Siker esetén add vissza a `data` JSON payload-ot (vagy `nil`-t, ha nincs
   eredmény), és `nil` hibát.
-- Hiba esetén egy nem-nil `error`-t adj vissza; az `abi.go` ezt becsomagolja:
-  `{"data":null,"error":{"code":"RUNTIME","message":"..."}}`.
+- Hiba esetén egy nem-nil `error`-t adj vissza:
+  - Egy sima `error` (pl. `fmt.Errorf`) az `abi.go`-ban így csomagolódik be:
+    `{"data":null,"error":{"code":"RUNTIME","message":"..."}}` — ez az
+    alapértelmezett kód a váratlan/belső hibákra.
+  - Konkrét kód jelzéséhez adj vissza `*GuestError`-t a
+    `NewGuestError(code, message)` hívással (`module/envelope.go`). Az
+    `abi.go` ezt kicsomagolja, és a `RUNTIME` alapérték helyett a megadott
+    `code`-ot használja.
 - `op` ∈ `{init, process, get, notify}`. Ismeretlen op esetén
   `{"error":{"code":"INPUT", ...}}` érkezik — ez a `handlers.go`-ba sosem jut el.
-- Hibakódok: `INPUT | RUNTIME | INTERNAL | RESOURCE | TIMEOUT`. `INPUT` a
-  hibás caller-adatra (pl. nem parse-olható JSON), `RESOURCE`/`TIMEOUT` a
-  környezeti hibákra, `INTERNAL` a bugokra.
+- Hibakódok (`module/envelope.go`: `CodeInput`, `CodeRuntime`, `CodeInternal`,
+  `CodeResource`, `CodeTimeout`): `INPUT | RUNTIME | INTERNAL | RESOURCE |
+  TIMEOUT`. `INPUT` a hibás caller-adatra (pl. nem parse-olható JSON),
+  `RESOURCE`/`TIMEOUT` a környezeti hibákra, `INTERNAL` a bugokra — lásd a
+  `Get`-et a `handlers.go`-ban egy `CodeInput` példáért.
 - A v1 **szinkron, determinisztikus, WASI-off**: nincs goroutine, nincs
   hálózat, nincs fájlrendszer, nincs valós-idő-függő viselkedés. A `notify`
   v1-ben opcionális stub.

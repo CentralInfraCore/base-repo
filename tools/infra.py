@@ -166,12 +166,18 @@ class ReleaseManager:
         sys.exit(0)
 
     def _validate_final_project_yaml(self):
-        """Validates the project.yaml against the project.schema.yaml."""
+        """Validates the project.yaml against the project.schema.yaml.
+
+        Note: `compiler_settings.meta_schema_file` (e.g. md.meta.schema.yaml)
+        is the meta-schema for *documentation/schema* metadata blocks
+        (used by run_validation), not for project.yaml itself.
+        project.yaml's own structure is always validated against the
+        fixed `project.schema.yaml`, which is a plain JSON Schema (no
+        top-level 'spec' wrapper).
+        """
         self.logger.info("Validating final project.yaml against schema...")
         try:
-            schema_path = self._path(
-                self.config.get("meta_schema_file", "project.schema.yaml")
-            )
+            schema_path = self._path("project.schema.yaml")
             schema = load_and_resolve_schema(schema_path)
             if schema is None:
                 raise ConfigurationError(
@@ -183,7 +189,7 @@ class ReleaseManager:
                 raise ConfigurationError(
                     f"Project YAML file '{project_yaml_path}' is empty."
                 )
-            validate(instance=instance, schema=schema["spec"])
+            validate(instance=instance, schema=schema)
             # WASM-delta (wasm-template-plan.md, sec. 2.2): the binary
             # buildHash must be filled in (by `make wasm.build` /
             # wasm.buildhash) before finalization is allowed to proceed.
@@ -193,6 +199,8 @@ class ReleaseManager:
                     "finalization — run 'make wasm.build' to populate it."
                 )
             self.logger.info("✓ project.yaml is valid against the schema.")
+        except ValidationFailureError:
+            raise
         except (ConfigurationError, JsonSchemaValidationError) as e:
             raise ValidationFailureError(f"Final project.yaml validation failed: {e}")
         except Exception as e:
