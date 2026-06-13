@@ -15,6 +15,10 @@ pipeline.
 - **Build & host-load test:** `make wasm.build` compiles the guest module with
   TinyGo; `make wasm.test` host-loads `module/module.wasm` against the same
   wazero runtime used by the relay cabinet and exercises the ABI.
+- **ABI manifest:** `project.yaml`'s `abi:` block (exports/operations/
+  envelopeVersion) declares the guest <-> host contract; `make wasm.test`
+  fails if `module/module.wasm` doesn't export everything it declares. See
+  **[WASM ABI Contract](docs/contracts/en/wasm-abi.md)**.
 - **Provenance:** Every release signs both the source-spec checksum
   (`project.yaml`) and the built artifact's `buildHash`
   (`sha256(module/module.wasm)`), so a released module is a "provable, signed
@@ -69,6 +73,7 @@ Your environment is now ready. For a detailed guide on day-to-day development an
 A `Makefile` provides a simple interface for all common tasks.
 
 - `make wasm.build`: Build `module/module.wasm` with TinyGo and compute its `buildHash`.
+- `make wasm.rebuild-verify`: Rebuild the guest module to a scratch path and verify its sha256 matches `project.yaml`'s `metadata.buildHash` — catches a stale/non-reproducible `module.wasm`.
 - `make wasm.test`: Host-load `module.wasm` against the relay cabinet ABI (wazero).
 - `make validate`: Validate your local schema changes.
 - `make test`: Run the Python test suite.

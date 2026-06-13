@@ -6,7 +6,7 @@ include mk/golang.mk
 include mk/wasm.mk
 
 # ---- Phony ----
-.PHONY: all help validate release test up down shell build fmt lint check typecheck repo.init manifest-verify manifest-update
+.PHONY: all help validate release test up down shell build fmt lint check typecheck repo.init manifest-verify manifest-update docs.link-check
 
 # Default to showing help
 all: help
@@ -101,6 +101,14 @@ manifest-update: ##manifest-update
 	@echo "MANIFEST.sha256 updated"
 
 # =============================================================================
+# Documentation
+# =============================================================================
+
+docs.link-check: ## Verify internal markdown links in docs/ and READMEs resolve
+	@echo "--- Checking internal documentation links ---"
+	@docker compose exec -T builder python tools/check_doc_links.py
+
+# =============================================================================
 # Code Quality & Formatting (Aliases)
 # =============================================================================
 
@@ -137,6 +145,9 @@ help:
 	@echo "Manifest Management:"
 	@echo "  manifest-verify  Verify the integrity of the repository using MANIFEST.sha256."
 	@echo "  manifest-update  Re-generate the MANIFEST.sha256 file."
+	@echo ""
+	@echo "Documentation:"
+	@echo "  docs.link-check  Verify internal markdown links in docs/ and READMEs resolve."
 	@echo ""
 	@echo "Options for validate/release:"
 	@echo "  VERBOSE=1     Enable verbose output."

@@ -37,7 +37,7 @@ metadata:
   # the build-gap between the prepare and finalize release phases. The
   # finalization phase (tools/infra.py: _resign_with_build_hash) requires
   # this to be non-empty and re-signs metadata.sign to cover it.
-  buildHash: cf39464a13b128beece2e8cc973798ef2af56e9eeb41ac5d7f696c9cc63351af
+  buildHash: cb069c11921ff1f8fe448a825c92683289b5f1a92db94e0cd910c1815ceff58b
   cicSign: 'TBD'
   cicSignedCA:
     certificate: "TBD — filled by the release process with the CIC Root CA certificate"
@@ -52,3 +52,22 @@ compiler_settings:
   vault_cert_mount: cic-my-sign-key
   vault_cert_secret_name: crt
   vault_cert_secret_key: bar
+# abi describes the WASM guest <-> relay host contract (KB c689). It is
+# checked against the compiled module/module.wasm exports by
+# module/abi_manifest_test.go — a mismatch fails `make wasm.test`.
+# See docs/contracts/en/wasm-abi.md for the full contract.
+abi:
+  name: wasm-module-template
+  version: "1.0.0"
+  envelopeVersion: 1
+  # Functions module/module.wasm must export (cicwasm.go:243-247).
+  exports:
+    - allocate
+    - deallocate
+    - Call
+  # op-strings dispatched by module/abi.go's Call (KB c689).
+  operations:
+    - init
+    - process
+    - get
+    - notify

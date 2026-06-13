@@ -98,6 +98,18 @@ set-build-hash`).
 If `module.wasm` doesn't exist yet, the test is skipped with a message
 pointing at `make wasm.build`.
 
+## Reproducible build check
+
+`make wasm.rebuild-verify` rebuilds the guest module to a scratch path
+(`/tmp` inside the builder container — it never overwrites the committed
+`module/module.wasm`), computes its sha256, and compares it against
+`project.yaml`'s `metadata.buildHash`. A mismatch means either the committed
+`module.wasm` is stale (someone edited `module/` without running `make
+wasm.build`) or the TinyGo build is not reproducible in this environment —
+either way, the command fails with a non-zero exit and a message pointing at
+`make wasm.build` to refresh both files. This runs in CI right after
+`wasm.build` (`.github/workflows/ci.yml`).
+
 ## Go quality gate
 
 `mk/golang.mk` is wired to operate on `module/` (`GO_MODULE_DIR=module`):
