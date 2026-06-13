@@ -26,6 +26,9 @@ jobs:
           echo "UID=$(id -u)" >> "$GITHUB_ENV"
           echo "GID=$(id -g)" >> "$GITHUB_ENV"
 
+      - name: Pre-create bind-mount directories owned by the runner user
+        run: mkdir -p p_venv .pip-cache
+
       - name: Build Docker images
         run: make build
 
