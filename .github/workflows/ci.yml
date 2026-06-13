@@ -19,10 +19,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Export host UID/GID for docker compose
+        run: |
+          echo "UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "GID=$(id -g)" >> "$GITHUB_ENV"
+
+      - name: Pre-create bind-mount directories owned by the runner user
+        run: mkdir -p p_venv .pip-cache
 
       - name: Build Docker images
         run: make build
+
+      - name: Start builder container
+        run: docker compose up -d builder
 
       - name: Generate and check requirements.txt for drift
         run: |
@@ -48,7 +59,7 @@ jobs:
         run: make test
 
       - name: Upload coverage report artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: html-coverage-report
           path: htmlcov/
