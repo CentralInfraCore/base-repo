@@ -32,6 +32,9 @@ jobs:
       - name: Build Docker images
         run: make build
 
+      - name: Start builder container
+        run: docker compose up -d builder
+
       - name: Generate and check requirements.txt for drift
         run: |
           make infra.deps
