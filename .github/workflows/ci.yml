@@ -6,10 +6,13 @@ on:
     branches:
       - main
       - master
+      - wasm/main
+      - wasm/f/**
   pull_request:
     branches:
       - main
       - master
+      - wasm/main
 
 jobs:
   lint_and_test:
@@ -25,6 +28,9 @@ jobs:
         run: |
           make infra.deps
           git diff --exit-code requirements.txt
+
+      - name: Verify repository manifest
+        run: make manifest-verify
 
       - name: Run code quality checks
         run: make check
