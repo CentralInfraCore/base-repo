@@ -278,3 +278,98 @@ class TestReleaseManager:
             GitStateError, match="Release command must be run from the main branch"
         ):
             manager.run_release_close(release_version="1.0.0")
+
+
+# --- Mock-free _validate_final_project_yaml tests against the real schema ---
+#
+# These run the real `load_and_resolve_schema`/`load_yaml`/`validate` code
+# path against the repository's actual project.schema.yaml, to guard
+# against the schema["spec"] vs. meta_schema_file mismatch that previously
+# made finalization raise a KeyError on every real run.
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+VALID_PROJECT_YAML_INSTANCE = """
+metadata:
+  name: wasm-module-template
+  description: WASM guest module template
+  version: 0.1.0
+  license: CC-BY-NC-SA-4.0
+  main_branch: wasm/main
+  owner: Gabor Zoltan Sinko
+  buildHash: deadbeefcafef00d
+compiler_settings:
+  component_name: wasm-module
+  meta_schemas_dir: ./
+  meta_schema_file: md.meta.schema.yaml
+  canonical_source_file: schemas/index.yaml
+  source_dir: ./
+  vault_key_name: cic-my-sign-key
+"""
+
+INVALID_PROJECT_YAML_INSTANCE = """
+metadata:
+  name: wasm-module-template
+  description: WASM guest module template
+  main_branch: wasm/main
+  owner: Gabor Zoltan Sinko
+  buildHash: deadbeefcafef00d
+compiler_settings:
+  component_name: wasm-module
+  meta_schemas_dir: ./
+  meta_schema_file: md.meta.schema.yaml
+  source_dir: ./
+  vault_key_name: cic-my-sign-key
+"""
+
+
+class TestValidateFinalProjectYamlRealSchema:
+    @pytest.fixture
+    def real_schema_manager(
+        self, mock_config, mock_git_service, mock_vault_service, mocker, tmp_path
+    ):
+        # Copy the real project.schema.yaml into a scratch project root so the
+        # test exercises the actual schema shipped with the repository,
+        # without mutating it.
+        schema_src = PROJECT_ROOT / "project.schema.yaml"
+        schema_dst = tmp_path / "project.schema.yaml"
+        schema_dst.write_text(schema_src.read_text())
+
+        logger = mocker.MagicMock(spec=logging.Logger)
+        return ReleaseManager(
+            config=mock_config,
+            git_service=mock_git_service,
+            vault_service=mock_vault_service,
+            project_root=tmp_path,
+            dry_run=False,
+            logger=logger,
+        )
+
+    def test_real_schema_accepts_valid_project_yaml(
+        self, real_schema_manager, tmp_path
+    ):
+        (tmp_path / "project.yaml").write_text(VALID_PROJECT_YAML_INSTANCE)
+
+        # Must not raise: validates against the real project.schema.yaml
+        # without the schema["spec"] KeyError, and buildHash is non-empty.
+        real_schema_manager._validate_final_project_yaml()
+
+    def test_real_schema_rejects_project_yaml_missing_required_field(
+        self, real_schema_manager, tmp_path
+    ):
+        (tmp_path / "project.yaml").write_text(INVALID_PROJECT_YAML_INSTANCE)
+
+        with pytest.raises(
+            ValidationFailureError, match="Final project.yaml validation failed"
+        ):
+            real_schema_manager._validate_final_project_yaml()
+
+    def test_real_schema_rejects_empty_build_hash(self, real_schema_manager, tmp_path):
+        instance = yaml.safe_load(VALID_PROJECT_YAML_INSTANCE)
+        instance["metadata"]["buildHash"] = ""
+        (tmp_path / "project.yaml").write_text(yaml.dump(instance))
+
+        with pytest.raises(
+            ValidationFailureError, match="metadata.buildHash is required"
+        ):
+            real_schema_manager._validate_final_project_yaml()
