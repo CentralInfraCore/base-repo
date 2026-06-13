@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "title": "WASM Guest ABI Manifest Schema",
+  "description": "Defines the structure of project.yaml's abi: block -- the contract between a WASM guest module and the relay host (CIC-Relay/core/cabinet/cicwasm.go). Checked against module/module.wasm's actual exports by module/abi_manifest_test.go (KB c689). See docs/contracts/en/wasm-abi.md. NOTE: this file is written in JSON syntax (a valid YAML subset) on purpose -- tools.infra.load_and_resolve_schema resolves project.schema.yaml's $ref to this file via jsonref's default jsonloader, which only accepts JSON (json.loads); YAML block syntax here would break that $ref (tools/infra.py:73-87, not modifiable in this job).",
+  "required": ["name", "version", "envelopeVersion", "exports", "operations"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "The name of the WASM guest module (cf. metadata.name)."
+    },
+    "version": {
+      "type": "string",
+      "description": "The semantic version of the ABI contract itself.",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "envelopeVersion": {
+      "type": "integer",
+      "description": "Version of the JSON envelope format exchanged via Call (docs/contracts/en/envelope.md).",
+      "minimum": 1
+    },
+    "exports": {
+      "type": "array",
+      "description": "Functions module/module.wasm must export (cicwasm.go:243-247). Checked against the compiled binary by module/abi_manifest_test.go.",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "operations": {
+      "type": "array",
+      "description": "op-strings dispatched by module/abi.go's Call (KB c689).",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

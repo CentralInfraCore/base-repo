@@ -80,6 +80,7 @@ A `Makefile` provides a simple interface for all common tasks.
 - `make check`: Run all code quality checks (linting, formatting, type-checking).
 - `make golang.quality`: Run the Go quality gate (fmt/vet/lint/vuln) for `module/`.
 - `make manifest-verify` / `make manifest-update`: Verify/regenerate `MANIFEST.sha256`.
+- `make verify-release`: Offline release-readiness check — `project.yaml` schema (incl. `abi:`), `module.wasm` buildHash, ABI exports, `MANIFEST.sha256`, and provenance field status. See [release-artifact.md](docs/contracts/en/release-artifact.md).
 - `make release VERSION=v1.2.3`: Create a new signed release.
 
 For a complete list and description of all available commands, please see the **[Makefile Cheatsheet](docs/en/makefile-cheatsheet.md)**.

@@ -6,7 +6,7 @@ include mk/golang.mk
 include mk/wasm.mk
 
 # ---- Phony ----
-.PHONY: all help validate release test up down shell build fmt lint check typecheck repo.init manifest-verify manifest-update docs.link-check
+.PHONY: all help validate release test up down shell build fmt lint check typecheck repo.init manifest-verify manifest-update docs.link-check verify-release
 
 # Default to showing help
 all: help
@@ -107,6 +107,14 @@ manifest-update: ##manifest-update
 docs.link-check: ## Verify internal markdown links in docs/ and READMEs resolve
 	@echo "--- Checking internal documentation links ---"
 	@docker compose exec -T builder python tools/check_doc_links.py
+
+# =============================================================================
+# Release Verification
+# =============================================================================
+
+verify-release: ## Offline release-readiness check: schema, buildHash, ABI exports, manifest, provenance
+	@echo "--- Verifying release artifact (project.yaml, module.wasm, MANIFEST.sha256) ---"
+	@docker compose exec -T builder python -m tools.verify_release
 
 # =============================================================================
 # Code Quality & Formatting (Aliases)

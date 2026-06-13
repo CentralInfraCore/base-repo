@@ -71,28 +71,102 @@ guest module's binary artifact and its manifest declarations are produced and
 verified to be self-consistent *before* `finalize` checksums and signs the
 result.
 
+## project.yaml schema: abi: block and provenance metadata
+
+`project.schema.yaml` models `project.yaml`'s actual top-level and
+`metadata`/`compiler_settings` keys (including `tags`, `validatedBy`,
+`createdBy`, `build_timestamp`, `validity`, `checksum`, `sign`, `buildHash`,
+`cicSign`, `cicSignedCA`), with `additionalProperties: false` on `metadata`,
+`compiler_settings`, and `abi`. The `abi:` block has its own schema,
+`abi.schema.yaml`, referenced from `project.schema.yaml` via `$ref`.
+
+`abi.schema.yaml` is written in JSON syntax (a valid YAML subset): jsonref's
+default loader (used by `tools.infra.load_and_resolve_schema`) only resolves
+`$ref`s to JSON documents, not YAML block syntax — see `tools/infra.py:73-87`.
+Writing the referenced file as JSON-in-`.yaml` keeps a single source of truth
+for the `abi:` shape without modifying `tools/infra.py`.
+
+TBD placeholder fields (`createdBy`, `cicSign`, `validatedBy.checksum`,
+`checksum`, `sign`, `cicSignedCA`) remain typed as `string`/`object` with no
+format constraints, so a template/unreleased `project.yaml` stays
+schema-valid — see the field-level `description`s in `project.schema.yaml`
+for what each placeholder means and which job fills it in.
+
+## verify-release: offline release-readiness check
+
+**Implemented** (this job). `make verify-release`
+(`tools/verify_release.py`, `Makefile` `verify-release` target) runs a single
+offline command that checks:
+
+1. `project.yaml` validates against `project.schema.yaml` (incl. `abi:` via
+   `abi.schema.yaml`).
+2. `module/module.wasm`'s sha256 matches `project.yaml`'s
+   `metadata.buildHash`, by rebuilding to a scratch path with the same
+   TinyGo invocation as `make wasm.rebuild-verify` (`mk/wasm.mk`).
+3. `project.yaml`'s `abi.exports` match `module/module.wasm`'s actual
+   exports, by running
+   `module/abi_manifest_test.go`'s `TestHostLoadABIManifestExportsPresent`
+   (`go test`).
+4. `MANIFEST.sha256` matches the working tree (same as `make
+   manifest-verify`).
+5. Provenance fields (`createdBy`, `validatedBy.checksum`, `checksum`,
+   `sign`, `cicSign`, `cicSignedCA.certificate`) are reported as
+   `OK` / `TBD` / `MISSING`.
+
+Checks 1-4 gate the exit code (non-zero on any `FAIL`); check 5 is
+**informational only**.
+
+### What `verify-release` does NOT check
+
+- **No cryptographic signature verification.** Check 5 reports whether
+  `createdBy`/`cicSign`/`cicSignedCA`/`sign`/`checksum` are present,
+  `"TBD"`, or missing — it does not call Vault and does not verify any
+  certificate chain or signature. A `PASS` from `verify-release` is **not**
+  proof that the commit was signed by a trusted CIC key.
+- **No `repository_tree_hash`/`signing_metadata` check** (the `release:`
+  block in `project.schema.yaml`) — that block is populated by `make release`
+  and is out of scope here.
+- **No network/Vault access** — by design, so the command works in CI and on
+  a developer machine without Vault credentials.
+
+A `TBD` result on check 5 is expected for a template/unreleased
+`project.yaml` and does not fail the command; a `MISSING` result means the
+metadata key itself is absent from `project.yaml` (a schema problem, also
+caught by check 1).
+
+`verify-release` is **not** wired into `.github/workflows/ci.yml` in this
+job: it is a release-readiness gate (relevant when preparing a `make release`
+run), not a per-push check like `wasm.rebuild-verify`/`wasm.test`/
+`manifest-verify`. A future job can decide whether/where to add it as a CI
+step (e.g. only on release branches).
+
 ## Target state: provable signed release bundle
 
-The current implemented state — `buildHash` + `wasm.rebuild-verify` + ABI
-manifest + `MANIFEST.sha256` — establishes that, for a given commit:
+The implemented state — `buildHash` + `wasm.rebuild-verify` + ABI manifest +
+`MANIFEST.sha256` + `project.yaml`/`abi.schema.yaml` schema validation +
+`verify-release` — establishes that, for a given commit:
 
 - `module/module.wasm` is exactly what `module/*.go` compiles to
   (reproducible build).
 - `module/module.wasm`'s exports match what `project.yaml` declares (ABI
   manifest).
 - No other tracked file has drifted unexpectedly (repository manifest).
+- `project.yaml`'s structure (including the `abi:` contract) matches the
+  documented schema.
 
 The target state for a release **artifact** (a distributable bundle, as
-opposed to a signed source commit) builds on these three invariants: a bundle
+opposed to a signed source commit) builds on these invariants: a bundle
 containing `module/module.wasm` + `project.yaml` + a Vault signature over both
 would let a downstream consumer verify, offline, that (a) the wasm binary
 matches the declared `buildHash`, (b) the declared `abi.exports`/`operations`
-match the binary's actual exports, and (c) the bundle was signed by a trusted
-CIC key — without needing the source tree or a TinyGo toolchain at all.
+match the binary's actual exports, (c) `project.yaml` is schema-valid, and
+(d) the bundle was signed by a trusted CIC key — without needing the source
+tree or a TinyGo toolchain at all. `verify-release` implements (a)-(c); (d)
+(actual cryptographic signature verification of `cicSign`/`createdBy.certificate`
+against a CIC Root CA, without Vault access) remains **TBD** — see "What
+`verify-release` does NOT check" above.
 
-Defining that bundle format, a `verify-release` CLI to check it, and how it
-composes with the existing three-phase `tools/infra.py` release process are
-**out of scope for this job** (2nd/3rd-tier review items) — see the job
-report for the explicit "blocked by 3-tier architectural decision" note. This
-document describes the target shape so that a future job can implement it
-against the invariants already established here.
+Defining that bundle format and how it composes with the existing
+three-phase `tools/infra.py` release process is **out of scope for this job**
+(3rd-tier review item, `wasm-release-pipeline-audit`) — see the job report
+for the explicit "blocked by release-pipeline audit" note.
