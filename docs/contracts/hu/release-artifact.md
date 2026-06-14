@@ -75,6 +75,15 @@ egy WASM guest modul bináris artifactja és a manifeszt-deklarációi
 előállnak és ellenőrizve lesz, hogy önkonzisztensek, *mielőtt* a
 `finalize` checksum-olja és aláírja az eredményt.
 
+A `tools/finalize_release.py` **deprecated és dead code** ezen az úton: nincs
+hívási helye a `Makefile`-ban, `mk/*.mk`-ban vagy
+`.github/workflows/*.yml`-ben, és a fenti **finalize** fázist a
+`tools.infra.ReleaseManager` implementálja (lásd `tools/infra.py:352-385`
+checksum + `buildHash` aláírási modelljét), nem ez a script. Csak egy
+relay-readiness milestone-ig marad meg (vö. CIC-Schemas
+`compiler-architecture-plan.md`, "Step 10"), és a modulban `# DEPRECATED`
+jelöléssel van ellátva.
+
 ## project.yaml séma: abi: blokk és provenance metaadatok
 
 A `project.schema.yaml` modellezi a `project.yaml` tényleges top-level és
@@ -143,7 +152,6 @@ release` futtatás előkészítésekor releváns), nem egy minden push-ra futó
 ellenőrzés, mint a `wasm.rebuild-verify`/`wasm.test`/`manifest-verify`. Egy
 jövőbeli job eldöntheti, hogy/hová kötné be CI step-ként (pl. csak release
 branch-eken).
-
 ## Célállapot: bizonyítható, aláírt release bundle
 
 Az implementált állapot — `buildHash` + `wasm.rebuild-verify` + ABI

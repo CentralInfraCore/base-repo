@@ -71,6 +71,14 @@ guest module's binary artifact and its manifest declarations are produced and
 verified to be self-consistent *before* `finalize` checksums and signs the
 result.
 
+`tools/finalize_release.py` is **deprecated and dead code** on this path: it
+has no call site in `Makefile`, `mk/*.mk`, or `.github/workflows/*.yml`, and
+the **finalize** phase above is implemented by `tools.infra.ReleaseManager`
+(see `tools/infra.py:352-385`'s checksum + `buildHash` signing model), not by
+this script. It is retained only pending a relay-readiness milestone (cf.
+CIC-Schemas `compiler-architecture-plan.md`, "Step 10") and is marked
+`# DEPRECATED` in the module itself.
+
 ## project.yaml schema: abi: block and provenance metadata
 
 `project.schema.yaml` models `project.yaml`'s actual top-level and
@@ -139,7 +147,6 @@ job: it is a release-readiness gate (relevant when preparing a `make release`
 run), not a per-push check like `wasm.rebuild-verify`/`wasm.test`/
 `manifest-verify`. A future job can decide whether/where to add it as a CI
 step (e.g. only on release branches).
-
 ## Target state: provable signed release bundle
 
 The implemented state — `buildHash` + `wasm.rebuild-verify` + ABI manifest +
