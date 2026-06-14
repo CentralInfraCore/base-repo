@@ -42,6 +42,7 @@ metadata:
   cicSignedCA:
     certificate: "TBD — filled by the release process with the CIC Root CA certificate"
 compiler_settings:
+  repo_type: module
   component_name: wasm-module
   meta_schemas_dir: ./
   meta_schema_file: md.meta.schema.yaml

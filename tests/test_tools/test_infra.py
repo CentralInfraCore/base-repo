@@ -101,7 +101,9 @@ class TestHelperFunctions:
         mock_cert.get_extension_count.return_value = 1
         mock_cert.get_extension.return_value = mock_ext
 
-        mocker.patch("tools.infra.crypto.load_certificate", return_value=mock_cert)
+        mocker.patch(
+            "tools.schemalib.artifact.crypto.load_certificate", return_value=mock_cert
+        )
         name, email = _parse_certificate_info(VALID_CERT)
         assert name == "Test User"
         assert email == "alt@email.com"
@@ -114,7 +116,9 @@ class TestHelperFunctions:
         mock_cert.get_subject.return_value = mock_subject
         mock_cert.get_extension_count.return_value = 0  # No extensions
 
-        mocker.patch("tools.infra.crypto.load_certificate", return_value=mock_cert)
+        mocker.patch(
+            "tools.schemalib.artifact.crypto.load_certificate", return_value=mock_cert
+        )
         name, email = _parse_certificate_info(VALID_CERT)
         assert name == "Test User"
         assert email == "fallback@email.com"
@@ -299,6 +303,7 @@ metadata:
   owner: Gabor Zoltan Sinko
   buildHash: deadbeefcafef00ddeadbeefcafef00ddeadbeefcafef00ddeadbeefcafef00d
 compiler_settings:
+  repo_type: module
   component_name: wasm-module
   meta_schemas_dir: ./
   meta_schema_file: md.meta.schema.yaml

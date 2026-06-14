@@ -1,20 +1,14 @@
 import base64
 import datetime
 import hashlib
-import json
 import logging
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 import requests
 import yaml
-from jsonref import JsonRef
 from jsonschema import ValidationError as JsonSchemaValidationError
 from jsonschema import validate
-from OpenSSL import crypto
-from OpenSSL.SSL import Error as OpenSSLError
 
 from .releaselib.exceptions import (
     ConfigurationError,
@@ -22,105 +16,17 @@ from .releaselib.exceptions import (
     ReleaseError,
     VaultServiceError,
 )
+from .schemalib.artifact import (
+    build_signing_payload,
+    compute_spec_checksum,
+    parse_certificate_info,
+    to_canonical_json,
+)
+from .schemalib.loader import load_and_resolve_schema, load_yaml, write_yaml
+from .schemalib.validator import ValidationFailureError
 
-
-class ValidationFailureError(ReleaseError):
-    """Custom exception for schema validation failures."""
-
-    pass
-
-
-def to_canonical_json(data):
-    """Converts a Python object to a canonical (sorted, no whitespace) JSON string."""
-    return json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
-
-
-def get_sha256_hex(data_bytes):
-    """Calculates the SHA256 hash and returns it as a hex digest."""
-    return hashlib.sha256(data_bytes).hexdigest()
-
-
-def _parse_certificate_info(pem_cert_data):
-    """
-    Parses a PEM-encoded certificate to extract Common Name and Email.
-    Returns (name, email).
-    """
-    try:
-        cert = crypto.load_certificate(
-            crypto.FILETYPE_PEM, pem_cert_data.encode("utf-8")
-        )
-        subject = cert.get_subject()
-        name = subject.CN
-        email = None
-        for i in range(cert.get_extension_count()):
-            ext = cert.get_extension(i)
-            if ext.get_short_name() == b"subjectAltName":
-                alt_names = str(ext).split(", ")
-                for alt_name in alt_names:
-                    if alt_name.startswith("email:"):
-                        email = alt_name[len("email:") :]
-                        break
-        if not email:
-            email = subject.emailAddress
-        return name, email
-    except (OpenSSLError, Exception) as e:
-        logging.getLogger(__name__).warning(
-            f"Could not parse certificate with pyOpenSSL: {e}"
-        )
-        return "Unknown", "unknown@example.com"
-
-
-def load_and_resolve_schema(path):
-    """
-    Loads a YAML file and resolves all $ref references.
-    The base URI is the directory of the file, allowing for relative references.
-    """
-    try:
-        with open(path, "r") as f:
-            base_uri = f"file://{os.path.dirname(os.path.abspath(path))}/"
-            unresolved_data = yaml.safe_load(f)
-            resolved_data = JsonRef.replace_refs(unresolved_data, base_uri=base_uri)
-            return resolved_data
-    except FileNotFoundError as e:
-        raise ConfigurationError(f"File not found: {path}") from e
-    except yaml.YAMLError as e:
-        raise ConfigurationError(f"YAML parsing error in {path}: {e}") from e
-
-
-def load_yaml(path: Path):
-    """Loads a YAML file."""
-    try:
-        with open(path, "r") as f:
-            content = f.read()
-            if not content.strip():
-                return None
-            return yaml.safe_load(content)
-    except FileNotFoundError as e:
-        raise ConfigurationError(f"Configuration file not found at: {path}") from e
-    except yaml.YAMLError as e:
-        raise ConfigurationError(f"YAML syntax error in {path}: {e}") from e
-
-
-def write_yaml(path: Path, data):
-    """Writes data to a YAML file atomically."""
-    tmp_name = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, dir=path.parent, encoding="utf-8"
-        ) as tmp_file:
-            tmp_name = tmp_file.name
-            yaml.dump(data, tmp_file, sort_keys=False, indent=2)
-        os.replace(tmp_name, path)
-    except (IOError, OSError) as e:
-        raise ReleaseError(f"Failed to write YAML file to {path}: {e}") from e
-    finally:
-        if tmp_name and Path(tmp_name).exists():
-            try:
-                Path(tmp_name).unlink()
-            except Exception as unlink_e:
-                logging.getLogger(__name__).warning(
-                    f"Failed to clean up temporary file {tmp_name}: {unlink_e}"
-                )
+# Back-compat alias for tests and external consumers
+_parse_certificate_info = parse_certificate_info
 
 
 class ReleaseManager:
@@ -243,8 +149,7 @@ class ReleaseManager:
 
             self.logger.info("Assembling the developer-stage project.yaml metadata...")
 
-            spec_bytes = to_canonical_json(source_data["spec"])
-            checksum = get_sha256_hex(spec_bytes)
+            checksum = compute_spec_checksum(source_data["spec"])
             self.logger.info(f"✓ Calculated spec checksum: {checksum[:12]}...")
 
             user_certificate = self.vault_service.get_certificate(
@@ -259,23 +164,15 @@ class ReleaseManager:
             )
             self.logger.info("✓ User and CIC Root CA certificates obtained from Vault.")
 
-            name, email = _parse_certificate_info(user_certificate)
-            self.logger.info(f"✓ Parsed user certificate: {name} <{email}>")
+            build_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            schema_name = source_data.get("metadata", {}).get("name", "unknown")
 
-            metadata_for_signing = {
-                "name": source_data.get("metadata", {}).get("name", "unknown"),
-                "version": release_version,
-                "checksum": checksum,
-                "build_timestamp": datetime.datetime.now(
-                    datetime.timezone.utc
-                ).isoformat(),
-            }
-
-            digest_bytes = to_canonical_json(metadata_for_signing)
-            digest_b64 = base64.b64encode(hashlib.sha256(digest_bytes).digest()).decode(
-                "utf-8"
+            digest_b64 = build_signing_payload(
+                name=schema_name,
+                version=release_version,
+                checksum=checksum,
+                build_timestamp=build_timestamp,
             )
-
             signature = self.vault_service.sign(
                 digest_b64, self.config["vault_key_name"]
             )
@@ -287,10 +184,10 @@ class ReleaseManager:
                 "version": release_version,
                 "checksum": checksum,
                 "sign": signature,
-                "build_timestamp": metadata_for_signing["build_timestamp"],
+                "build_timestamp": build_timestamp,
                 "createdBy": {
-                    "name": name,
-                    "email": email,
+                    "name": None,
+                    "email": None,
                     "certificate": user_certificate,
                     "issuer_certificate": cic_root_ca_cert,
                 },
@@ -298,6 +195,11 @@ class ReleaseManager:
                 "cicSign": "",
                 "cicSignedCA": {"certificate": ""},
             }
+            cert_name, cert_email = _parse_certificate_info(user_certificate)
+            metadata["createdBy"]["name"] = cert_name
+            metadata["createdBy"]["email"] = cert_email
+            self.logger.info(f"✓ Parsed user certificate: {cert_name} <{cert_email}>")
+
             project_data["metadata"] = metadata
             project_data["spec"] = source_data["spec"]
 

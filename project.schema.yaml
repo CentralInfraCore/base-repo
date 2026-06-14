@@ -178,15 +178,23 @@ properties:
     type: object
     description: "Configuration for the build and release tools."
     required:
+      - repo_type
       - meta_schemas_dir
       - source_dir
       - meta_schema_file
       - vault_key_name
     additionalProperties: false
     properties:
+      repo_type:
+        type: string
+        description: "The type of repository. Controls which compiler commands are available."
+        enum: ["schema", "workflow", "module"]
       component_name:
         type: string
         description: "Release component name (tools/infra.py: _check_base_branch_and_version)."
+      main_branch:
+        type: string
+        description: "The target branch for merge-back after release."
       meta_schemas_dir:
         type: string
       meta_schema_file:
@@ -194,6 +202,12 @@ properties:
       canonical_source_file:
         type: string
         description: "The canonical source schema validated by `make validate` (tools/infra.py: run_validation)."
+      dependencies_dir:
+        type: string
+        description: "Directory for validator schemas (schema repos only)."
+      release_dir:
+        type: string
+        description: "Output directory for released schemas (schema repos only)."
       vault_key_name:
         type: string
         description: "The Vault key name for the author's signature."
@@ -211,6 +225,12 @@ properties:
       vault_cert_secret_key:
         type: string
         description: "Vault secret key for the author's/CIC Root CA certificate."
+      cic_root_ca_secret_name:
+        type: string
+        description: "Secret name in Vault KV for the CIC Root CA certificate."
+      validity_days:
+        type: integer
+        description: "How many days a release artifact remains valid."
 
   abi:
     $ref: "abi.schema.yaml"
