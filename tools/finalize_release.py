@@ -14,6 +14,14 @@
 # Once that system is in place, this script will become obsolete and should be
 # removed.
 
+# DEPRECATED: This module is dead code on the production release path
+# (no Makefile/mk/*.mk/.github/workflows/*.yml call site — verified via
+# `grep -rn "finalize_release"`). The active release chain is
+# `make release` -> tools.compiler -> tools.infra.ReleaseManager
+# (see tools/infra.py:352-385 for the checksum+buildHash signing model).
+# Track relay-readiness as a separate milestone; delete this module on
+# relay GA (cf. CIC-Schemas compiler-architecture-plan.md, "Step 10").
+
 import argparse
 import base64
 import hashlib
