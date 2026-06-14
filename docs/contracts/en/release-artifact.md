@@ -71,6 +71,14 @@ guest module's binary artifact and its manifest declarations are produced and
 verified to be self-consistent *before* `finalize` checksums and signs the
 result.
 
+`tools/finalize_release.py` is **deprecated and dead code** on this path: it
+has no call site in `Makefile`, `mk/*.mk`, or `.github/workflows/*.yml`, and
+the **finalize** phase above is implemented by `tools.infra.ReleaseManager`
+(see `tools/infra.py:352-385`'s checksum + `buildHash` signing model), not by
+this script. It is retained only pending a relay-readiness milestone (cf.
+CIC-Schemas `compiler-architecture-plan.md`, "Step 10") and is marked
+`# DEPRECATED` in the module itself.
+
 ## Target state: provable signed release bundle
 
 The current implemented state — `buildHash` + `wasm.rebuild-verify` + ABI
