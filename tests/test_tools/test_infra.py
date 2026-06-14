@@ -297,7 +297,7 @@ metadata:
   license: CC-BY-NC-SA-4.0
   main_branch: wasm/main
   owner: Gabor Zoltan Sinko
-  buildHash: deadbeefcafef00d
+  buildHash: deadbeefcafef00ddeadbeefcafef00ddeadbeefcafef00ddeadbeefcafef00d
 compiler_settings:
   component_name: wasm-module
   meta_schemas_dir: ./
@@ -305,6 +305,19 @@ compiler_settings:
   canonical_source_file: schemas/index.yaml
   source_dir: ./
   vault_key_name: cic-my-sign-key
+abi:
+  name: wasm-module-template
+  version: "1.0.0"
+  envelopeVersion: 1
+  exports:
+    - allocate
+    - deallocate
+    - Call
+  operations:
+    - init
+    - process
+    - get
+    - notify
 """
 
 INVALID_PROJECT_YAML_INSTANCE = """
@@ -328,12 +341,11 @@ class TestValidateFinalProjectYamlRealSchema:
     def real_schema_manager(
         self, mock_config, mock_git_service, mock_vault_service, mocker, tmp_path
     ):
-        # Copy the real project.schema.yaml into a scratch project root so the
-        # test exercises the actual schema shipped with the repository,
-        # without mutating it.
-        schema_src = PROJECT_ROOT / "project.schema.yaml"
-        schema_dst = tmp_path / "project.schema.yaml"
-        schema_dst.write_text(schema_src.read_text())
+        # Copy the real project.schema.yaml (and the abi.schema.yaml it
+        # $ref's) into a scratch project root so the test exercises the
+        # actual schemas shipped with the repository, without mutating them.
+        for name in ("project.schema.yaml", "abi.schema.yaml"):
+            (tmp_path / name).write_text((PROJECT_ROOT / name).read_text())
 
         logger = mocker.MagicMock(spec=logging.Logger)
         return ReleaseManager(

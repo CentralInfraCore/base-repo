@@ -4,6 +4,9 @@ title: "Project Definition Schema"
 description: "Defines the structure for the project's main descriptor and configuration file (project.yaml)."
 required:
   - metadata
+  - compiler_settings
+  - abi
+additionalProperties: false
 properties:
   metadata:
     type: object
@@ -14,6 +17,7 @@ properties:
       - license
       - owner
       - main_branch
+    additionalProperties: false
     properties:
       name:
         type: string
@@ -40,6 +44,93 @@ properties:
         type: string
         description: >-
           The team or individual responsible for the repository.
+      tags:
+        type: array
+        description: "A list of tags for categorization and discovery."
+        items:
+          type: string
+      validatedBy:
+        type: object
+        description: >-
+          A receipt proving which meta-schema was used for validation. A
+          template/unreleased project.yaml carries 'TBD' placeholders here —
+          see project.yaml's metadata comments.
+        required:
+          - name
+          - version
+        additionalProperties: false
+        properties:
+          name:
+            type: string
+          version:
+            type: string
+          checksum:
+            type: string
+            description: "SHA256 checksum of the validating meta-schema's spec block, or 'TBD'."
+      createdBy:
+        type: object
+        description: >-
+          Author identity + Vault-issued certificate chain. Template
+          placeholders ('TBD') are filled by the release process
+          (tools/infra.py: _resign_with_build_hash and the Vault signing
+          chain) — see project.yaml's metadata comments.
+        required:
+          - name
+          - email
+          - certificate
+          - issuer_certificate
+        additionalProperties: false
+        properties:
+          name:
+            type: string
+          email:
+            type: string
+          certificate:
+            type: string
+          issuer_certificate:
+            type: string
+      build_timestamp:
+        type: string
+        description: >-
+          Timestamp when this version was built and signed, or 'TBD' in a
+          template/unreleased project.yaml.
+      validity:
+        type: object
+        description: "Support lifecycle window, or 'TBD'/'TBD' in a template/unreleased project.yaml."
+        required:
+          - from
+          - until
+        additionalProperties: false
+        properties:
+          from:
+            type: string
+          until:
+            type: string
+      checksum:
+        type: string
+        description: "Checksum of the source-spec, or 'TBD' in a template/unreleased project.yaml."
+      sign:
+        type: string
+        description: "Vault signature over metadata (incl. buildHash), or 'TBD' in a template/unreleased project.yaml."
+      buildHash:
+        type: string
+        description: >-
+          sha256(module/module.wasm), written by `make wasm.build` /
+          `wasm.buildhash` (mk/wasm.mk). Empty in a freshly-generated
+          template before the first build.
+        pattern: '^([a-f0-9]{64}|TBD)?$'
+      cicSign:
+        type: string
+        description: "CIC Root CA co-signature, or 'TBD' in a template/unreleased project.yaml."
+      cicSignedCA:
+        type: object
+        description: "CIC Root CA certificate, or 'TBD' in a template/unreleased project.yaml."
+        required:
+          - certificate
+        additionalProperties: false
+        properties:
+          certificate:
+            type: string
       maintenance:
         type: object
         description: >-
@@ -91,16 +182,38 @@ properties:
       - source_dir
       - meta_schema_file
       - vault_key_name
+    additionalProperties: false
     properties:
-      meta_schemas_dir:
+      component_name:
         type: string
-      source_dir:
+        description: "Release component name (tools/infra.py: _check_base_branch_and_version)."
+      meta_schemas_dir:
         type: string
       meta_schema_file:
         type: string
+      canonical_source_file:
+        type: string
+        description: "The canonical source schema validated by `make validate` (tools/infra.py: run_validation)."
       vault_key_name:
         type: string
         description: "The Vault key name for the author's signature."
+      cic_root_ca_key_name:
+        type: string
+        description: "The Vault key name for the CIC Root CA co-signature."
+      source_dir:
+        type: string
+      vault_cert_mount:
+        type: string
+        description: "Vault mount point for the author's certificate (tools/infra.py: vault_service.get_certificate)."
+      vault_cert_secret_name:
+        type: string
+        description: "Vault secret name for the author's certificate."
+      vault_cert_secret_key:
+        type: string
+        description: "Vault secret key for the author's/CIC Root CA certificate."
+
+  abi:
+    $ref: "abi.schema.yaml"
 
   release:
     type: object

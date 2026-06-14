@@ -81,6 +81,7 @@ A `Makefile` egy egyszerű interfészt biztosít az összes gyakori feladathoz.
 - `make check`: Az összes kódminőségi ellenőrzés (linting, formázás, típusellenőrzés) futtatása.
 - `make golang.quality`: Go minőségi kapu (fmt/vet/lint/vuln) a `module/`-ra.
 - `make manifest-verify` / `make manifest-update`: A `MANIFEST.sha256` ellenőrzése/újragenerálása.
+- `make verify-release`: Offline release-készenléti ellenőrzés — `project.yaml` séma (incl. `abi:`), `module.wasm` buildHash, ABI exportok, `MANIFEST.sha256`, és a provenance mezők státusza. Ld. [release-artifact.md](docs/contracts/hu/release-artifact.md).
 - `make release VERSION=v1.2.3`: Új, aláírt kiadás létrehozása.
 
 Az összes elérhető parancs teljes listájáért és leírásáért, kérlek, olvasd el a **[Makefile Súgó](docs/hu/makefile-cheatsheet.md)** dokumentumot.
