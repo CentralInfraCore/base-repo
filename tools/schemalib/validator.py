@@ -4,13 +4,14 @@ from pathlib import Path
 from jsonschema import ValidationError as JsonSchemaValidationError
 from jsonschema import validate
 
-from ..releaselib.exceptions import ConfigurationError, ReleaseError
+from ..releaselib.exceptions import ReleaseError
 from .artifact import compute_spec_checksum
 from .loader import load_and_resolve_schema
 
 
 class ValidationFailureError(ReleaseError):
     """Raised when schema validation or validator integrity check fails."""
+
     pass
 
 
@@ -87,9 +88,7 @@ def get_validator_schema(
     validator_filename = f"{validator_name}-{validator_version}.yaml"
     validator_path = dependencies_dir / validator_filename
 
-    logging.getLogger(__name__).info(
-        f"Loading external validator: {validator_path}"
-    )
+    logging.getLogger(__name__).info(f"Loading external validator: {validator_path}")
 
     validator_schema = load_and_resolve_schema(validator_path)
 
@@ -111,9 +110,7 @@ def run_validation(instance: dict, validator_schema: dict) -> None:
 
     try:
         validate(instance=instance, schema=validator_schema["spec"])
-        logger.info(
-            f"✓ Valid against {validator_name}@{validator_version}"
-        )
+        logger.info(f"✓ Valid against {validator_name}@{validator_version}")
     except JsonSchemaValidationError as e:
         raise ValidationFailureError(
             f"Schema validation FAILED against "

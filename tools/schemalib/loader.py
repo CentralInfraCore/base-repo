@@ -49,6 +49,7 @@ def load_and_resolve_schema(path: Path) -> dict:
         dict: Fully resolved, JSON-serialisable document.
     """
     try:
+
         def yaml_loader(uri):
             local_path = url2pathname(urlparse(uri).path)
             with open(local_path, "r") as f_loader:
@@ -126,5 +127,5 @@ def write_yaml(path: Path, data: dict) -> None:
         if tmp_name and Path(tmp_name).exists():
             try:
                 Path(tmp_name).unlink()
-            except Exception:
+            except Exception:  # nosec B110 - best-effort cleanup of temp file
                 pass

@@ -54,13 +54,13 @@ def parse_certificate_info(pem_cert_data: str) -> tuple[str, str]:
             if ext.get_short_name() == b"subjectAltName":
                 for alt_name in str(ext).split(", "):
                     if alt_name.startswith("email:"):
-                        email = alt_name[len("email:"):]
+                        email = alt_name[len("email:") :]
                         break
 
         if not email:
             email = subject.emailAddress
 
-        return name, email
+        return name or "Unknown", email or "unknown@example.com"
     except (OpenSSLError, Exception) as e:
         logger.warning(f"Could not parse certificate with pyOpenSSL: {e}")
         return "Unknown", "unknown@example.com"
