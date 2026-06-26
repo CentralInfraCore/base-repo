@@ -145,32 +145,61 @@ def process_go_yaml(file_path):
     if not objects:
         return chunks
 
-    for i, obj in enumerate(objects):
-        name     = obj.get('name', '')
-        kind     = obj.get('kind', '')
-        receiver = obj.get('receiver', '')
-        desc     = str(obj.get('description', '')).strip()
-        refs     = obj.get('references', [])
-        impl     = obj.get('implements', [])
+    for obj in objects:
+        name          = obj.get('name', '')
+        kind          = obj.get('kind', '')
+        receiver      = obj.get('receiver', '')
+        desc          = str(obj.get('description', '')).strip()
+        refs          = obj.get('references', [])
+        impl          = obj.get('implements', [])
+        position      = obj.get('position', {})
+        signature     = obj.get('signature', {})
+        calls         = obj.get('calls', [])
+        fields        = obj.get('fields', [])
+        iface_methods = obj.get('methods', [])
 
-        # Build searchable text: signature + description + references
-        sig = f"method ({receiver}) {name}" if receiver else f"{kind} {name}"
-        lines = [sig]
+        sig_str = ''
+        if signature:
+            params = ', '.join(
+                f"{p.get('name', '')} {p.get('type', '')}".strip()
+                for p in signature.get('params', [])
+            )
+            returns = ', '.join(signature.get('returns', []))
+            sig_str = f"({params})"
+            if returns:
+                sig_str += f" {returns}"
+
+        if receiver:
+            sig_line = f"method ({receiver}) {name}{sig_str}"
+        elif kind in ('func',):
+            sig_line = f"func {name}{sig_str}"
+        else:
+            sig_line = f"{kind} {name}"
+
+        lines = [sig_line]
         if desc:
             lines.append(desc)
         if refs:
             lines.append(f"references: {', '.join(refs)}")
         if impl:
             lines.append(f"implements: {', '.join(impl)}")
+        if calls:
+            lines.append(f"calls: {', '.join(calls)}")
+        if fields:
+            field_strs = [f"{f.get('name', '')} {f.get('type', '')}".strip() for f in fields]
+            lines.append(f"fields: {', '.join(field_strs)}")
+        if iface_methods:
+            lines.append(f"methods: {', '.join(m.get('name', '') for m in iface_methods)}")
 
         chunk = {
             'text': '\n'.join(lines),
             'file_path': file_path,
             'section': name,
-            'start_line': i + 1,
-            'end_line': i + 1,
+            'start_line': position.get('start_line', 1),
+            'end_line':   position.get('end_line', 1),
             'lang': 'go',
             'type': f'go_{kind}' if kind else 'go_object',
+            'calls': calls,
         }
         chunk.update(meta)
         chunks.append(chunk)
@@ -415,6 +444,30 @@ def create_knowledge_graph_with_content(chunks, embeddings):
                         seen_refs.add(key)
                         edges.append({'from': src_node, 'to': dst_node, 'type': 'references',
                                       'weight': 1.0, 'evidence_chunk_id': chunk['id']})
+
+    # Call graph edges from AST calls lists.
+    # Resolves internal calls by name within indexed Go chunks.
+    # pkg.Name format: only the Name part is matched (pkg aliases can't be resolved cross-file).
+    call_name_index: dict = {}
+    for i, chunk in enumerate(chunks):
+        if chunk.get('lang') == 'go' and chunk.get('type', '').startswith('go_'):
+            call_name_index.setdefault(chunk['section'], []).append(f"n{i + 1}")
+
+    seen_calls: set = set()
+    for i, chunk in enumerate(chunks):
+        if chunk.get('lang') != 'go':
+            continue
+        src_node = f"n{i + 1}"
+        for call in chunk.get('calls', []):
+            name = call.split('.')[-1] if '.' in call else call
+            for dst_node in call_name_index.get(name, []):
+                if dst_node != src_node:
+                    key = (src_node, dst_node)
+                    if key not in seen_calls:
+                        seen_calls.add(key)
+                        edges.append({'from': src_node, 'to': dst_node,
+                                      'type': 'calls', 'weight': 1.0,
+                                      'evidence_chunk_id': chunk['id']})
 
     for i, edge in enumerate(edges):
         edge['id'] = f'e{i+1}'
