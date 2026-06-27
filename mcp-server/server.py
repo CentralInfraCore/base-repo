@@ -538,6 +538,50 @@ def _scan_watch_dir(watch_dir: Path) -> dict:
     return result
 
 
+def _bootstrap_kb_from_source(source_dir: Path) -> None:
+    """Build PKL artifacts from source_dir when starting fresh (no chunks.pkl)."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent.parent))
+    import make_source as _ms  # noqa: PLC0415
+
+    print(f"[boot] scanning {source_dir} ...", flush=True)
+    chunks = _ms.process_directory(str(source_dir))
+    chunks = _ms._dedup_chunks(chunks)
+    chunks.sort(key=lambda c: (c.get('file_path', ''), c.get('start_line', 0)))
+    for i, chunk in enumerate(chunks):
+        chunk['id'] = f'c{i + 1}'
+
+    print(f"[boot] {len(chunks)} chunks — embedding ...", flush=True)
+    model_name = _ms.EMBEDDING_MODEL
+    model, embeddings = _ms.create_embeddings([c['text'] for c in chunks], model_name)
+
+    print("[boot] building indexes ...", flush=True)
+    bm25 = _ms.build_bm25_index(chunks)
+    inv = _ms.create_bm25_inverted_index(chunks, bm25)
+    faiss_idx = _ms.build_faiss_index(embeddings)
+
+    pkl_dir = DATA_DIR
+    pkl_dir.mkdir(parents=True, exist_ok=True)
+
+    import pickle as _pickle
+    for name, obj in [
+        ('chunks.pkl', {c['id']: c for c in chunks}),
+        ('inverted_index.pkl', inv),
+        ('bm25.pkl', bm25),
+        ('chunk_ids.pkl', [c['id'] for c in chunks]),
+        ('model_name.pkl', model_name),
+    ]:
+        (pkl_dir / name).write_bytes(_pickle.dumps(obj))
+
+    faiss.write_index(faiss_idx, str(pkl_dir / 'faiss.index'))
+
+    # Persist file state for the watcher
+    current = _scan_watch_dir(source_dir)
+    (DATA_DIR.parent / '.file_state.json').write_text(json.dumps(current, indent=2))
+
+    print(f"[boot] done — {len(chunks)} chunks written to {pkl_dir}", flush=True)
+
+
 def _watch_loop() -> None:
     """Background daemon thread: polls watch_dir, applies incremental updates."""
     state_path = DATA_DIR.parent / '.file_state.json'
@@ -1830,7 +1874,11 @@ def main() -> None:
     if args.watch_dir:
         _watch_dir = Path(args.watch_dir).resolve()
         _watch_interval = args.watch_interval
-        # Pre-load KB before starting watcher so the model is already in memory
+        # Build initial KB from source if chunks.pkl is missing
+        if not CHUNKS_PKL.exists():
+            print(f"[watch] chunks.pkl not found — building initial KB from {_watch_dir} ...", flush=True)
+            _bootstrap_kb_from_source(_watch_dir)
+        # Pre-load KB so the embedding model is in memory before the watcher starts
         load_kb()
         t = threading.Thread(target=_watch_loop, daemon=True, name="kb-watcher")
         t.start()
