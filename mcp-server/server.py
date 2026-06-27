@@ -44,7 +44,7 @@ mcp = FastMCP("cic-graph")
 
 # Adjust paths to point to the correct location relative to this script
 BASE_DIR = Path(__file__).parent.parent
-DATA_DIR = Path(os.environ.get("KB_DATA_DIR", str(BASE_DIR / "kb_data" / "pkl")))
+DATA_DIR = Path(os.environ.get("KB_DATA_DIR", str(Path.cwd() / "kb_data" / "pkl")))
 
 CHUNKS_PKL = Path(os.environ.get("CHUNKS_PKL", str(DATA_DIR / "chunks.pkl")))
 NODES_PKL = Path(os.environ.get("NODES_PKL", str(DATA_DIR / "graph_nodes.pkl")))
@@ -1380,7 +1380,7 @@ def guided_path(topic: str, max_steps: int = 10) -> dict:
     }
 
 
-SOURCE_DIR = Path(os.environ.get("SOURCE_DIR", str(BASE_DIR / "source")))
+SOURCE_DIR = Path(os.environ.get("SOURCE_DIR", str(Path.cwd())))
 
 
 _COMPANION_LANGS = {
@@ -1865,8 +1865,8 @@ def main() -> None:
     parser.add_argument("--host", default=DEFAULT_HOST, help=f"SSE bind host (default: {DEFAULT_HOST}, env: MCP_HOST)")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"SSE bind port (default: {DEFAULT_PORT}, env: MCP_PORT)")
     parser.add_argument("--watch-dir", metavar="DIR",
-                        default=os.environ.get("KB_WATCH_DIR"),
-                        help="Watch this directory for file changes and update KB in-memory (env: KB_WATCH_DIR)")
+                        default=os.environ.get("KB_WATCH_DIR", str(Path.cwd())),
+                        help="Watch this directory for file changes and update KB in-memory (default: cwd, env: KB_WATCH_DIR)")
     parser.add_argument("--watch-interval", type=float, default=float(os.environ.get("KB_WATCH_INTERVAL", "2")),
                         help="Poll interval for --watch-dir in seconds (default: 2, env: KB_WATCH_INTERVAL)")
     args = parser.parse_args()
