@@ -517,7 +517,30 @@ def _incremental_update_kb(changed: list, deleted: list) -> dict:
         kb['inverted'] = _ms.create_bm25_inverted_index(all_chunks, bm25)
         kb['bm25'] = bm25
 
-    return {'removed': len(stale_ids), 'added': len(new_chunks), 'total': len(kb['chunks'])}
+    # Rebuild knowledge graph from all current chunks + embeddings (no re-encoding)
+    emb = kb['embeddings_by_id']
+    if all_chunks and emb:
+        id_order = [c['id'] for c in all_chunks if c['id'] in emb]
+        emb_mat = np.stack([emb[cid] for cid in id_order]).astype('float32')
+        ordered_chunks = [kb['chunks'][cid] for cid in id_order]
+        nodes_list, edges_list = _ms.create_knowledge_graph_with_content(ordered_chunks, emb_mat)
+        kb['nodes'] = {n['id']: n for n in nodes_list}
+        kb['edges'] = edges_list
+        adj: dict = {}
+        for e in edges_list:
+            src = str(e.get('source') or e.get('from') or e.get('src') or '')
+            if src:
+                adj.setdefault(src, []).append(e)
+        kb['adj'] = adj
+        chunk_to_nodes: dict = {}
+        for nid, node in kb['nodes'].items():
+            cid = node.get('chunk_id')
+            if cid:
+                chunk_to_nodes.setdefault(str(cid), []).append(nid)
+        kb['chunk_to_nodes'] = chunk_to_nodes
+
+    return {'removed': len(stale_ids), 'added': len(new_chunks), 'total': len(kb['chunks']),
+            'nodes': len(kb.get('nodes', {})), 'edges': len(kb.get('edges', []))}
 
 
 def _file_hash(path: str) -> str:
@@ -560,6 +583,9 @@ def _bootstrap_kb_from_source(source_dir: Path) -> None:
     inv = _ms.create_bm25_inverted_index(chunks, bm25)
     faiss_idx = _ms.build_faiss_index(embeddings)
 
+    print("[boot] building knowledge graph ...", flush=True)
+    nodes_list, edges_list = _ms.create_knowledge_graph_with_content(chunks, embeddings)
+
     pkl_dir = DATA_DIR
     pkl_dir.mkdir(parents=True, exist_ok=True)
 
@@ -570,6 +596,8 @@ def _bootstrap_kb_from_source(source_dir: Path) -> None:
         ('bm25.pkl', bm25),
         ('chunk_ids.pkl', [c['id'] for c in chunks]),
         ('model_name.pkl', model_name),
+        ('graph_nodes.pkl', {n['id']: n for n in nodes_list}),
+        ('graph_edges.pkl', {e['id']: e for e in edges_list if 'id' in e}),
     ]:
         (pkl_dir / name).write_bytes(_pickle.dumps(obj))
 
@@ -579,7 +607,7 @@ def _bootstrap_kb_from_source(source_dir: Path) -> None:
     current = _scan_watch_dir(source_dir)
     (DATA_DIR.parent / '.file_state.json').write_text(json.dumps(current, indent=2))
 
-    print(f"[boot] done — {len(chunks)} chunks written to {pkl_dir}", flush=True)
+    print(f"[boot] done — {len(chunks)} chunks, {len(nodes_list)} nodes, {len(edges_list)} edges → {pkl_dir}", flush=True)
 
 
 def _watch_loop() -> None:
