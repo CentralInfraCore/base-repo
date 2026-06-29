@@ -201,7 +201,9 @@ def process_go_yaml(file_path):
             field_strs = [f"{f.get('name', '')} {f.get('type', '')}".strip() for f in fields]
             lines.append(f"fields: {', '.join(field_strs)}")
         if iface_methods:
-            lines.append(f"methods: {', '.join(m.get('name', '') for m in iface_methods)}")
+            # methods is a list of strings (method names)
+            method_names = [m if isinstance(m, str) else m.get('name', '') for m in iface_methods]
+            lines.append(f"methods: {', '.join(method_names)}")
 
         chunk = {
             'text': '\n'.join(lines),
@@ -212,6 +214,7 @@ def process_go_yaml(file_path):
             'lang': 'go',
             'type': f'go_{kind}' if kind else 'go_object',
             'calls': calls,
+            'implements': impl,
         }
         chunk.update(meta)
         chunks.append(chunk)
@@ -291,6 +294,7 @@ def process_py_yaml(file_path):
         if impl:
             lines.append(f"implements: {', '.join(impl)}")
 
+        py_calls = obj.get('calls', [])
         chunk = {
             'text': '\n'.join(lines),
             'file_path': file_path,
@@ -299,6 +303,8 @@ def process_py_yaml(file_path):
             'end_line': i + 1,
             'lang': 'python',
             'type': f'py_{kind}' if kind else 'py_object',
+            'calls': py_calls,
+            'implements': impl,
         }
         chunk.update(meta)
         chunks.append(chunk)
@@ -484,7 +490,7 @@ def create_knowledge_graph_with_content(chunks, embeddings):
 
     seen_calls: set = set()
     for chunk in chunks:
-        if chunk.get('lang') != 'go':
+        if chunk.get('lang') not in ('go', 'python'):
             continue
         src_node = chunk_id_to_node_id[chunk['id']]
         for call in chunk.get('calls', []):
@@ -497,6 +503,27 @@ def create_knowledge_graph_with_content(chunks, embeddings):
                         edge_id = f"e_{hashlib.md5((src_node + dst_node + 'calls').encode()).hexdigest()[:10]}"
                         edges.append({'id': edge_id, 'from': src_node, 'to': dst_node,
                                       'type': 'calls', 'weight': 1.0,
+                                      'evidence_chunk_id': chunk['id']})
+
+    # Implements edges: struct/class → interface
+    # Resolved by name across all indexed chunks.
+    iface_name_index: dict = {}
+    for chunk in chunks:
+        if chunk.get('type', '') in ('go_interface', 'py_class'):
+            iface_name_index.setdefault(chunk['section'], []).append(chunk_id_to_node_id[chunk['id']])
+
+    seen_impl: set = set()
+    for chunk in chunks:
+        src_node = chunk_id_to_node_id[chunk['id']]
+        for iface in chunk.get('implements', []):
+            for dst_node in iface_name_index.get(iface, []):
+                if dst_node != src_node:
+                    key = (src_node, dst_node)
+                    if key not in seen_impl:
+                        seen_impl.add(key)
+                        edge_id = f"e_{hashlib.md5((src_node + dst_node + 'implements').encode()).hexdigest()[:10]}"
+                        edges.append({'id': edge_id, 'from': src_node, 'to': dst_node,
+                                      'type': 'implements', 'weight': 1.0,
                                       'evidence_chunk_id': chunk['id']})
 
     return nodes, edges
