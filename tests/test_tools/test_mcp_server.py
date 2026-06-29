@@ -102,7 +102,7 @@ class TestSearchQuerySemantic:
         for r in results:
             assert "chunk_id" in r
             assert "score" in r
-            assert "file_path" in r
+            assert "file_paths" in r
 
     def test_chunk_ids_are_valid(self):
         import server as mcp_server

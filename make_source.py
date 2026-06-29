@@ -354,15 +354,21 @@ def build_bm25_index(chunks):
     return BM25Okapi(tokenized)
 
 def create_bm25_inverted_index(chunks, bm25):
-    """Build inverted index: word → chunk_ids (no score computation, deferred to query time)."""
-    inverted_index = {}
+    """Build inverted index: word → [{chunk_id, score}, ...] sorted by score desc."""
+    vocab: set = set()
     for chunk in chunks:
-        tokens = set(tokenize(chunk['text']))
-        for word in tokens:
-            inverted_index.setdefault(word, []).append(chunk['id'])
-    # Deduplicate
-    for word in inverted_index:
-        inverted_index[word] = list(set(inverted_index[word]))
+        vocab.update(tokenize(chunk['text']))
+    inverted_index = {}
+    for word in vocab:
+        scores = bm25.get_scores([word])
+        entries = [
+            {'chunk_id': chunks[i]['id'], 'score': float(scores[i])}
+            for i in range(len(chunks))
+            if scores[i] > 0
+        ]
+        if entries:
+            entries.sort(key=lambda e: e['score'], reverse=True)
+            inverted_index[word] = entries
     return inverted_index
 
 def build_metadata_index(chunks):
@@ -423,9 +429,15 @@ def create_knowledge_graph_with_content(chunks, embeddings):
     # Build chunk_id -> node_id index (persistent node IDs based on chunk IDs)
     chunk_id_to_node_id = {}
     for chunk in chunks:
-        # Node ID derived from chunk ID (persistent)
-        node_id = f"n_{chunk['id'][2:]}"  # strip 'c_' prefix, add 'n_' prefix
-        chunk_id_to_node_id[chunk['id']] = node_id
+        cid = chunk['id']
+        # Production IDs: 'c_xxxxxxxx' → strip 'c_' → 'n_xxxxxxxx'
+        # Short test IDs: 'c1' → hash → 'n_<hash>'
+        if cid.startswith('c_') and len(cid) > 2:
+            suffix = cid[2:]
+        else:
+            suffix = hashlib.md5(cid.encode()).hexdigest()[:10]
+        node_id = f"n_{suffix}"
+        chunk_id_to_node_id[cid] = node_id
 
         # Detect test code: _test.go, _test.py, etc.
         file_path = chunk.get('file_path', '')
