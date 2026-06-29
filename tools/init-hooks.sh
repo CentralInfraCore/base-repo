@@ -38,4 +38,14 @@ echo "[*] Symlinking commit-msg hook from tools directory..."
 ln -s -f "../../tools/git_hook_commit-msg.sh" "$COMMIT_MSG_HOOK"
 echo "  ✓ Done."
 
+# Set up post-commit hook for companion YAML auto-merge
+POST_COMMIT_HOOK="$HOOKS_DIR/post-commit"
+if [ -f "$POST_COMMIT_HOOK" ]; then
+    echo "[INFO] A post-commit hook already exists. Backing it up to post-commit.bak."
+    mv "$POST_COMMIT_HOOK" "$POST_COMMIT_HOOK.bak"
+fi
+echo "[*] Symlinking post-commit hook from tools directory..."
+ln -s -f "../../tools/git_hook_post-commit.sh" "$POST_COMMIT_HOOK"
+echo "  ✓ Done."
+
 echo "\nRepository initialization complete. Hooks are set up."

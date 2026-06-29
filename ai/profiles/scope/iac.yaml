@@ -1,0 +1,35 @@
+---
+scope: iac
+version: "1.0"
+repo: CIC-Relay
+description: >
+  IaC source loader: file, git, and upstream HTTP sources for configuration.
+  Relay federation v2 entry point (UpstreamSource scaffold → implemented).
+
+owns:
+  - core/nexus/iac/
+
+reads:
+  - core/nexus/git/
+  - pkg/obs/
+
+test_cmd: go test ./core/nexus/iac/...
+coverage_min: 80
+
+key_interfaces:
+  - IaCSource (loader.go)
+  - FileSource (source_file.go)
+  - GitSource (source_git.go)
+  - UpstreamSource (source_upstream.go) — scaffold, Sprint 15 task
+
+active_tasks:
+  - upstream-source-http: implement UpstreamSource HTTP fetch + retry/backoff
+
+mcp_focus_queries:
+  - "IaC source loader upstream"
+  - "UpstreamSource HTTP CIC_UPSTREAM_URL"
+  - "federation relay config"
+
+invariants:
+  - All IaCSource implementations must be deterministic given the same env
+  - CIC_UPSTREAM_URL controls upstream endpoint — no hardcoded URLs

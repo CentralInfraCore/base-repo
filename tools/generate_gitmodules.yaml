@@ -1,0 +1,77 @@
+---
+module: tools.generate_gitmodules
+description: 'generate_gitmodules.py — Render .gitmodules from a declared knowledge.sources.yaml.
+  knowledge.sources.yaml is the declared desired state: which knowledge sources exist,
+  what role/visibility they have, and which build profile(s) include them. .gitmodules
+  is a generated Git-compatibility artifact — never hand-edited. Usage: python tools/generate_gitmodules.py
+  [--sources knowledge.sources.yaml] [--profile internal] [--out .gitmodules] [--check]
+  [--dry-run] Options: --sources   Path to the knowledge sources manifest (default:
+  knowledge.sources.yaml) --profile   Which profile''s includeVisibility to filter
+  by (default: internal) --out       Output .gitmodules path (default: .gitmodules)
+  --check     Don''t write; compare generated content against --out and exit non-zero
+  on drift (for CI) --dry-run   Print the generated content without writing it'
+tags:
+- builder
+- core
+- loader
+- validator
+category: []
+used_in: []
+entrypoint: true
+related_nodes: []
+objects:
+- name: _REQUIRED_SOURCE_FIELDS
+  kind: const
+  description: ''
+  references: []
+- name: _GENERATED_HEADER
+  kind: const
+  description: ''
+  references: []
+- name: load_manifest
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - ValueError
+  - path.open
+  - yaml.safe_load
+- name: validate_manifest
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - ValueError
+  - data.get
+  - seen_ids.add
+  - source.get
+- name: select_sources
+  kind: function
+  decorators: []
+  description: Return (included, excluded) sources for the given profile.
+  references: []
+  calls:
+  - ValueError
+- name: render_gitmodules
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _GENERATED_HEADER.format
+  - lines.append
+  - source.get
+- name: main
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - out_path.exists
+  - out_path.read_text
+  - out_path.write_text
+  - parser.add_argument
+  - parser.parse_args
+  - sources_path.exists

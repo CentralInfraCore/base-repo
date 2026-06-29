@@ -161,6 +161,39 @@ def _dotted_name(node: ast.AST) -> str:
     return ""
 
 
+def _extract_calls(node: ast.AST, imports: dict[str, str], stdlib: set[str]) -> list[str]:
+    """Extract non-stdlib function/method calls from the given AST node subtree.
+
+    Resolves through imports:
+    - yaml.safe_load(...)  -> yaml.safe_load  (from: import yaml)
+    - Path(...)            -> pathlib.Path    (from: from pathlib import Path)
+    - local_func(...)      -> local_func      (same-module, kept for graph edges)
+    """
+    calls: dict[str, None] = {}
+    for n in _iter_subtree(node):
+        if not isinstance(n, ast.Call):
+            continue
+        func = n.func
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            alias = func.value.id
+            target = imports.get(alias)
+            if target:
+                if not _is_stdlib(target, stdlib):
+                    calls[f"{target}.{func.attr}"] = None
+            else:
+                # Local variable or same-module object — keep for intra-module edges
+                calls[f"{alias}.{func.attr}"] = None
+        elif isinstance(func, ast.Name):
+            target = imports.get(func.id)
+            if target:
+                if not _is_stdlib(target, stdlib):
+                    calls[target] = None
+            elif func.id[0].isupper() or func.id.startswith("_"):
+                # Capitalized = likely class/constructor; underscore = module-private helper
+                calls[func.id] = None
+    return sorted(calls)
+
+
 def _decorator_name(node: ast.AST) -> str:
     if isinstance(node, ast.Call):
         return _dotted_name(node.func)
@@ -266,6 +299,7 @@ def _parse_objects(tree: ast.Module, imports: dict[str, str], stdlib: set[str]) 
                         "decorators": _decorators(sub),
                         "description": _clean_doc(ast.get_docstring(sub)),
                         "references": _extract_refs(sub, imports, stdlib),
+                        "calls": _extract_calls(sub, imports, stdlib),
                     })
 
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -275,6 +309,7 @@ def _parse_objects(tree: ast.Module, imports: dict[str, str], stdlib: set[str]) 
                 "decorators": _decorators(node),
                 "description": _clean_doc(ast.get_docstring(node)),
                 "references": _extract_refs(node, imports, stdlib),
+                "calls": _extract_calls(node, imports, stdlib),
             })
 
         elif isinstance(node, ast.Assign):

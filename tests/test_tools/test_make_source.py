@@ -150,11 +150,12 @@ class TestCreateKnowledgeGraph:
         assert len(nodes) == len(SAMPLE_CHUNKS)
         assert len(edges) > 0
 
-    def test_node_ids_sequential(self):
+    def test_node_ids_unique(self):
         embeddings = self._make_embeddings()
         nodes, _ = create_knowledge_graph_with_content(SAMPLE_CHUNKS, embeddings)
         ids = [n["id"] for n in nodes]
-        assert ids == [f"n{i+1}" for i in range(len(SAMPLE_CHUNKS))]
+        assert len(ids) == len(set(ids)), "node IDs must be unique"
+        assert all(nid.startswith("n_") for nid in ids), "node IDs must start with n_"
 
     def test_nodes_have_chunk_ids(self):
         embeddings = self._make_embeddings()
@@ -168,19 +169,13 @@ class TestCreateKnowledgeGraph:
         refers_to = [e for e in edges if e["type"] == "refers-to"]
         assert len(refers_to) == len(SAMPLE_CHUNKS) - 1
 
-    def test_related_to_edges_high_similarity(self):
-        # Force high cosine similarity between first two vectors
-        dim = 64
-        base = np.random.rand(dim).astype("float32")
-        base /= np.linalg.norm(base)
-        embeddings = np.tile(base, (5, 1))
-        # add tiny noise so they're not identical
-        embeddings += np.random.rand(5, dim).astype("float32") * 0.001
-        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-        embeddings /= norms
+    def test_semantic_edges_disabled(self):
+        # Semantic (cosine similarity) edges are intentionally disabled for O(n²) performance.
+        # The refers-to edges cover sequential document-order relationships instead.
+        embeddings = self._make_embeddings()
         _, edges = create_knowledge_graph_with_content(SAMPLE_CHUNKS, embeddings)
         related = [e for e in edges if e["type"] == "related-to"]
-        assert len(related) > 0
+        assert len(related) == 0, "semantic edges are disabled — use SQL pgvector instead"
 
     def test_edge_ids_unique(self):
         embeddings = self._make_embeddings()

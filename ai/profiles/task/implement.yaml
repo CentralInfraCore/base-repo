@@ -1,0 +1,54 @@
+---
+profile: implement
+version: "1.0"
+description: >
+  Implement a PROMPTMAP task in a bounded scope. Reads the task prompt,
+  writes Go code, runs accept gate. May update companion YAMLs.
+
+boot_sequence:
+  - kb_status
+  - get_next_task(repo, sprint)
+  - focus_pack(task_topic)
+  - read scope CLAUDE.md
+  - read CONTRACT.md and LIMITS.md in scope
+
+allowed:
+  - read and write Go source files within scope
+  - write companion YAMLs
+  - run make test, make verify, make coverage-check-pkgs
+  - call all MCP tools
+  - claim_task, complete_task, fail_task via MCP
+
+forbidden:
+  - modify files outside declared scope (owns + reads lists)
+  - delete tests
+  - hardcode secrets (tokens, certs, PATs) — env vars only
+  - modify signing format or Vault call parameters
+  - git push
+
+output:
+  - type: go_source
+    description: Modified or created Go source files
+    commit_required: true
+  - type: companion_yaml
+    description: Updated companion YAML for modified files (via go.meta.gen.py --merge)
+    commit_required: true
+
+accept:
+  - accept field from PROMPTMAP task passes (0 exit code)
+  - no new test failures
+  - no secrets in diff
+
+trust_constraints:
+  - prehashed: true must not be changed in Vault calls
+  - signing format [signing-metadata]+[certificate] blocks are invariant
+  - Vault token/cert must come from env or bind mount
+
+mcp_tools_required:
+  - kb_status
+  - focus_pack
+  - impact_analysis
+  - claim_task
+  - complete_task
+  - fail_task
+  - update_companion

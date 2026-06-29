@@ -1,0 +1,30 @@
+---
+scope: obs
+version: "1.0"
+repo: CIC-Relay
+description: >
+  Observability layer: structured logging sinks, capture chains, registry.
+  Used by all other scopes for audit and diagnostic output.
+
+owns:
+  - pkg/obs/
+
+reads:
+  - (all scopes import obs — no reverse reads needed)
+
+test_cmd: go test ./pkg/obs/...
+coverage_min: 75
+
+key_interfaces:
+  - Sink (pkg/obs/sink.go)
+  - Registry (pkg/obs/registry.go)
+  - CaptureChain (pkg/obs/chain.go)
+
+mcp_focus_queries:
+  - "obs sink logging"
+  - "capture chain observability"
+  - "logrus sink registry"
+
+invariants:
+  - obs must not import from core/ (avoids circular deps)
+  - Sink.Write is always non-blocking (caller never blocks on log)

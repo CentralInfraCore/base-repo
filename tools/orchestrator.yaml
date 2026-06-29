@@ -1,0 +1,134 @@
+---
+module: tools.orchestrator
+description: 'CIC Agent Orchestrator Deterministic, zero-token agent runner built
+  on PROMPTMAP.yaml task queue. Flow: 1. Parse PROMPTMAP → pick next todo task (highest
+  priority) 2. Load task profile (task_profile field) + scope profile (scope_profile
+  field) 3. Build agent briefing from profiles + task prompt 4. Print briefing to
+  stdout (agent reads it) or spawn subprocess 5. Run accept gate (accept field from
+  task) 6. On exit 0 → mark task done; on fail → mark task failed (max retries) Usage:
+  python orchestrator.py --repo CIC-Relay --sprint 15 python orchestrator.py --repo
+  CIC-Relay --task upstream-source-http --print-briefing python orchestrator.py --list-tasks
+  --repo CIC-Relay --status todo'
+tags:
+- builder
+- core
+- executor
+- loader
+category: []
+used_in: []
+entrypoint: true
+related_nodes: []
+objects:
+- name: PROFILES_BASE
+  kind: const
+  description: ''
+  references: []
+- name: TASK_PROFILES_DIR
+  kind: const
+  description: ''
+  references: []
+- name: SCOPE_PROFILES_DIR
+  kind: const
+  description: ''
+  references: []
+- name: PROMPTMAP_PATHS_ENV
+  kind: const
+  description: ''
+  references: []
+- name: SOURCE_DIR
+  kind: const
+  description: ''
+  references: []
+- name: MAX_RETRIES
+  kind: const
+  description: ''
+  references: []
+- name: find_promptmaps
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - PROMPTMAP_PATHS_ENV.split
+  - SOURCE_DIR.rglob
+  - p.strip
+- name: _repo_name
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: iter_tasks
+  kind: function
+  decorators: []
+  description: Yield (sprint_num, task_dict) from a PROMPTMAP structure.
+  references: []
+  calls:
+  - block.get
+  - data.get
+- name: load_tasks
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - yaml.safe_load
+  calls:
+  - _repo_name
+  - pm_path.open
+  - repo.lower
+  - results.append
+  - results.sort
+  - rname.lower
+  - task.get
+  - x.get
+  - yaml.safe_load
+- name: update_task_status
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - yaml.dump
+  - yaml.safe_load
+  calls:
+  - block.get
+  - data.get
+  - pm_path.open
+  - task.get
+  - task.update
+  - yaml.dump
+  - yaml.safe_load
+- name: load_profile
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - yaml.safe_load
+  calls:
+  - p.exists
+  - p.open
+  - yaml.safe_load
+- name: build_briefing
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - scope_profile.get
+  - task.get
+  - task_profile.get
+- name: run_accept_gate
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: main
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - parser.add_argument
+  - parser.parse_args
+  - t.get
+  - task.get

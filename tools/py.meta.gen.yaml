@@ -39,6 +39,7 @@ objects:
   decorators: []
   description: ''
   references: []
+  calls: []
 - name: _parse_imports
   kind: function
   decorators: []
@@ -47,16 +48,23 @@ objects:
     "numpy"} `from pathlib import Path` -> {"Path": "pathlib.Path"} `from . import
     foo`      -> {"foo": ".foo"}  (relative — treated as local/non-stdlib)'
   references: []
+  calls: []
 - name: _is_stdlib
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - target.split
+  - target.startswith
 - name: _iter_subtree
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - stack.extend
+  - stack.pop
 - name: _extract_refs
   kind: function
   decorators: []
@@ -65,31 +73,57 @@ objects:
     -> "yaml.safe_load" 2. Bare use of a from-imported name: Path(...) where "from
     pathlib import Path" -> "pathlib.Path" (filtered out if the origin is stdlib)'
   references: []
+  calls:
+  - _is_stdlib
+  - _iter_subtree
+  - imports.get
 - name: _dotted_name
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _dotted_name
+- name: _extract_calls
+  kind: function
+  decorators: []
+  description: 'Extract non-stdlib function/method calls from the given AST node subtree.
+    Resolves through imports: - yaml.safe_load(...)  -> yaml.safe_load  (from: import
+    yaml) - Path(...)            -> pathlib.Path    (from: from pathlib import Path)
+    - local_func(...)      -> local_func      (same-module, kept for graph edges)'
+  references: []
+  calls:
+  - _is_stdlib
+  - _iter_subtree
+  - imports.get
 - name: _decorator_name
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _dotted_name
 - name: _decorators
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _decorator_name
 - name: _clean_doc
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - doc.strip
+  - line.strip
 - name: _has_main_guard
   kind: function
   decorators: []
   description: ''
   references: []
+  calls: []
 - name: _suggest_tags
   kind: function
   decorators: []
@@ -97,21 +131,48 @@ objects:
     Returns a sorted list of allowed tag values (see py.meta.schema.yaml). These are
     suggestions — review and trim before committing the YAML.
   references: []
+  calls:
+  - filename.endswith
+  - filename.startswith
+  - imports.values
+  - o.split
+  - obj.get
+  - path_str.startswith
+  - tags.add
+  - tags.update
 - name: _parse_objects
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _clean_doc
+  - _decorators
+  - _dotted_name
+  - _extract_calls
+  - _extract_refs
+  - objects.append
 - name: _module_name
   kind: function
   decorators: []
   description: Walk up while sibling __init__.py files exist (package convention).
   references: []
+  calls:
+  - parts.insert
 - name: generate
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _clean_doc
+  - _has_main_guard
+  - _module_name
+  - _parse_imports
+  - _parse_objects
+  - _stdlib_set
+  - _suggest_tags
+  - py_file.read_text
 - name: _merge_data
   kind: function
   decorators: []
@@ -124,13 +185,38 @@ objects:
     source) -> appended - Removed objects (deleted from source) -> dropped - Existing
     objects -> merged per field rules above'
   references: []
+  calls:
+  - merged.get
+  - merged_objects.append
+  - new_data.get
+  - obj.get
+  - old_data.get
+  - old_obj.get
 - name: _write_yaml
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - f.write
+  - yaml.dump
 - name: main
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _merge_data
+  - _write_yaml
+  - d.glob
+  - d.rglob
+  - f.relative_to
+  - files.append
+  - o.get
+  - parser.add_argument
+  - parser.parse_args
+  - parser.print_help
+  - py_file.exists
+  - py_file.with_suffix
+  - yaml.safe_load
+  - yaml_file.exists

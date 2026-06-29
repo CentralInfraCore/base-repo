@@ -1,0 +1,26 @@
+---
+scope: isolation
+version: "1.0"
+repo: CIC-Relay
+description: >
+  WASM sandbox isolation coordinator. Controls resource limits, capability
+  grants, and execution boundaries for untrusted modules.
+
+owns:
+  - core/nexus/isolation/
+
+reads:
+  - core/cabinet/
+  - pkg/obs/
+
+test_cmd: go test ./core/nexus/isolation/...
+coverage_min: 75
+
+mcp_focus_queries:
+  - "isolation WASM sandbox coordinator"
+  - "capability grant resource limit"
+  - "untrusted module execution boundary"
+
+invariants:
+  - isolation must never grant capabilities not in the module's signed manifest
+  - Resource limits are always enforced before execution — never after

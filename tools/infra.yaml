@@ -1,0 +1,133 @@
+---
+module: tools.infra
+description: ''
+tags:
+- builder
+- executor
+- loader
+category: []
+used_in: []
+entrypoint: false
+related_nodes: []
+objects:
+- name: ValidationFailureError
+  kind: class
+  decorators: []
+  description: Custom exception for schema validation failures.
+  implements:
+  - ReleaseError
+  references:
+  - .releaselib.exceptions.ReleaseError
+- name: load_yaml
+  kind: function
+  decorators: []
+  description: Loads a YAML file.
+  references:
+  - .releaselib.exceptions.ConfigurationError
+  - yaml.YAMLError
+  - yaml.safe_load
+  calls:
+  - .releaselib.exceptions.ConfigurationError
+  - content.strip
+  - f.read
+  - yaml.safe_load
+- name: write_yaml
+  kind: function
+  decorators: []
+  description: Writes data to a YAML file atomically.
+  references:
+  - .releaselib.exceptions.ReleaseError
+  - yaml.dump
+  calls:
+  - .releaselib.exceptions.ReleaseError
+  - yaml.dump
+- name: get_reproducible_repo_hash
+  kind: function
+  decorators: []
+  description: Calculates a reproducible SHA256 hash of a given git tree object.
+  references:
+  - .releaselib.exceptions.ReleaseError
+  calls:
+  - .releaselib.exceptions.ReleaseError
+  - git_service.archive_tree_bytes
+  - hasher.digest
+  - hasher.update
+- name: ReleaseManager
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: __init__
+  kind: method
+  receiver: ReleaseManager
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - project_root.resolve
+- name: _path
+  kind: method
+  receiver: ReleaseManager
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: _validate_final_project_yaml
+  kind: method
+  receiver: ReleaseManager
+  decorators: []
+  description: Validates the project.yaml against the project.schema.yaml.
+  references:
+  - .releaselib.exceptions.ReleaseError
+  - jsonschema.ValidationError
+  - .releaselib.exceptions.ConfigurationError
+  - jsonschema.validate
+  calls:
+  - .releaselib.exceptions.ConfigurationError
+  - .releaselib.exceptions.ReleaseError
+  - ValidationFailureError
+  - jsonschema.validate
+  - self._path
+- name: run_check
+  kind: method
+  receiver: ReleaseManager
+  decorators: []
+  description: Performs pre-flight checks for a release.
+  references:
+  - .releaselib.exceptions.VaultServiceError
+  - .releaselib.exceptions.GitStateError
+  calls:
+  - .releaselib.exceptions.GitStateError
+  - .releaselib.exceptions.VaultServiceError
+- name: run_prepare_release
+  kind: method
+  receiver: ReleaseManager
+  decorators: []
+  description: 'Handles the developer preparation phase: creates release branch, updates
+    project.yaml, commits. This phase should be run from the main development branch.'
+  references:
+  - .releaselib.exceptions.ReleaseError
+  - yaml.dump
+  - .releaselib.exceptions.ConfigurationError
+  - .releaselib.exceptions.GitStateError
+  calls:
+  - .releaselib.exceptions.ConfigurationError
+  - .releaselib.exceptions.GitStateError
+  - .releaselib.exceptions.ReleaseError
+  - data_to_sign_json.encode
+  - project_data.get
+  - self._path
+  - yaml.dump
+- name: run_finalize_release
+  kind: method
+  receiver: ReleaseManager
+  decorators: []
+  description: 'Handles the finalization phase: validates project.yaml, commits, tags,
+    merges, and cleans up. This phase should be run from the release branch.'
+  references:
+  - .releaselib.exceptions.GitStateError
+  calls:
+  - .releaselib.exceptions.GitStateError
+  - self._path
+  - self._validate_final_project_yaml

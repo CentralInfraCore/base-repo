@@ -1,0 +1,41 @@
+---
+profile: release
+version: "1.0"
+description: >
+  Prepare and execute a versioned release. Validates, signs artifacts,
+  updates project.yaml, creates release tag.
+
+boot_sequence:
+  - kb_status
+  - read project.yaml for current version
+  - run make release-check VERSION=target
+  - verify make validate is green
+
+allowed:
+  - read all files in scope
+  - run make release-check, make release-prepare, make release-close
+  - update project.yaml version field
+  - create annotated git tags
+  - call all MCP tools
+
+forbidden:
+  - force-push to main
+  - skip signing steps (--no-verify)
+  - hardcode version in source code (only project.yaml)
+  - modify CHANGELOG or MANIFEST manually
+
+output:
+  - type: release_tag
+    description: Annotated git tag at the release commit, Vault-signed
+    commit_required: true
+  - type: project_yaml
+    description: Updated project.yaml with new version and checksum
+
+accept:
+  - make release-check exits 0
+  - git tag exists and points to HEAD
+  - project.yaml version matches tag
+
+mcp_tools_required:
+  - kb_status
+  - focus_pack

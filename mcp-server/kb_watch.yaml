@@ -1,0 +1,302 @@
+---
+module: kb_watch
+description: 'kb_watch.py — Incremental KB updater for development use. Watches any
+  directory for file changes and keeps the knowledge base PKLs up-to-date without
+  a full rebuild.  Only newly changed files are re-processed; existing embeddings
+  are reused from the sidecar `embeddings_by_id.pkl`. Works with any repo or directory
+  — not MCP-specific. Usage: python mcp-server/kb_watch.py <watch_dir> [--kb-dir kb_data]
+  [--interval 2] python mcp-server/kb_watch.py <watch_dir> --once    # single scan
+  + exit'
+tags:
+- core
+- gateway
+- interface
+- loader
+category: []
+used_in: []
+entrypoint: true
+related_nodes: []
+objects:
+- name: _STATE_FILE
+  kind: const
+  description: ''
+  references: []
+- name: _WATCHED_EXTS
+  kind: const
+  description: ''
+  references: []
+- name: _GENERATORS
+  kind: const
+  description: ''
+  references: []
+- name: _EXCLUDE_DIRS
+  kind: const
+  description: ''
+  references: []
+- name: _file_hash
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - f.read
+- name: load_file_state
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - p.exists
+  - p.read_text
+- name: save_file_state
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: save_manifest
+  kind: function
+  decorators: []
+  description: Write kb_manifest.json with index version info.
+  references: []
+  calls:
+  - status.get
+- name: scan_directory
+  kind: function
+  decorators: []
+  description: 'Return {abs_path_str: content_hash} for all processable files.'
+  references: []
+  calls:
+  - _file_hash
+  - fname.endswith
+  - fname.startswith
+- name: diff_state
+  kind: function
+  decorators: []
+  description: Return (changed_or_new, deleted, current_scan).
+  references: []
+  calls:
+  - current.items
+  - old_state.get
+- name: _generate_yaml_companions
+  kind: function
+  decorators: []
+  description: 'Generate or merge YAML companions for .go and .py files using go.meta.gen.py
+    / py.meta.gen.py. For new source files: generates YAML skeleton. For existing
+    source files with companion YAML: merges updates (preserves human-edited semantic
+    fields). Returns list of newly generated/merged .yaml file paths (to be included
+    in processing).'
+  references: []
+  calls:
+  - generated.append
+  - generator_script.exists
+  - yaml_path.exists
+- name: _resolve_companion_changes
+  kind: function
+  decorators: []
+  description: Resolve Markdown companion YAML changes to MD file changes. If foo.yaml
+    changes and foo.md exists, process foo.md instead (avoid duplicate chunks). If
+    foo.yaml is deleted and foo.md exists, mark foo.md as changed (to clear stale
+    metadata).
+  references: []
+  calls:
+  - fp.endswith
+  - resolved_changed.append
+  - resolved_deleted.append
+- name: _classify_yaml
+  kind: function
+  decorators: []
+  description: 'Determine which processor handles this YAML: ''go'' | ''py'' | ''md''
+    | ''generic''.'
+  references:
+  - make_source._is_py_meta_yaml
+  - make_source._is_go_meta_yaml
+  calls:
+  - make_source._is_go_meta_yaml
+  - make_source._is_py_meta_yaml
+- name: process_file
+  kind: function
+  decorators: []
+  description: Route a single file to the correct make_source processor.
+  references:
+  - make_source.process_yaml_file
+  - make_source.process_py_yaml
+  - make_source.process_go_yaml
+  - make_source.process_md_file
+  calls:
+  - _classify_yaml
+  - file_path.endswith
+  - make_source.process_go_yaml
+  - make_source.process_md_file
+  - make_source.process_py_yaml
+  - make_source.process_yaml_file
+- name: _pkl_path
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: _load_pkl
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _pkl_path
+  - p.exists
+  - p.open
+- name: _dump_pkl
+  kind: function
+  decorators: []
+  description: Atomically write PKL file using temp + rename.
+  references: []
+  calls:
+  - _pkl_path
+  - f.write
+  - tempfile.mkstemp
+- name: _load_chunks
+  kind: function
+  decorators: []
+  description: Load chunks.pkl and normalize to dict[chunk_id, chunk_dict].
+  references: []
+  calls:
+  - _load_pkl
+- name: _chunks_for_files
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - c.get
+  - chunks_by_id.items
+- name: _next_chunk_id
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - cid.startswith
+- name: incremental_update
+  kind: function
+  decorators: []
+  description: 'Process changed/deleted files and update KB PKLs in-place. Returns
+    a summary dict: {removed, added, total}.'
+  references:
+  - make_source.build_metadata_index
+  - make_source.create_bm25_inverted_index
+  - make_source.build_bm25_index
+  - numpy.stack
+  - make_source._generate_chunk_id
+  calls:
+  - _chunks_for_files
+  - _dump_pkl
+  - _faiss.IndexFlatIP
+  - _faiss.write_index
+  - _load_chunks
+  - _load_pkl
+  - _pkl_path
+  - c.get
+  - chunk.get
+  - chunk.setdefault
+  - chunks_by_id.pop
+  - chunks_by_id.values
+  - embeddings_by_id.keys
+  - embeddings_by_id.pop
+  - faiss_idx.add
+  - make_source._generate_chunk_id
+  - make_source.build_bm25_index
+  - make_source.build_metadata_index
+  - make_source.create_bm25_inverted_index
+  - model.encode
+  - new_chunks.extend
+  - numpy.stack
+  - tempfile.mkstemp
+  - vec.astype
+- name: _load_model
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - make_source.EMBEDDING_MODEL
+  calls:
+  - SentenceTransformer
+  - _load_pkl
+- name: KBWatchHandler
+  kind: class
+  decorators: []
+  description: inotify event handler for KB updates.
+  implements:
+  - FileSystemEventHandler
+  references:
+  - watchdog.events.FileSystemEventHandler
+- name: __init__
+  kind: method
+  receiver: KBWatchHandler
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: on_modified
+  kind: method
+  receiver: KBWatchHandler
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - self._process_changes
+  - self._should_process
+- name: on_created
+  kind: method
+  receiver: KBWatchHandler
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - self._process_changes
+  - self._should_process
+- name: on_deleted
+  kind: method
+  receiver: KBWatchHandler
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - self._process_changes
+  - self._should_process
+- name: _should_process
+  kind: method
+  receiver: KBWatchHandler
+  decorators: []
+  description: Check if file should be processed.
+  references: []
+  calls:
+  - file_path.endswith
+- name: _process_changes
+  kind: method
+  receiver: KBWatchHandler
+  decorators: []
+  description: Detect and process file changes.
+  references: []
+  calls:
+  - _file_hash
+  - _generate_yaml_companions
+  - _resolve_companion_changes
+  - changed.extend
+- name: main
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - watchdog.observers.Observer
+  calls:
+  - KBWatchHandler
+  - _load_model
+  - ap.add_argument
+  - ap.parse_args
+  - chunks_pkl.exists
+  - observer.join
+  - observer.schedule
+  - observer.start
+  - observer.stop
+  - pkl_dir.mkdir
+  - watchdog.observers.Observer

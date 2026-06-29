@@ -1,0 +1,28 @@
+---
+scope: crypto
+version: "1.0"
+repo: CIC-Relay
+description: >
+  Vault Transit signing service. The cryptographic trust anchor for all
+  CIC-Relay artifacts. Invariants are absolute — no exceptions.
+
+owns:
+  - core/nexus/crypto/
+
+reads:
+  - pkg/obs/
+
+test_cmd: go test ./core/nexus/crypto/...
+coverage_min: 80
+
+mcp_focus_queries:
+  - "Vault Transit signing crypto"
+  - "ECDSA SHA256 prehashed"
+  - "CICDeveloperCA signing"
+
+invariants:
+  - prehashed: true must always be set in Vault Transit calls — never change
+  - hash_algorithm must always be sha2-256 — never change
+  - Signing format [signing-metadata]+[certificate] blocks are invariant
+  - Secrets (token, cert, PAT) always from env or bind mount — never hardcoded
+  - Key rotation: only via Vault policy, not in code
