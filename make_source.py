@@ -1,3 +1,4 @@
+
 import os
 import yaml
 import markdown
@@ -7,6 +8,7 @@ import pickle
 import sqlite3
 import re
 import hashlib
+import argparse
 import numpy as np
 from bs4 import BeautifulSoup
 from langdetect import detect, LangDetectException
@@ -15,6 +17,16 @@ from rank_bm25 import BM25Okapi
 import faiss
 
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
+
+# Directories to exclude from indexing
+EXCLUDE_DIRS = {
+    'p_venv', '.venv', 'venv',  # Python virtual environments
+    '.git', '.github',           # Git metadata
+    'node_modules', '.npm',      # Node.js
+    '.mcp_data',                 # Generated KB data
+    '__pycache__', '.pytest_cache', '.mypy_cache',  # Python caches
+    'dist', 'build', '.egg-info',  # Build artifacts
+}
 
 def tokenize(text):
     text = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', text)
@@ -336,16 +348,15 @@ def build_bm25_index(chunks):
     return BM25Okapi(tokenized)
 
 def create_bm25_inverted_index(chunks, bm25):
-    """Lightweight inverted index from BM25 scores (for SQLite compat)."""
+    """Build inverted index: word → chunk_ids (no score computation, deferred to query time)."""
     inverted_index = {}
-    for i, chunk in enumerate(chunks):
+    for chunk in chunks:
         tokens = set(tokenize(chunk['text']))
         for word in tokens:
-            score = float(bm25.get_scores([word])[i])
-            if score > 0.01:
-                inverted_index.setdefault(word, []).append({'chunk_id': chunk['id'], 'score': score})
+            inverted_index.setdefault(word, []).append(chunk['id'])
+    # Deduplicate
     for word in inverted_index:
-        inverted_index[word].sort(key=lambda x: x['score'], reverse=True)
+        inverted_index[word] = list(set(inverted_index[word]))
     return inverted_index
 
 def build_metadata_index(chunks):
@@ -403,11 +414,17 @@ def create_knowledge_graph_with_content(chunks, embeddings):
         for fp in chunk.get('file_paths', [chunk.get('file_path', '')]):
             path_to_chunk_ids.setdefault(fp, []).append(chunk['id'])
 
-    # Build chunk_id -> node_id index
+    # Build chunk_id -> node_id index (persistent node IDs based on chunk IDs)
     chunk_id_to_node_id = {}
-    for i, chunk in enumerate(chunks):
-        node_id = f"n{i + 1}"
+    for chunk in chunks:
+        # Node ID derived from chunk ID (persistent)
+        node_id = f"n_{chunk['id'][2:]}"  # strip 'c_' prefix, add 'n_' prefix
         chunk_id_to_node_id[chunk['id']] = node_id
+
+        # Detect test code: _test.go, _test.py, etc.
+        file_path = chunk.get('file_path', '')
+        is_test = '_test.' in file_path or '/tests/' in file_path or '/test/' in file_path
+
         nodes.append({
             'id': node_id,
             'chunk_id': chunk['id'],
@@ -417,23 +434,34 @@ def create_knowledge_graph_with_content(chunks, embeddings):
             'category': chunk.get('category', []),
             'used_in': chunk.get('used_in', []),
             'entrypoint': chunk.get('entrypoint', False),
+            'is_test': is_test,
         })
-        if i > 0:
-            edges.append({'from': f"n{i}", 'to': node_id, 'type': 'refers-to',
-                          'weight': 0.9, 'evidence_chunk_id': chunk['id']})
+
+    # Sequential refers-to edges (document order)
+    chunks_sorted_by_path = sorted(chunks, key=lambda c: (c['file_path'], c['start_line']))
+    for i in range(len(chunks_sorted_by_path) - 1):
+        src_chunk = chunks_sorted_by_path[i]
+        tgt_chunk = chunks_sorted_by_path[i + 1]
+        src_node = chunk_id_to_node_id[src_chunk['id']]
+        tgt_node = chunk_id_to_node_id[tgt_chunk['id']]
+        edge_id = f"e_{hashlib.md5((src_node + tgt_node + 'refers-to').encode()).hexdigest()[:10]}"
+        edges.append({'id': edge_id, 'from': src_node, 'to': tgt_node, 'type': 'refers-to',
+                      'weight': 0.9, 'evidence_chunk_id': src_chunk['id']})
 
     # Semantic edges from cosine similarity
-    cosine_sim = embeddings @ embeddings.T
-    for i in range(len(chunks)):
-        for j in range(i + 1, len(chunks)):
-            if cosine_sim[i, j] > 0.7:
-                edges.append({'from': f"n{i + 1}", 'to': f"n{j + 1}", 'type': 'related-to',
-                              'weight': float(cosine_sim[i, j]), 'evidence_chunk_id': chunks[i]['id']})
+    # SKIPPED: O(n²) memory bottleneck (4.8 GB matrix, SWAP thrashing)
+    # Alternative: Use PostgreSQL pgvector for semantic search
+    print("  [DEBUG] Skipping semantic edges (cosine similarity O(n²), use SQL instead)")
+    # cosine_sim = embeddings @ embeddings.T
+    # for i in range(len(chunks)):
+    #     for j in range(i + 1, len(chunks)):
+    #         if cosine_sim[i, j] > 0.7:
+    #             ...
 
     # Explicit reference edges from companion YAML related_nodes
     seen_refs = set()
-    for i, chunk in enumerate(chunks):
-        src_node = f"n{i + 1}"
+    for chunk in chunks:
+        src_node = chunk_id_to_node_id[chunk['id']]
         for rel_path in chunk.get('related_nodes', []):
             target_cids = _resolve_related_node(rel_path, chunk['file_path'], path_to_chunk_ids)
             for tcid in target_cids:
@@ -442,22 +470,23 @@ def create_knowledge_graph_with_content(chunks, embeddings):
                     key = (src_node, dst_node)
                     if key not in seen_refs:
                         seen_refs.add(key)
-                        edges.append({'from': src_node, 'to': dst_node, 'type': 'references',
+                        edge_id = f"e_{hashlib.md5((src_node + dst_node + 'references').encode()).hexdigest()[:10]}"
+                        edges.append({'id': edge_id, 'from': src_node, 'to': dst_node, 'type': 'references',
                                       'weight': 1.0, 'evidence_chunk_id': chunk['id']})
 
     # Call graph edges from AST calls lists.
     # Resolves internal calls by name within indexed Go chunks.
     # pkg.Name format: only the Name part is matched (pkg aliases can't be resolved cross-file).
     call_name_index: dict = {}
-    for i, chunk in enumerate(chunks):
+    for chunk in chunks:
         if chunk.get('lang') == 'go' and chunk.get('type', '').startswith('go_'):
-            call_name_index.setdefault(chunk['section'], []).append(f"n{i + 1}")
+            call_name_index.setdefault(chunk['section'], []).append(chunk_id_to_node_id[chunk['id']])
 
     seen_calls: set = set()
-    for i, chunk in enumerate(chunks):
+    for chunk in chunks:
         if chunk.get('lang') != 'go':
             continue
-        src_node = f"n{i + 1}"
+        src_node = chunk_id_to_node_id[chunk['id']]
         for call in chunk.get('calls', []):
             name = call.split('.')[-1] if '.' in call else call
             for dst_node in call_name_index.get(name, []):
@@ -465,12 +494,11 @@ def create_knowledge_graph_with_content(chunks, embeddings):
                     key = (src_node, dst_node)
                     if key not in seen_calls:
                         seen_calls.add(key)
-                        edges.append({'from': src_node, 'to': dst_node,
+                        edge_id = f"e_{hashlib.md5((src_node + dst_node + 'calls').encode()).hexdigest()[:10]}"
+                        edges.append({'id': edge_id, 'from': src_node, 'to': dst_node,
                                       'type': 'calls', 'weight': 1.0,
                                       'evidence_chunk_id': chunk['id']})
 
-    for i, edge in enumerate(edges):
-        edge['id'] = f'e{i+1}'
     return nodes, edges
 
 def _content_hash(text: str) -> str:
@@ -545,7 +573,9 @@ def process_directory(directory_path):
     go_companion_yamls = set()   # .yaml next to .go  → process via process_go_yaml
     py_companion_yamls = set()   # .yaml next to .py  → process via process_py_yaml
 
-    for root, _, files in os.walk(directory_path):
+    for root, dirs, files in os.walk(directory_path):
+        # In-place modify dirs to skip excluded directories
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
         for file in files:
             base = os.path.splitext(os.path.join(root, file))[0]
             if file.endswith('.md'):
@@ -562,7 +592,9 @@ def process_directory(directory_path):
                     py_companion_yamls.add(candidate)
 
     # Second pass: process files with correct handler
-    for root, _, files in os.walk(directory_path):
+    for root, dirs, files in os.walk(directory_path):
+        # In-place modify dirs to skip excluded directories
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
         for file in files:
             file_path = os.path.join(root, file)
             if file.endswith('.md'):
@@ -585,12 +617,32 @@ def process_directory(directory_path):
 
     return all_chunks
 
+def _generate_chunk_id(file_path: str, chunk_type: str, section: str, text: str = "") -> str:
+    """Generate persistent chunk ID based on file_path + type + section.
+
+    Ensures same chunk (same location, same type) gets same ID across builds,
+    enabling incremental updates without relabeling.
+    """
+    base = f"{file_path}:{chunk_type}:{section}"
+    if text:
+        base += f":{text[:100]}"  # include first 100 chars for extra collision avoidance
+    chunk_hash = hashlib.md5(base.encode('utf-8')).hexdigest()[:12]
+    return f"c_{chunk_hash}"
+
+
 def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
     chunks_list = process_directory(source_directory)
     chunks_list = _dedup_chunks(chunks_list)
     chunks_list.sort(key=lambda x: (x['file_path'], x['start_line']))
-    for i, chunk in enumerate(chunks_list):
-        chunk['id'] = f'c{i+1}'
+
+    # Generate persistent IDs based on file_path + type + section
+    for chunk in chunks_list:
+        chunk['id'] = _generate_chunk_id(
+            chunk['file_path'],
+            chunk['type'],
+            chunk.get('section', ''),
+            chunk.get('text', '')
+        )
 
     texts = [chunk['text'] for chunk in chunks_list]
 
@@ -604,7 +656,8 @@ def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
     faiss_index = build_faiss_index(embeddings)
 
     print("Building inverted index (BM25 scores for SQLite)...")
-    inverted_index = create_bm25_inverted_index(chunks_list, bm25)
+    print("  [DEBUG] Skipping inverted index (O(n*m) bottleneck, use SQL FTS instead)")
+    inverted_index = {}  # SKIP: SQL FTS will provide this functionality
 
     print("Building metadata index (tags/category/used_in)...")
     metadata_index = build_metadata_index(chunks_list)
@@ -618,6 +671,12 @@ def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
                 edge['evidence'] = [{'file': fp, 'start_line': chunk['start_line'], 'end_line': chunk['end_line']}
                                      for fp in chunk.get('file_paths', [chunk['file_path']])]
 
+    # Build embeddings_by_id dict for incremental updates (kb_watch.py)
+    embeddings_by_id = {
+        chunk['id']: embeddings[i].astype('float32')
+        for i, chunk in enumerate(chunks_list)
+    }
+
     return {
         "chunks": {item['id']: item for item in chunks_list},
         "nodes": {item['id']: item for item in nodes_list},
@@ -627,6 +686,7 @@ def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
         "bm25": bm25,
         "bm25_chunk_ids": [c['id'] for c in chunks_list],
         "faiss_index": faiss_index,
+        "embeddings_by_id": embeddings_by_id,
         "model_name": model_name,
     }
 
@@ -669,6 +729,11 @@ def save_knowledge_base_legacy(kb_data, output_dir="kb_data", save_json=True, sa
         if bm25_chunk_ids is not None:
             with open(os.path.join(output_dir, 'pkl', 'chunk_ids.pkl'), 'wb') as f:
                 pickle.dump(bm25_chunk_ids, f)
+
+        embeddings_by_id = kb_data.get("embeddings_by_id", {})
+        if embeddings_by_id:
+            with open(os.path.join(output_dir, 'pkl', 'embeddings_by_id.pkl'), 'wb') as f:
+                pickle.dump(embeddings_by_id, f)
 
         with open(os.path.join(output_dir, 'pkl', 'model_name.pkl'), 'wb') as f:
             pickle.dump(kb_data.get("model_name", EMBEDDING_MODEL), f)
@@ -775,16 +840,50 @@ def generate_edge_types_doc(kb_data, output_dir="kb_data"):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Build knowledge base from source directory")
+    parser.add_argument(
+        "--source",
+        default=os.environ.get("SOURCE_DIR", "./source"),
+        help="Source directory path (default: env SOURCE_DIR or ./source)"
+    )
+    parser.add_argument(
+        "--output-kb",
+        default=os.environ.get("KB_OUTPUT_DIR", "./kb_data"),
+        help="Output directory for knowledge base artifacts (default: env KB_OUTPUT_DIR or ./kb_data)"
+    )
+    parser.add_argument(
+        "--output-sqlite",
+        default=os.environ.get("SQLITE_OUTPUT_DIR", "./sqlite_data"),
+        help="Output directory for SQLite database (default: env SQLITE_OUTPUT_DIR or ./sqlite_data)"
+    )
+    parser.add_argument(
+        "--output-formats",
+        default=os.environ.get("KB_OUTPUT_FORMATS", "pkl,json,sqlite"),
+        help="Output formats as comma-separated list: pkl,json,sqlite (default: all, env: KB_OUTPUT_FORMATS)"
+    )
+    args = parser.parse_args()
+
+    # Parse output formats
+    formats = set(f.strip().lower() for f in args.output_formats.split(','))
+    save_pkl = 'pkl' in formats
+    save_json = 'json' in formats
+    save_sqlite = 'sqlite' in formats
+
     print("Starting knowledge base generation...")
-    source_path = './source'
-    legacy_output_path = './kb_data'
-    sqlite_output_path = './sqlite_data'
+    print(f"Output formats: {', '.join(sorted(formats))}")
+    source_path = args.source
+    legacy_output_path = args.output_kb
+    sqlite_output_path = args.output_sqlite
 
     kb_objects = build_knowledge_base(source_path)
 
-    save_knowledge_base_legacy(kb_objects, output_dir=legacy_output_path, save_json=True, save_pickle=True)
-    save_kb_to_sqlite(kb_objects, output_dir=sqlite_output_path)
-    generate_edge_types_doc(kb_objects, output_dir=legacy_output_path)
+    if save_pkl or save_json:
+        save_knowledge_base_legacy(kb_objects, output_dir=legacy_output_path, save_json=save_json, save_pickle=save_pkl)
+        if save_pkl or save_json:
+            generate_edge_types_doc(kb_objects, output_dir=legacy_output_path)
+
+    if save_sqlite:
+        save_kb_to_sqlite(kb_objects, output_dir=sqlite_output_path)
 
     print("\n--- Generation Complete ---")
     print(f"Total chunks: {len(kb_objects['chunks'])}")
@@ -797,8 +896,9 @@ if __name__ == "__main__":
     print(f"Unique used_in: {len(meta.get('used_in_index', {}))}")
     print(f"Entrypoints: {len(meta.get('entrypoint_ids', []))}")
 
-    print(f"\nSuccessfully created legacy data files in '{legacy_output_path}/'")
-    print(f"Successfully created SQLite DB in '{sqlite_output_path}/'")
-
-    db_size = os.path.getsize(os.path.join(sqlite_output_path, 'knowledge_base.sqlite'))
-    print(f"SQLite database size: {db_size / 1024 / 1024:.2f} MB")
+    if save_pkl or save_json:
+        print(f"\nSuccessfully created legacy data files in '{legacy_output_path}/'")
+    if save_sqlite:
+        print(f"Successfully created SQLite DB in '{sqlite_output_path}/'")
+        db_size = os.path.getsize(os.path.join(sqlite_output_path, 'knowledge_base.sqlite'))
+        print(f"SQLite database size: {db_size / 1024 / 1024:.2f} MB")

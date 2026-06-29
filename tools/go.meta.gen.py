@@ -177,6 +177,95 @@ def _is_external(pkg: str, imports: dict[str, str], module_name: str = "") -> bo
     return not _is_stdlib_path(imports[pkg])
 
 
+def _extract_calls(body: str, refs: list[str] | None = None) -> list[str]:
+    """Extract function/method calls from function body with type resolution.
+
+    First extracts method names from body (Set, Query, etc).
+    Then resolves types using references (cabinet.Cabinet.Set, sql.DB.Query, etc).
+
+    Examples:
+        body: "s.Set(db.Query())"  refs: ["cabinet.Cabinet.Set", "sql.DB.Query"]
+        → ["cabinet.Cabinet.Set", "sql.DB.Query"]
+
+    Falls back to untyped calls if refs unavailable:
+        body: "s.Set(db.Query())"  refs: None
+        → ["Set", "Query"]
+    """
+    calls = []
+    call_names = set()
+
+    # Extract bare method/function names
+    # First pattern: pkg.Name()
+    for m in re.finditer(r'\b\w+\.([A-Z]\w*)\s*\(', body):
+        call_names.add(m.group(1))
+
+    # Second pattern: standalone Name()
+    for m in re.finditer(r'\b([A-Z]\w*)\s*\(', body):
+        call_names.add(m.group(1))
+
+    # Type resolution: match call names against references
+    if refs:
+        typed_calls = []
+        for ref in refs:
+            # ref format: "cabinet.Cabinet.Set", extract the method name
+            method_name = ref.split('.')[-1]  # "Set" from "cabinet.Cabinet.Set"
+            if method_name in call_names:
+                typed_calls.append(ref)
+
+        # Return typed calls if found, otherwise fall back to bare names
+        if typed_calls:
+            return sorted(set(typed_calls))
+
+    # Fallback: return untyped call names
+    return sorted(call_names) if call_names else []
+
+
+def _extract_param_types(params_str: str, imports: dict[str, str], module_name: str = "") -> dict[str, str]:
+    """Extract {param_name: pkg_alias} from function parameter list.
+
+    Examples:
+        "s *Service, db *sql.DB" -> {"s": "Service", "db": "sql"}
+        "ops nexusgit.GitOps" -> {"ops": "nexusgit.GitOps"}
+    """
+    result: dict[str, str] = {}
+    if not params_str:
+        return result
+
+    # Split by comma, but handle nested parens (e.g., func types)
+    parts = []
+    current = []
+    depth = 0
+    for c in params_str:
+        if c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+        elif c == ',' and depth == 0:
+            parts.append(''.join(current).strip())
+            current = []
+            continue
+        current.append(c)
+    if current:
+        parts.append(''.join(current).strip())
+
+    # Parse each parameter: [*]pkg.Type or [*]Type
+    for part in parts:
+        if not part or part.startswith('...'):
+            continue
+
+        # Extract type: skip pointer, handle []
+        type_part = re.sub(r'^[\[\]*]+', '', part).strip()
+
+        # Extract param name: "s *Service" → name="s", type="Service"
+        m = re.match(r'^(\w+)\s+([\w.]+)$', type_part)
+        if m:
+            param_name = m.group(1)
+            param_type = m.group(2)
+            result[param_name] = param_type
+
+    return result
+
+
 def _extract_local_typed_vars(text: str, imports: dict[str, str], module_name: str = "") -> dict[str, str]:
     """Return {var_name: pkg_alias} for explicitly typed local variable declarations.
 
@@ -198,12 +287,16 @@ def _extract_local_typed_vars(text: str, imports: dict[str, str], module_name: s
     return result
 
 
-def _extract_refs(text: str, imports: dict[str, str], module_name: str = "") -> list[str]:
+def _extract_refs(text: str, imports: dict[str, str], module_name: str = "",
+                   param_types: dict[str, str] | None = None,
+                   receiver_type: str | None = None,
+                   receiver_name: str = 's') -> list[str]:
     """Find non-stdlib pkg.Name references in text.
 
-    Two passes:
+    Three passes:
     1. Direct package references: pkg.ExportedName  (types, funcs, consts)
     2. Typed variable method calls: var db *sql.DB → db.QueryRow → sql.QueryRow
+    3. Parameter/receiver method calls: func f(s *Service) { s.Method() } → Service.Method
     """
     seen: dict[str, None] = {}  # ordered set preserving insertion order
 
@@ -220,6 +313,25 @@ def _extract_refs(text: str, imports: dict[str, str], module_name: str = "") -> 
         pkg = local_vars.get(var_name)
         if pkg:
             seen[f"{pkg}.{method}"] = None
+
+    # Pass 3 — parameter/receiver method calls
+    # param_types: {"s": "Service", "ops": "nexusgit.GitOps"}
+    # receiver_type: "Service" (for methods), receiver_name: "s"
+    if param_types:
+        local_vars.update(param_types)
+    if receiver_type:
+        local_vars[receiver_name] = receiver_type  # implicit receiver, e.g., s *relayServer → s: relayServer
+
+    for m in re.finditer(r'\b(\w+)\.([A-Z]\w*)\s*\(', text):
+        var_name, method = m.group(1), m.group(2)
+        type_name = local_vars.get(var_name)
+        if type_name and '.' in type_name:
+            # Already has package: "nexusgit.GitOps"
+            seen[f"{type_name}.{method}"] = None
+        elif type_name and _is_external(type_name, imports, module_name):
+            # Type is a local package: "Service" → resolve via imports
+            # This would need symbol table, skip for now
+            pass
 
     return list(seen)
 
@@ -353,6 +465,8 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
     for m in re.finditer(r'\btype\s+(\w+)\s+struct\s*\{', clean):
         name = m.group(1)
         body = _extract_block_content(clean, m.end() - 1)
+        # Struct fields could have types, but they're just declarations
+        # Extract refs from field types
         refs = _extract_refs(body, imports, module_name)
         obj: dict = {"name": name, "kind": "struct",
                      "description": doc.get(name, ""),
@@ -384,20 +498,30 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
     # --- funcs and methods ---
     func_re = re.compile(
         r'\bfunc\s+'
-        r'(?:\(\s*\w+\s+\*?(\w+)\s*\)\s*)?'   # group 1: receiver type (optional)
-        r'(\w+)\s*'                              # group 2: func name
-        r'\(([^)]*(?:\([^)]*\)[^)]*)*)\)'       # group 3: params
-        r'([^{]*)',                              # group 4: return types
+        r'(?:\(\s*(\w+)\s+\*?(\w+)\s*\)\s*)?'   # group 1: receiver name, group 2: receiver type (optional)
+        r'(\w+)\s*'                               # group 3: func name
+        r'\(([^)]*(?:\([^)]*\)[^)]*)*)\)'        # group 4: params
+        r'([^{]*)',                               # group 5: return types
         re.MULTILINE,
     )
     for m in func_re.finditer(clean):
-        recv_type = m.group(1)
-        func_name = m.group(2)
-        params = m.group(3) or ''
-        returns = m.group(4) or ''
+        recv_name = m.group(1)
+        recv_type = m.group(2)
+        func_name = m.group(3)
+        params = m.group(4) or ''
+        returns = m.group(5) or ''
         brace_pos = clean.find('{', m.end())
         body = _extract_block_content(clean, brace_pos) if brace_pos != -1 else ''
-        refs = _extract_refs(f"{params} {returns} {body}", imports, module_name)
+
+        # Extract parameter types and pass to _extract_refs
+        param_types = _extract_param_types(params, imports, module_name)
+        refs = _extract_refs(f"{params} {returns} {body}", imports, module_name,
+                            param_types=param_types, receiver_type=recv_type,
+                            receiver_name=recv_name or 's')
+
+        # Extract function/method calls from body with type resolution
+        # Pass refs for type resolution: match call names against full refs
+        calls = _extract_calls(body, refs)
 
         if recv_type:
             objects.append({
@@ -406,6 +530,7 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
                 "receiver": recv_type,
                 "description": doc.get(func_name, ""),
                 "references": refs,
+                "calls": calls,
             })
         else:
             objects.append({
@@ -413,6 +538,7 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
                 "kind": "func",
                 "description": doc.get(func_name, ""),
                 "references": refs,
+                "calls": calls,
             })
 
     # --- package-level vars ---
