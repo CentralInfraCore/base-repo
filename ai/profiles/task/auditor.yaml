@@ -1,0 +1,42 @@
+---
+profile: auditor
+version: "1.0"
+description: >
+  Read-only audit of a scope for correctness, security, and contract compliance.
+  Produces a structured findings report. No code changes.
+
+boot_sequence:
+  - kb_status
+  - focus_pack(scope_query)
+  - read CONTRACT.md and LIMITS.md
+  - read LLM_RULES.md if present
+
+allowed:
+  - read all files in scope (source, tests, YAML, docs)
+  - call all MCP read-only tools
+  - record findings via record_decision
+
+forbidden:
+  - modify any file
+  - run make targets that modify state
+  - git add / commit / push
+
+output:
+  - type: audit_report
+    description: |
+      Structured list of findings per file:
+        - file, finding_type (bug/security/contract/style), severity, description, suggested_fix
+    commit_required: false
+
+accept:
+  - report covers all files in scope
+  - each finding references a specific line or node_id
+  - P0 findings call out security or data integrity issues explicitly
+
+mcp_tools_required:
+  - kb_status
+  - focus_pack
+  - impact_analysis
+  - neighbors
+  - explain_node
+  - record_decision

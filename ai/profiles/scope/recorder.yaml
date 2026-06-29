@@ -1,0 +1,30 @@
+---
+scope: recorder
+version: "1.0"
+repo: CIC-Relay
+description: >
+  State recorder: persists expected vs actual state with Vault Transit signing.
+  Part of the ProofTrace audit trail.
+
+owns:
+  - core/nexus/recorder/
+
+reads:
+  - core/cabinet/proof_trace.go
+  - core/nexus/crypto/
+
+test_cmd: go test ./core/nexus/recorder/...
+coverage_min: 80
+
+key_interfaces:
+  - Recorder (core/nexus/recorder/)
+  - RecordedState
+
+mcp_focus_queries:
+  - "recorder state expected actual"
+  - "Vault Transit signing recorder"
+  - "ProofTrace audit"
+
+invariants:
+  - Vault signing failure is WARN, not fatal (does not abort workflow)
+  - expected_state = workflow input, actual_state = ProofTrace output

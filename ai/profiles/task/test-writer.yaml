@@ -1,0 +1,39 @@
+---
+profile: test-writer
+version: "1.0"
+description: >
+  Write or extend tests for a specific scope to reach coverage targets.
+  Does not modify production code.
+
+boot_sequence:
+  - kb_status
+  - focus_pack(scope_query)
+  - run: go test -coverprofile=coverage.out ./scope/...
+  - identify uncovered branches from coverage report
+
+allowed:
+  - write and modify *_test.go files within scope
+  - read Go source files (no modification)
+  - run make test, make coverage-check-pkgs
+  - call MCP read-only tools
+
+forbidden:
+  - modify non-test Go source files
+  - modify Makefile, CI, signing hooks
+  - skip or remove existing tests
+  - use t.Skip() without a // reason comment
+
+output:
+  - type: test_files
+    description: New or extended *_test.go files
+    commit_required: true
+
+accept:
+  - coverage >= threshold defined in scope profile
+  - make test green (0 exit)
+  - no existing tests removed or disabled
+
+mcp_tools_required:
+  - kb_status
+  - focus_pack
+  - neighbors

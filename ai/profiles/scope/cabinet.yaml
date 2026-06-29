@@ -1,0 +1,34 @@
+---
+scope: cabinet
+version: "1.0"
+repo: CIC-Relay
+description: >
+  WASM executor, workflow graph, ProofTrace, schema validation.
+  The central execution engine of CIC-Relay.
+
+owns:
+  - core/cabinet/
+
+reads:
+  - pkg/obs/
+  - pkg/wasm/
+  - core/nexus/recorder/
+
+test_cmd: go test ./core/cabinet/...
+coverage_min: 85
+
+key_interfaces:
+  - Cabinet (core/cabinet/interface.go)
+  - ExecutionGraph (core/cabinet/graph.go)
+  - ProofTrace (core/cabinet/proof_trace.go)
+
+mcp_focus_queries:
+  - "cabinet workflow execution"
+  - "ProofTrace chain hash"
+  - "WASM module executor"
+  - "schema validation cabinet"
+
+invariants:
+  - ProofTrace.ChainHash is deterministic given the same step sequence
+  - ExecutionGraph step format: "component@version.function(inputKey) -> outputKey"
+  - SetResponse always includes ProofTrace on success

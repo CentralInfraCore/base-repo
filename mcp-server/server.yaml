@@ -1,13 +1,13 @@
 ---
 module: server
-description: 'Graph MCP server for CIC knowledge base stored in PKL files (legacy
-  format supported). Read-only MCP server that exposes: - token search via inverted_index.pkl
-  - chunk/node lookup - graph traversal (neighbors) - simple filtering (by tag/category/used_in)
-  if metadata exists in node/chunk payloads - focus_pack: context gathering with rule
-  prioritization - explain_node: deep dive into specific nodes - search_nodes: lookup
-  nodes by name/label/tags - kb_status: check KB file status - reload_kb: force-reload
-  the knowledge base Works with stdio (default) and SSE (HTTP) if you wrap it similarly
-  to your docs_mcp.py.'
+description: 'CIC-Relay MCP server for Relay-specific knowledge base stored in PKL
+  files (legacy format supported). Read-only MCP server that exposes: - token search
+  via inverted_index.pkl - chunk/node lookup - graph traversal (neighbors) - simple
+  filtering (by tag/category/used_in) if metadata exists in node/chunk payloads -
+  focus_pack: context gathering with rule prioritization - explain_node: deep dive
+  into specific nodes - search_nodes: lookup nodes by name/label/tags - kb_status:
+  check KB file status - reload_kb: force-reload the knowledge base Works with stdio
+  (default) and SSE (HTTP) if you wrap it similarly to your docs_mcp.py.'
 tags:
 - core
 - gateway
@@ -18,11 +18,15 @@ used_in: []
 entrypoint: true
 related_nodes: []
 objects:
-- name: mcp
+- name: _kb_lock
   kind: const
   description: ''
   references: []
-- name: BASE_DIR
+- name: MCP_SERVER_NAME
+  kind: const
+  description: ''
+  references: []
+- name: mcp
   kind: const
   description: ''
   references: []
@@ -90,6 +94,14 @@ objects:
   kind: const
   description: ''
   references: []
+- name: ENABLE_MUTATIONS
+  kind: const
+  description: ''
+  references: []
+- name: REBUILD_GRAPH_ON_WATCH
+  kind: const
+  description: ''
+  references: []
 - name: RULE_HINTS
   kind: const
   description: ''
@@ -103,79 +115,306 @@ objects:
   decorators: []
   description: ''
   references: []
+  calls: []
 - name: _normalize_line_range
   kind: function
   decorators: []
   description: Normalize line range to [start, end] list of ints or None.
   references: []
+  calls: []
+- name: validate_source_path
+  kind: function
+  decorators: []
+  description: 'Validate that file_path is within SOURCE_DIR and is not absolute.
+    Returns: (is_valid, reason)'
+  references: []
+  calls:
+  - target.relative_to
+- name: load_manifest
+  kind: function
+  decorators: []
+  description: Load kb_manifest.json if it exists, return empty dict otherwise.
+  references: []
+  calls:
+  - manifest_path.exists
+  - manifest_path.open
+- name: check_kb_ready
+  kind: function
+  decorators: []
+  description: 'Check if KB is ready for queries. Returns: (is_ready, reason) If not
+    ready, queries should fail with this reason.'
+  references: []
+  calls: []
 - name: load_kb
   kind: function
-  decorators:
-  - lru_cache
-  description: Load all PKL artifacts into memory once.
+  decorators: []
+  description: Return the in-memory KB, loading from disk on first call. If auto_reload=True,
+    check if any artifact was modified since last load and reload if needed (for watch-based
+    updates).
+  references: []
+  calls:
+  - CHUNKS_PKL.exists
+  - _load_kb_from_disk
+  - p.exists
+  - p.stat
+- name: _load_kb_from_disk
+  kind: function
+  decorators: []
+  description: Load all PKL artifacts from disk into a fresh dict.
   references:
+  - numpy.ndarray
   - sentence_transformers.SentenceTransformer
   - faiss.read_index
+  calls:
+  - BM25_PKL.exists
+  - BM25_PKL.open
+  - CHUNK_IDS_PKL.exists
+  - CHUNK_IDS_PKL.open
+  - FAISS_INDEX.exists
+  - FileNotFoundError
+  - METADATA_INDEX_PKL.exists
+  - MODEL_NAME_PKL.exists
+  - MODEL_NAME_PKL.open
+  - adj.setdefault
+  - chunk_to_nodes.setdefault
+  - chunks.items
+  - e.get
+  - edges.values
+  - faiss.read_index
+  - faiss_idx.reconstruct
+  - inverted.get
+  - node.get
+  - nodes.items
+  - nodes_by_id.items
+  - p.exists
+  - p.open
+  - sentence_transformers.SentenceTransformer
 - name: _tokenize
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - q.lower
+  - w.isalpha
 - name: _extract_chunk_text
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - chunk.get
 - name: _extract_chunk_file_paths
   kind: function
   decorators: []
   description: 'Return all file paths for a chunk (dedup-aware: file_paths list).'
   references: []
+  calls:
+  - chunk.get
+  - meta.get
 - name: _extract_chunk_file_path
   kind: function
   decorators: []
   description: Return the canonical (primary) file path for a chunk.
   references: []
+  calls:
+  - _extract_chunk_file_paths
 - name: _extract_chunk_section
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - chunk.get
+  - meta.get
 - name: _rule_bonus_for_chunk
   kind: function
   decorators: []
   description: Give a deterministic bonus to rule-like chunks/files.
   references: []
+  calls:
+  - _extract_chunk_file_path
+  - _extract_chunk_section
+  - _extract_chunk_text
 - name: _kb_mtimes
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - CHUNKS_PKL.exists
+  - CHUNKS_PKL.stat
+  - EDGES_PKL.exists
+  - EDGES_PKL.stat
+  - INVERTED_PKL.exists
+  - INVERTED_PKL.stat
+  - NODES_PKL.exists
+  - NODES_PKL.stat
 - name: kb_status
   kind: function
   decorators:
   - mcp.tool
   description: Return detailed status about loaded KB artifacts.
   references: []
+  calls:
+  - BM25_PKL.exists
+  - BM25_PKL.stat
+  - CHUNKS_PKL.exists
+  - CHUNKS_PKL.stat
+  - EDGES_PKL.exists
+  - EDGES_PKL.stat
+  - FAISS_INDEX.exists
+  - FAISS_INDEX.stat
+  - INVERTED_PKL.exists
+  - INVERTED_PKL.stat
+  - NODES_PKL.exists
+  - NODES_PKL.stat
+  - kb.get
+  - mcp.tool
 - name: reload_kb
   kind: function
   decorators:
   - mcp.tool
   description: Force reload of KB artifacts from disk. Useful after regenerating PKL
-    files.
+    files outside of watch mode.
   references: []
+  calls:
+  - _kb_mtimes
+  - _load_kb_from_disk
+  - mcp.tool
+- name: refresh_graph
+  kind: function
+  decorators:
+  - mcp.tool
+  description: 'Manually rebuild the knowledge graph from current chunks and embeddings.
+    This is a BLOCKING operation that: 1. Locks the KB (blocks all queries) 2. Sets
+    server to NOT_READY state 3. Rebuilds graph_nodes.pkl and graph_edges.pkl 4. Unlocks
+    and returns to READY state Use after: watch has updated chunks/embeddings but
+    graph is stale. Warning: Queries will fail with "not ready" error during rebuild.
+    Returns: {success, nodes_count, edges_count, duration_ms}'
+  references:
+  - numpy.stack
+  calls:
+  - _load_kb_from_disk
+  - _ms.build_metadata_index
+  - _ms.create_knowledge_graph_with_content
+  - _time.time
+  - kb.get
+  - mcp.tool
+  - numpy.stack
+  - tempfile.mkstemp
+- name: _watch_process_file
+  kind: function
+  decorators: []
+  description: Route a changed file to the correct make_source processor.
+  references: []
+  calls:
+  - _ms._is_go_meta_yaml
+  - _ms._is_py_meta_yaml
+  - _ms.process_go_yaml
+  - _ms.process_md_file
+  - _ms.process_py_yaml
+  - _ms.process_yaml_file
+  - file_path.endswith
+- name: _incremental_update_kb
+  kind: function
+  decorators: []
+  description: Apply file changes to the in-memory KB. Must be called under _kb_lock.
+  references:
+  - numpy.stack
+  - faiss.IndexFlatIP
+  calls:
+  - _ms.build_bm25_index
+  - _ms.create_bm25_inverted_index
+  - _ms.create_knowledge_graph_with_content
+  - _watch_process_file
+  - adj.setdefault
+  - c.get
+  - c.startswith
+  - chunk.get
+  - chunk.setdefault
+  - chunk_to_nodes.setdefault
+  - e.get
+  - emb.keys
+  - faiss.IndexFlatIP
+  - kb.get
+  - model.encode
+  - new_chunks.extend
+  - new_idx.add
+  - node.get
+  - numpy.stack
+  - vec.astype
+- name: _file_hash
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - f.read
+- name: _scan_watch_dir
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _file_hash
+  - fname.endswith
+  - fname.startswith
+- name: _bootstrap_kb_from_source
+  kind: function
+  decorators: []
+  description: Build PKL artifacts from source_dir when starting fresh (no chunks.pkl).
+  references:
+  - faiss.write_index
+  calls:
+  - _ms._dedup_chunks
+  - _ms._generate_chunk_id
+  - _ms.build_bm25_index
+  - _ms.build_faiss_index
+  - _ms.create_bm25_inverted_index
+  - _ms.create_embeddings
+  - _ms.create_knowledge_graph_with_content
+  - _ms.process_directory
+  - _pickle.dumps
+  - _scan_watch_dir
+  - c.get
+  - chunk.get
+  - chunks.sort
+  - faiss.write_index
+  - pkl_dir.mkdir
+- name: _watch_loop
+  kind: function
+  decorators: []
+  description: 'Background daemon thread: polls watch_dir, applies incremental updates.'
+  references: []
+  calls:
+  - _incremental_update_kb
+  - _scan_watch_dir
+  - current.items
+  - file_state.get
+  - state_path.exists
+  - state_path.read_text
+  - state_path.write_text
 - name: list_edge_types
   kind: function
   decorators:
   - mcp.tool
   description: List all unique edge types found in the graph.
   references: []
+  calls:
+  - e.get
+  - mcp.tool
+  - types.add
 - name: list_node_types
   kind: function
   decorators:
   - mcp.tool
   description: List all unique node types (categories) found in the graph.
   references: []
+  calls:
+  - mcp.tool
+  - n.get
+  - types.add
 - name: search_token
   kind: function
   decorators:
@@ -183,6 +422,14 @@ objects:
   description: Lexical single-token search using BM25. Returns a list of {chunk_id,
     score}.
   references: []
+  calls:
+  - _clamp_topk
+  - bm25.get_scores
+  - indexed.sort
+  - kb.get
+  - mcp.tool
+  - token.strip
+  - x.get
 - name: search_query
   kind: function
   decorators:
@@ -191,6 +438,23 @@ objects:
     chunks: {chunk_id, score, file_path, line_range}. Falls back to BM25 inverted
     index if FAISS is not available.'
   references: []
+  calls:
+  - _clamp_topk
+  - _extract_chunk_file_paths
+  - _normalize_line_range
+  - _tokenize
+  - chunk.get
+  - faiss_idx.search
+  - h.get
+  - kb.get
+  - matched.get
+  - matched.setdefault
+  - mcp.tool
+  - meta.get
+  - model.encode
+  - results.append
+  - scores.get
+  - scores.items
 - name: search_code
   kind: function
   decorators:
@@ -199,6 +463,16 @@ objects:
     finding exact code snippets or literal strings that token search misses. Returns:
     {chunk_id, content_preview, file_path, line_range}'
   references: []
+  calls:
+  - _clamp_topk
+  - _extract_chunk_file_paths
+  - _normalize_line_range
+  - chunk.get
+  - code_snippet.strip
+  - content.find
+  - mcp.tool
+  - meta.get
+  - results.append
 - name: search_nodes
   kind: function
   decorators:
@@ -207,6 +481,24 @@ objects:
     metadata index for O(1) tag/category lookup, then augments with linear label/type
     scan for full coverage.
   references: []
+  calls:
+  - _clamp_topk
+  - boosted_chunks.get
+  - boosted_chunks.items
+  - boosted_nodes.get
+  - cat.lower
+  - chunk_to_nodes.get
+  - kb.get
+  - label.lower
+  - mcp.tool
+  - meta_idx.get
+  - node.get
+  - query.lower
+  - results.append
+  - results.sort
+  - scores.get
+  - scores.items
+  - tag.lower
 - name: resolve_path
   kind: function
   decorators:
@@ -217,6 +509,18 @@ objects:
     of chunk path. - "exact": Matches if chunk path equals file_path. limit: Max number
     of chunks to return (default 200). Returns: list of {chunk_id, line_range, file_path}'
   references: []
+  calls:
+  - _extract_chunk_file_paths
+  - _normalize_line_range
+  - chunk.get
+  - file_path.strip
+  - matched_paths.append
+  - mcp.tool
+  - meta.get
+  - mode.lower
+  - path_raw.lower
+  - path_str.startswith
+  - results.append
 - name: get_chunk
   kind: function
   decorators:
@@ -224,18 +528,28 @@ objects:
   description: 'Return a chunk by id. Args: chunk_id: The ID of the chunk. max_chars:
     Maximum characters of content to return (default 8000).'
   references: []
+  calls:
+  - chunk.copy
+  - mcp.tool
+  - out.get
 - name: get_node
   kind: function
   decorators:
   - mcp.tool
   description: Return a node by id.
   references: []
+  calls:
+  - mcp.tool
 - name: neighbors
   kind: function
   decorators:
   - mcp.tool
   description: Return outgoing edges from a node. Optionally filter by edge_type.
   references: []
+  calls:
+  - e.get
+  - edge_type.lower
+  - mcp.tool
 - name: focus_pack
   kind: function
   decorators:
@@ -244,6 +558,26 @@ objects:
     - prioritizes rule-like chunks/files (CONTRACT, DoD, LIMITS) - returns ''key_rules''
     - returns ''recommended_reading_order'''
   references: []
+  calls:
+  - _extract_chunk_file_path
+  - _extract_chunk_section
+  - _rule_bonus_for_chunk
+  - base_score_map.get
+  - e.get
+  - files.add
+  - h.get
+  - key_rules.append
+  - mcp.tool
+  - new_frontier.append
+  - node.get
+  - primary_nodes_set.update
+  - recommended_files.append
+  - related_chunks.add
+  - related_nodes.add
+  - rule.get
+  - scored_chunks_data.append
+  - scored_chunks_data.sort
+  - seen_files.add
 - name: explain_node
   kind: function
   decorators:
@@ -251,6 +585,12 @@ objects:
   description: 'Deep dive into a specific node: returns definition, neighbors, associated
     chunk content, and related files.'
   references: []
+  calls:
+  - _extract_chunk_file_path
+  - _extract_chunk_text
+  - _rule_bonus_for_chunk
+  - mcp.tool
+  - node.get
 - name: find_nodes
   kind: function
   decorators:
@@ -259,6 +599,17 @@ objects:
     Args: category: Filter by category (exact match). tag:      Filter by tag (exact
     match). used_in:  Filter by used_in context (exact match). top_k:    Max results.'
   references: []
+  calls:
+  - _clamp_topk
+  - candidate_sets.append
+  - category.lower
+  - chunk_to_nodes.get
+  - kb.get
+  - mcp.tool
+  - meta_idx.get
+  - out.append
+  - tag.lower
+  - used_in.lower
 - name: impact_analysis
   kind: function
   decorators:
@@ -269,6 +620,20 @@ objects:
     critical path nodes (highest fan-out). Args: node_id: The node to start from.
     max_depth: BFS depth limit (default 3, max 5).'
   references: []
+  calls:
+  - adj.get
+  - downstream.append
+  - edge.get
+  - fan_out.items
+  - mcp.tool
+  - node.get
+  - nodes.get
+  - queue.append
+  - queue.pop
+  - used_in_agg.items
+  - used_in_agg.setdefault
+  - visited.items
+  - visited.values
 - name: guided_path
   kind: function
   decorators:
@@ -279,7 +644,28 @@ objects:
     reading sequence. Args: topic: The topic or concept to learn about. max_steps:
     Maximum nodes in the path (default 10, max 20).'
   references: []
+  calls:
+  - _cat_rank
+  - adj.get
+  - candidate_node_ids.append
+  - children.append
+  - children.sort
+  - chunk_to_nodes.get
+  - edge.get
+  - h.get
+  - kb.get
+  - mcp.tool
+  - node.get
+  - nodes.get
+  - path.append
+  - queue.pop
+  - seen_chunks.add
+  - visited.add
 - name: SOURCE_DIR
+  kind: const
+  description: ''
+  references: []
+- name: _COMPANION_LANGS
   kind: const
   description: ''
   references: []
@@ -287,14 +673,32 @@ objects:
   kind: function
   decorators:
   - mcp.tool
-  description: 'List Go source files that lack a companion YAML or have empty semantic
-    fields. Scans the source directory for .go files and reports: - ''missing'': .go
-    files with no companion .yaml at all - ''incomplete'': companion YAMLs exist but
-    category/used_in/related_nodes are all empty Results are sorted by file size descending
-    (larger = higher priority). Args: source_dir: Override the scan root (default:
-    SOURCE_DIR env or source/). include_empty_semantic: Also report companions with
-    no semantic fields filled. limit: Max entries per category (default 50).'
+  description: 'List Go/Python source files that lack a companion YAML or have empty
+    semantic fields. Scans the source directory for .go and .py files (per `langs`)
+    and reports: - ''missing'': source files with no companion .yaml at all - ''incomplete'':
+    companion YAMLs exist but category/used_in/related_nodes are all empty Results
+    are sorted by file size descending (larger = higher priority). Args: source_dir:
+    Override the scan root (default: SOURCE_DIR env or source/). langs: Which source
+    languages to scan. Default: ["go", "py"]. include_empty_semantic: Also report
+    companions with no semantic fields filled. limit: Max entries per category (default
+    50).'
   references: []
+  calls:
+  - _yaml.safe_load
+  - companion.exists
+  - companion.open
+  - companion.relative_to
+  - data.get
+  - incomplete.append
+  - incomplete.sort
+  - mcp.tool
+  - missing.append
+  - missing.sort
+  - scan_root.exists
+  - scan_root.rglob
+  - src_file.relative_to
+  - src_file.stat
+  - src_file.with_suffix
 - name: _PROMPTMAP_PATHS_ENV
   kind: const
   description: ''
@@ -304,26 +708,40 @@ objects:
   decorators: []
   description: Return all known PROMPTMAP.yaml paths (env override or source dir scan).
   references: []
+  calls:
+  - SOURCE_DIR.rglob
+  - _PROMPTMAP_PATHS_ENV.split
+  - p.strip
 - name: _load_promptmap
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _yaml.safe_load
+  - path.open
 - name: _save_promptmap
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _yaml.dump
+  - tempfile.mkstemp
 - name: _promptmap_repo_name
   kind: function
   decorators: []
   description: Derive a short repo name from PROMPTMAP path (parent directory names).
   references: []
+  calls: []
 - name: _iter_tasks
   kind: function
   decorators: []
   description: Yield (sprint_num, task_dict) pairs from a PROMPTMAP data structure.
   references: []
+  calls:
+  - block.get
+  - data.get
 - name: list_tasks
   kind: function
   decorators:
@@ -334,6 +752,18 @@ objects:
     ''failed''). None = all. Returns list of dicts with keys: repo, sprint, task,
     status, priority, prompt (truncated).'
   references: []
+  calls:
+  - _find_promptmaps
+  - _iter_tasks
+  - _load_promptmap
+  - _promptmap_repo_name
+  - mcp.tool
+  - repo.lower
+  - repo_name.lower
+  - results.append
+  - results.sort
+  - task.get
+  - x.get
 - name: get_next_task
   kind: function
   decorators:
@@ -343,12 +773,28 @@ objects:
     sprint. Returns the full task dict (with prompt, tests, accept) or None if no
     todo tasks found.'
   references: []
+  calls:
+  - _find_promptmaps
+  - _iter_tasks
+  - _load_promptmap
+  - _promptmap_repo_name
+  - mcp.tool
+  - task.get
+  - task.items
 - name: _update_task_status
   kind: function
   decorators: []
   description: Mutate a task's status in a PROMPTMAP file. Returns True if found and
     saved.
   references: []
+  calls:
+  - _load_promptmap
+  - _patch
+  - _save_promptmap
+  - block.get
+  - data.get
+  - task.get
+  - task.update
 - name: claim_task
   kind: function
   decorators:
@@ -357,6 +803,13 @@ objects:
     identifier string (e.g. ''upstream-source-http''). repo: Repo name substring to
     narrow the search (optional). Returns: {success, repo, task_id, message}'
   references: []
+  calls:
+  - _find_promptmaps
+  - _promptmap_repo_name
+  - _update_task_status
+  - mcp.tool
+  - repo.lower
+  - repo_name.lower
 - name: complete_task
   kind: function
   decorators:
@@ -366,6 +819,13 @@ objects:
     Short summary of what was done (stored as ''result'' field). Returns: {success,
     repo, task_id, message}'
   references: []
+  calls:
+  - _find_promptmaps
+  - _promptmap_repo_name
+  - _update_task_status
+  - mcp.tool
+  - repo.lower
+  - repo_name.lower
 - name: fail_task
   kind: function
   decorators:
@@ -375,6 +835,13 @@ objects:
     field). repo: Repo name substring to narrow the search (optional). Returns: {success,
     repo, task_id, message}'
   references: []
+  calls:
+  - _find_promptmaps
+  - _promptmap_repo_name
+  - _update_task_status
+  - mcp.tool
+  - repo.lower
+  - repo_name.lower
 - name: update_companion
   kind: function
   decorators:
@@ -390,6 +857,15 @@ objects:
     node IDs (replaces existing list if provided). tags: List of keyword tags (replaces
     existing list if provided). Returns: {success, path, updated_fields, message}'
   references: []
+  calls:
+  - _yaml.dump
+  - _yaml.safe_load
+  - mcp.tool
+  - p.exists
+  - p.is_absolute
+  - p.open
+  - tempfile.mkstemp
+  - updated.append
 - name: record_decision
   kind: function
   decorators:
@@ -402,6 +878,21 @@ objects:
     Explicit path to companion YAML. If empty, resolved from node_id. Returns: {success,
     path, message}'
   references: []
+  calls:
+  - _yaml.dump
+  - _yaml.safe_load
+  - candidate.exists
+  - candidate2.exists
+  - candidate2.with_suffix
+  - data.setdefault
+  - datetime.now
+  - decisions.append
+  - mcp.tool
+  - node.get
+  - p.exists
+  - p.is_absolute
+  - p.open
+  - tempfile.mkstemp
 - name: DEFAULT_HOST
   kind: const
   description: ''
@@ -415,3 +906,10 @@ objects:
   decorators: []
   description: ''
   references: []
+  calls:
+  - CHUNKS_PKL.exists
+  - manifest.get
+  - mcp.run
+  - monitor_thread.start
+  - parser.add_argument
+  - parser.parse_args

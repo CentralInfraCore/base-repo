@@ -1,0 +1,311 @@
+---
+module: test_tools.test_make_source
+description: ''
+tags:
+- test
+category: []
+used_in: []
+entrypoint: false
+related_nodes: []
+objects:
+- name: SAMPLE_CHUNKS
+  kind: const
+  description: ''
+  references: []
+- name: TestBuildBm25Index
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: test_returns_bm25_object
+  kind: method
+  receiver: TestBuildBm25Index
+  decorators: []
+  description: ''
+  references:
+  - make_source.build_bm25_index
+  calls:
+  - make_source.build_bm25_index
+- name: test_scores_relevant_chunk_higher
+  kind: method
+  receiver: TestBuildBm25Index
+  decorators: []
+  description: ''
+  references:
+  - make_source.build_bm25_index
+  calls:
+  - bm25.get_scores
+  - make_source.build_bm25_index
+- name: test_scores_length_matches_chunks
+  kind: method
+  receiver: TestBuildBm25Index
+  decorators: []
+  description: ''
+  references:
+  - make_source.build_bm25_index
+  calls:
+  - bm25.get_scores
+  - make_source.build_bm25_index
+- name: test_empty_text_does_not_raise
+  kind: method
+  receiver: TestBuildBm25Index
+  decorators: []
+  description: ''
+  references:
+  - make_source.build_bm25_index
+  calls:
+  - make_source.build_bm25_index
+- name: TestBuildFaissIndex
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: test_returns_faiss_index
+  kind: method
+  receiver: TestBuildFaissIndex
+  decorators: []
+  description: ''
+  references:
+  - make_source.build_faiss_index
+  - numpy.linalg
+  - numpy.random
+  calls:
+  - make_source.build_faiss_index
+- name: test_index_contains_all_vectors
+  kind: method
+  receiver: TestBuildFaissIndex
+  decorators: []
+  description: ''
+  references:
+  - make_source.build_faiss_index
+  - numpy.linalg
+  - numpy.random
+  calls:
+  - make_source.build_faiss_index
+- name: test_search_returns_top_k
+  kind: method
+  receiver: TestBuildFaissIndex
+  decorators: []
+  description: ''
+  references:
+  - make_source.build_faiss_index
+  - numpy.linalg
+  - numpy.random
+  calls:
+  - index.search
+  - make_source.build_faiss_index
+- name: test_self_similarity_is_highest
+  kind: method
+  receiver: TestBuildFaissIndex
+  decorators: []
+  description: ''
+  references:
+  - make_source.build_faiss_index
+  - numpy.linalg
+  - numpy.random
+  calls:
+  - index.search
+  - make_source.build_faiss_index
+- name: TestCreateBm25InvertedIndex
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: test_returns_dict
+  kind: method
+  receiver: TestCreateBm25InvertedIndex
+  decorators: []
+  description: ''
+  references:
+  - make_source.create_bm25_inverted_index
+  - make_source.build_bm25_index
+  calls:
+  - make_source.build_bm25_index
+  - make_source.create_bm25_inverted_index
+- name: test_contains_known_token
+  kind: method
+  receiver: TestCreateBm25InvertedIndex
+  decorators: []
+  description: ''
+  references:
+  - make_source.create_bm25_inverted_index
+  - make_source.build_bm25_index
+  calls:
+  - make_source.build_bm25_index
+  - make_source.create_bm25_inverted_index
+- name: test_entries_have_chunk_id_and_score
+  kind: method
+  receiver: TestCreateBm25InvertedIndex
+  decorators: []
+  description: ''
+  references:
+  - make_source.create_bm25_inverted_index
+  - make_source.build_bm25_index
+  calls:
+  - inv.items
+  - make_source.build_bm25_index
+  - make_source.create_bm25_inverted_index
+- name: test_entries_sorted_by_score_descending
+  kind: method
+  receiver: TestCreateBm25InvertedIndex
+  decorators: []
+  description: ''
+  references:
+  - make_source.create_bm25_inverted_index
+  - make_source.build_bm25_index
+  calls:
+  - inv.items
+  - make_source.build_bm25_index
+  - make_source.create_bm25_inverted_index
+- name: TestCreateKnowledgeGraph
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: _make_embeddings
+  kind: method
+  receiver: TestCreateKnowledgeGraph
+  decorators: []
+  description: ''
+  references:
+  - numpy.linalg
+  - numpy.random
+  calls: []
+- name: test_returns_nodes_and_edges
+  kind: method
+  receiver: TestCreateKnowledgeGraph
+  decorators: []
+  description: ''
+  references:
+  - make_source.create_knowledge_graph_with_content
+  calls:
+  - make_source.create_knowledge_graph_with_content
+  - self._make_embeddings
+- name: test_node_ids_sequential
+  kind: method
+  receiver: TestCreateKnowledgeGraph
+  decorators: []
+  description: ''
+  references:
+  - make_source.create_knowledge_graph_with_content
+  calls:
+  - make_source.create_knowledge_graph_with_content
+  - self._make_embeddings
+- name: test_nodes_have_chunk_ids
+  kind: method
+  receiver: TestCreateKnowledgeGraph
+  decorators: []
+  description: ''
+  references:
+  - make_source.create_knowledge_graph_with_content
+  calls:
+  - make_source.create_knowledge_graph_with_content
+  - self._make_embeddings
+- name: test_refers_to_edges_sequential
+  kind: method
+  receiver: TestCreateKnowledgeGraph
+  decorators: []
+  description: ''
+  references:
+  - make_source.create_knowledge_graph_with_content
+  calls:
+  - make_source.create_knowledge_graph_with_content
+  - self._make_embeddings
+- name: test_related_to_edges_high_similarity
+  kind: method
+  receiver: TestCreateKnowledgeGraph
+  decorators: []
+  description: ''
+  references:
+  - make_source.create_knowledge_graph_with_content
+  - numpy.linalg
+  - numpy.random
+  - numpy.tile
+  calls:
+  - make_source.create_knowledge_graph_with_content
+  - numpy.tile
+- name: test_edge_ids_unique
+  kind: method
+  receiver: TestCreateKnowledgeGraph
+  decorators: []
+  description: ''
+  references:
+  - make_source.create_knowledge_graph_with_content
+  calls:
+  - make_source.create_knowledge_graph_with_content
+  - self._make_embeddings
+- name: TestFileProcessors
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: test_process_md_file_returns_chunks
+  kind: method
+  receiver: TestFileProcessors
+  decorators: []
+  description: ''
+  references:
+  - make_source.process_md_file
+  calls:
+  - make_source.process_md_file
+  - md.write_text
+- name: test_process_md_file_sets_file_path
+  kind: method
+  receiver: TestFileProcessors
+  decorators: []
+  description: ''
+  references:
+  - make_source.process_md_file
+  calls:
+  - make_source.process_md_file
+  - md.write_text
+- name: test_process_yaml_file_returns_chunk
+  kind: method
+  receiver: TestFileProcessors
+  decorators: []
+  description: ''
+  references:
+  - make_source.process_yaml_file
+  calls:
+  - make_source.process_yaml_file
+  - yml.write_text
+- name: test_process_yaml_file_invalid_returns_empty
+  kind: method
+  receiver: TestFileProcessors
+  decorators: []
+  description: ''
+  references:
+  - make_source.process_yaml_file
+  calls:
+  - bad.write_text
+  - make_source.process_yaml_file
+- name: TestCreateEmbeddings
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: test_returns_model_and_ndarray
+  kind: method
+  receiver: TestCreateEmbeddings
+  decorators: []
+  description: ''
+  references:
+  - numpy.float32
+  - numpy.ndarray
+  - numpy.random
+  calls: []
+- name: test_encode_called_with_normalize
+  kind: method
+  receiver: TestCreateEmbeddings
+  decorators: []
+  description: ''
+  references:
+  - numpy.random
+  calls:
+  - call_kwargs.get

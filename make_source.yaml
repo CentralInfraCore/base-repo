@@ -15,17 +15,26 @@ objects:
   kind: const
   description: ''
   references: []
+- name: EXCLUDE_DIRS
+  kind: const
+  description: ''
+  references: []
 - name: tokenize
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - t.strip
+  - text.lower
 - name: detect_language
   kind: function
   decorators: []
   description: ''
   references:
   - langdetect.LangDetectException
+  - langdetect.detect
+  calls:
   - langdetect.detect
 - name: load_companion_yaml
   kind: function
@@ -34,16 +43,27 @@ objects:
   references:
   - yaml.YAMLError
   - yaml.safe_load
+  calls:
+  - yaml.safe_load
 - name: _normalize_list
   kind: function
   decorators: []
   description: Normalize a YAML value to a list of strings.
   references: []
+  calls: []
 - name: process_md_file
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _normalize_list
+  - chunk.update
+  - chunks.append
+  - companion.get
+  - current_chunk_lines.append
+  - f.readlines
+  - match.group
 - name: process_go_yaml
   kind: function
   decorators: []
@@ -54,12 +74,52 @@ objects:
   references:
   - yaml.YAMLError
   - yaml.safe_load
+  calls:
+  - _normalize_list
+  - chunk.update
+  - chunks.append
+  - data.get
+  - f.get
+  - lines.append
+  - m.get
+  - o.get
+  - obj.get
+  - p.get
+  - pkg_lines.append
+  - position.get
+  - signature.get
+  - yaml.safe_load
+- name: process_py_yaml
+  kind: function
+  decorators: []
+  description: 'Process a .py.yaml companion file as structured knowledge chunks.
+    Mirrors process_go_yaml: the .py source file is not indexed directly (code excluded
+    by design); this YAML is the sole knowledge source for Python files in the KB.
+    Produces one chunk per object defined in the file. File-level metadata (tags,
+    category, used_in) is applied to all chunks.'
+  references:
+  - yaml.YAMLError
+  - yaml.safe_load
+  calls:
+  - _normalize_list
+  - chunk.update
+  - chunks.append
+  - data.get
+  - lines.append
+  - mod_lines.append
+  - o.get
+  - obj.get
+  - yaml.safe_load
 - name: process_yaml_file
   kind: function
   decorators: []
   description: Processes a YAML file as a single, large chunk to preserve context.
   references:
   - yaml.YAMLError
+  - yaml.dump
+  - yaml.safe_load
+  calls:
+  - text_content.splitlines
   - yaml.dump
   - yaml.safe_load
 - name: create_embeddings
@@ -69,43 +129,77 @@ objects:
   references:
   - numpy.array
   - sentence_transformers.SentenceTransformer
+  calls:
+  - model.encode
+  - numpy.array
+  - sentence_transformers.SentenceTransformer
 - name: build_faiss_index
   kind: function
   decorators: []
   description: Build FAISS inner-product index (cosine sim with normalized vectors).
   references:
   - faiss.IndexFlatIP
+  calls:
+  - faiss.IndexFlatIP
+  - index.add
 - name: build_bm25_index
   kind: function
   decorators: []
   description: Build BM25 index for lexical search.
   references:
   - rank_bm25.BM25Okapi
+  calls:
+  - rank_bm25.BM25Okapi
 - name: create_bm25_inverted_index
   kind: function
   decorators: []
-  description: Lightweight inverted index from BM25 scores (for SQLite compat).
+  description: 'Build inverted index: word → chunk_ids (no score computation, deferred
+    to query time).'
   references: []
+  calls:
+  - inverted_index.setdefault
 - name: build_metadata_index
   kind: function
   decorators: []
   description: Build O(1) lookup indexes for tags, category, used_in, entrypoints.
   references: []
+  calls:
+  - category_index.setdefault
+  - chunk.get
+  - entrypoint_ids.append
+  - tag_index.setdefault
+  - used_in_index.setdefault
 - name: _resolve_related_node
   kind: function
   decorators: []
   description: Resolve a relative related_node path to chunk_ids.
   references: []
+  calls:
+  - path_to_chunk_ids.items
 - name: create_knowledge_graph_with_content
   kind: function
   decorators: []
   description: Build knowledge graph using embedding cosine similarity + YAML related_nodes.
   references: []
+  calls:
+  - _resolve_related_node
+  - call.split
+  - call_name_index.get
+  - call_name_index.setdefault
+  - chunk.get
+  - chunk_id_to_node_id.get
+  - edges.append
+  - nodes.append
+  - path_to_chunk_ids.setdefault
+  - seen_calls.add
+  - seen_refs.add
 - name: _content_hash
   kind: function
   decorators: []
   description: Return SHA256 hex digest of normalized text content.
   references: []
+  calls:
+  - text.strip
 - name: _dedup_chunks
   kind: function
   decorators: []
@@ -114,6 +208,13 @@ objects:
     for backward compat - file_paths : list of ALL paths where this content appears
     - tags / category / used_in / related_nodes : union of all occurrences'
   references: []
+  calls:
+  - _content_hash
+  - chunk.copy
+  - chunk.get
+  - existing.add
+  - m.get
+  - order.append
 - name: _is_go_meta_yaml
   kind: function
   decorators: []
@@ -121,29 +222,82 @@ objects:
     + 'objects'). Used when the sibling .go file is absent (e.g. in docs-only submodules).
   references:
   - yaml.safe_load
+  calls:
+  - yaml.safe_load
+- name: _is_py_meta_yaml
+  kind: function
+  decorators: []
+  description: Return True if the YAML file is a Python meta companion (has 'module'
+    + 'objects'). Used when the sibling .py file is absent (e.g. in docs-only submodules).
+  references:
+  - yaml.safe_load
+  calls:
+  - yaml.safe_load
 - name: process_directory
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _is_go_meta_yaml
+  - _is_py_meta_yaml
+  - all_chunks.extend
+  - file.endswith
+  - go_companion_yamls.add
+  - md_companion_yamls.add
+  - py_companion_yamls.add
+- name: _generate_chunk_id
+  kind: function
+  decorators: []
+  description: Generate persistent chunk ID based on file_path + type + section. Ensures
+    same chunk (same location, same type) gets same ID across builds, enabling incremental
+    updates without relabeling.
+  references: []
+  calls:
+  - base.encode
 - name: build_knowledge_base
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _dedup_chunks
+  - _generate_chunk_id
+  - chunk.get
+  - chunks_list.sort
 - name: save_knowledge_base_legacy
   kind: function
   decorators: []
   description: ''
   references:
   - faiss.write_index
+  calls:
+  - faiss.write_index
+  - kb_data.get
+  - legacy_data.items
 - name: save_kb_to_sqlite
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - c.get
+  - conn.close
+  - conn.commit
+  - conn.cursor
+  - cursor.execute
+  - cursor.executemany
+  - e.get
+  - files_map.items
+  - inverted_index_data.append
+  - kb_data.get
+  - table.get
+  - terms_map.get
+  - terms_map.items
 - name: generate_edge_types_doc
   kind: function
   decorators: []
   description: Generates a markdown file documenting all unique edge types.
   references: []
+  calls:
+  - f.write

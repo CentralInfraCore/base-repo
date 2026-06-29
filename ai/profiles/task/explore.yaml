@@ -1,0 +1,44 @@
+---
+profile: explore
+version: "1.0"
+description: >
+  Read-only investigation of a component. Maps structure, identifies gaps,
+  generates companion YAMLs. No code changes.
+
+boot_sequence:
+  - kb_status
+  - focus_pack(scope_query)
+  - missing_companions(source_dir=scope_root)
+  - read CLAUDE.md in scope root
+
+allowed:
+  - read source files (Go, YAML, Markdown)
+  - call MCP read-only tools (focus_pack, impact_analysis, guided_path, neighbors, search_*)
+  - run go.meta.gen.py --merge (companion update only)
+  - call update_companion via MCP
+
+forbidden:
+  - modify Go source files (.go)
+  - modify test files (*_test.go)
+  - modify Makefile or CI workflows
+  - delete files
+  - git push
+
+output:
+  - type: companion_yaml
+    description: Updated or created companion YAML files with semantic fields filled
+    commit_required: true
+  - type: exploration_report
+    description: Summary of findings (to be recorded via record_decision)
+
+accept:
+  - all companion YAMLs in scope have non-empty description
+  - go.meta.gen.py --merge reports 0 errors
+  - no Go files modified
+
+mcp_tools_required:
+  - kb_status
+  - focus_pack
+  - missing_companions
+  - update_companion
+  - record_decision

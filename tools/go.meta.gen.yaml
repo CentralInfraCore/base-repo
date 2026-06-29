@@ -33,6 +33,7 @@ objects:
   decorators: []
   description: Remove // and /* */ comments.
   references: []
+  calls: []
 - name: _remove_strings
   kind: function
   decorators: []
@@ -40,16 +41,22 @@ objects:
     Must be called after comment removal so apostrophes in comments don't confuse
     the rune literal pattern.
   references: []
+  calls: []
 - name: _clean
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _remove_comments
+  - _remove_strings
 - name: _extract_block_content
   kind: function
   decorators: []
   description: Return content between matching { } starting at open_pos (the '{').
   references: []
+  calls:
+  - content.append
 - name: _parse_imports
   kind: function
   decorators: []
@@ -57,17 +64,28 @@ objects:
     comment-stripped source so inline comments don''t interfere, but keeps string
     contents so import paths remain readable.'
   references: []
+  calls:
+  - _remove_comments
+  - block_m.group
+  - line.strip
+  - m.group
 - name: _find_module_name
   kind: function
   decorators: []
   description: Walk up from go_file to find go.mod and return the module name.
   references: []
+  calls:
+  - m.group
+  - mod.exists
+  - mod.read_text
 - name: _is_stdlib_path
   kind: function
   decorators: []
   description: True if the import path is a Go standard library package. Stdlib paths
     have no dots and their first segment is a known stdlib root.
   references: []
+  calls:
+  - path.split
 - name: _is_external
   kind: function
   decorators: []
@@ -75,6 +93,35 @@ objects:
     (github.com/...) and same-module cross-package refs (e.g. centralrelay/core/cabinet).
     Only pure stdlib is excluded.
   references: []
+  calls:
+  - _is_stdlib_path
+- name: _extract_calls
+  kind: function
+  decorators: []
+  description: 'Extract function/method calls from function body with type resolution.
+    First extracts method names from body (Set, Query, etc). Then resolves types using
+    references (cabinet.Cabinet.Set, sql.DB.Query, etc). Examples: body: "s.Set(db.Query())"  refs:
+    ["cabinet.Cabinet.Set", "sql.DB.Query"] → ["cabinet.Cabinet.Set", "sql.DB.Query"]
+    Falls back to untyped calls if refs unavailable: body: "s.Set(db.Query())"  refs:
+    None → ["Set", "Query"]'
+  references: []
+  calls:
+  - call_names.add
+  - m.group
+  - ref.split
+  - typed_calls.append
+- name: _extract_param_types
+  kind: function
+  decorators: []
+  description: 'Extract {param_name: pkg_alias} from function parameter list. Examples:
+    "s *Service, db *sql.DB" -> {"s": "Service", "db": "sql"} "ops nexusgit.GitOps"
+    -> {"ops": "nexusgit.GitOps"}'
+  references: []
+  calls:
+  - current.append
+  - m.group
+  - part.startswith
+  - parts.append
 - name: _extract_local_typed_vars
   kind: function
   decorators: []
@@ -84,13 +131,24 @@ objects:
     package is a non-stdlib import are included. Short declarations (:=) are intentionally
     not handled — too fragile without AST.'
   references: []
+  calls:
+  - _is_external
+  - m.group
+  - pattern.finditer
 - name: _extract_refs
   kind: function
   decorators: []
-  description: 'Find non-stdlib pkg.Name references in text. Two passes: 1. Direct
+  description: 'Find non-stdlib pkg.Name references in text. Three passes: 1. Direct
     package references: pkg.ExportedName  (types, funcs, consts) 2. Typed variable
-    method calls: var db *sql.DB → db.QueryRow → sql.QueryRow'
+    method calls: var db *sql.DB → db.QueryRow → sql.QueryRow 3. Parameter/receiver
+    method calls: func f(s *Service) { s.Method() } → Service.Method'
   references: []
+  calls:
+  - _extract_local_typed_vars
+  - _is_external
+  - local_vars.get
+  - local_vars.update
+  - m.group
 - name: _extract_doc_comments
   kind: function
   decorators: []
@@ -101,11 +159,19 @@ objects:
     NewLoader creates a new Loader instance. func NewLoader(source IaCSource) *Loader
     { -> {"NewLoader": "NewLoader creates a new Loader instance."}'
   references: []
+  calls:
+  - comment_block.splitlines
+  - lines.append
+  - m.group
+  - pattern.finditer
 - name: _extract_package_doc
   kind: function
   decorators: []
   description: Extract the package-level doc comment (// lines before 'package NAME').
   references: []
+  calls:
+  - lines.append
+  - m.group
 - name: _suggest_tags
   kind: function
   decorators: []
@@ -113,16 +179,45 @@ objects:
     Returns a sorted list of allowed tag values (see go.meta.schema.yaml). These are
     suggestions — review and trim before committing the YAML.
   references: []
+  calls:
+  - filename.endswith
+  - imports.values
+  - name.endswith
+  - p.endswith
+  - p.lower
+  - tags.add
+  - tags.update
 - name: _parse_objects
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _clean
+  - _extract_block_content
+  - _extract_calls
+  - _extract_doc_comments
+  - _extract_param_types
+  - _extract_refs
+  - clean.find
+  - doc.get
+  - func_re.finditer
+  - m.end
+  - m.group
+  - objects.append
 - name: generate
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _extract_package_doc
+  - _find_module_name
+  - _parse_imports
+  - _parse_objects
+  - _suggest_tags
+  - go_file.read_text
+  - pkg_m.group
 - name: _merge_data
   kind: function
   decorators: []
@@ -135,13 +230,36 @@ objects:
     Removed objects (deleted from Go source) → dropped - Existing objects → merged
     per field rules above'
   references: []
+  calls:
+  - merged.get
+  - merged_objects.append
+  - new_data.get
+  - obj.get
+  - old_data.get
+  - old_obj.get
 - name: _write_yaml
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - f.write
+  - yaml.dump
 - name: main
   kind: function
   decorators: []
   description: ''
   references: []
+  calls:
+  - _merge_data
+  - _write_yaml
+  - d.glob
+  - d.rglob
+  - go_file.exists
+  - go_file.with_suffix
+  - o.get
+  - parser.add_argument
+  - parser.parse_args
+  - parser.print_help
+  - yaml.safe_load
+  - yaml_file.exists

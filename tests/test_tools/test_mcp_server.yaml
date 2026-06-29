@@ -1,0 +1,204 @@
+---
+module: test_tools.test_mcp_server
+description: ''
+tags:
+- test
+category: []
+used_in: []
+entrypoint: false
+related_nodes: []
+objects:
+- name: _make_faiss_index
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - numpy.linalg
+  - numpy.random
+  calls:
+  - faiss.IndexFlatIP
+  - index.add
+- name: _make_bm25
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - BM25Okapi
+  - t.lower
+- name: SAMPLE_CHUNKS
+  kind: const
+  description: ''
+  references: []
+- name: CHUNK_IDS
+  kind: const
+  description: ''
+  references: []
+- name: CHUNK_TEXTS
+  kind: const
+  description: ''
+  references: []
+- name: _make_kb
+  kind: function
+  decorators: []
+  description: Build a minimal KB dict for testing.
+  references:
+  - numpy.linalg
+  - numpy.random
+  calls:
+  - _make_bm25
+  - _make_faiss_index
+- name: TestSearchQuerySemantic
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: test_returns_list
+  kind: method
+  receiver: TestSearchQuerySemantic
+  decorators: []
+  description: ''
+  references:
+  - server.search_query
+  calls:
+  - _make_kb
+  - server.search_query
+- name: test_returns_at_most_top_k
+  kind: method
+  receiver: TestSearchQuerySemantic
+  decorators: []
+  description: ''
+  references:
+  - server.search_query
+  calls:
+  - _make_kb
+  - server.search_query
+- name: test_result_has_required_fields
+  kind: method
+  receiver: TestSearchQuerySemantic
+  decorators: []
+  description: ''
+  references:
+  - server.search_query
+  calls:
+  - _make_kb
+  - server.search_query
+- name: test_chunk_ids_are_valid
+  kind: method
+  receiver: TestSearchQuerySemantic
+  decorators: []
+  description: ''
+  references:
+  - server.search_query
+  calls:
+  - _make_kb
+  - server.search_query
+- name: test_threshold_filters_low_scores
+  kind: method
+  receiver: TestSearchQuerySemantic
+  decorators: []
+  description: ''
+  references:
+  - server.search_query
+  calls:
+  - _make_kb
+  - server.search_query
+- name: TestSearchQueryFallback
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: test_falls_back_to_inverted_index
+  kind: method
+  receiver: TestSearchQueryFallback
+  decorators: []
+  description: ''
+  references:
+  - server.search_query
+  calls:
+  - _make_kb
+  - server.search_query
+- name: test_empty_query_returns_empty
+  kind: method
+  receiver: TestSearchQueryFallback
+  decorators: []
+  description: ''
+  references:
+  - server.search_query
+  calls:
+  - _make_kb
+  - server.search_query
+- name: TestSearchTokenBm25
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: test_returns_list
+  kind: method
+  receiver: TestSearchTokenBm25
+  decorators: []
+  description: ''
+  references:
+  - server.search_token
+  calls:
+  - _make_kb
+  - server.search_token
+- name: test_result_has_chunk_id_and_score
+  kind: method
+  receiver: TestSearchTokenBm25
+  decorators: []
+  description: ''
+  references:
+  - server.search_token
+  calls:
+  - _make_kb
+  - server.search_token
+- name: test_returns_at_most_top_k
+  kind: method
+  receiver: TestSearchTokenBm25
+  decorators: []
+  description: ''
+  references:
+  - server.search_token
+  calls:
+  - _make_kb
+  - server.search_token
+- name: test_unknown_token_returns_empty_or_low_scores
+  kind: method
+  receiver: TestSearchTokenBm25
+  decorators: []
+  description: ''
+  references:
+  - server.search_token
+  calls:
+  - _make_kb
+  - server.search_token
+- name: TestSearchTokenFallback
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: test_falls_back_to_inverted_index
+  kind: method
+  receiver: TestSearchTokenFallback
+  decorators: []
+  description: ''
+  references:
+  - server.search_token
+  calls:
+  - _make_kb
+  - server.search_token
+- name: test_unknown_token_returns_empty
+  kind: method
+  receiver: TestSearchTokenFallback
+  decorators: []
+  description: ''
+  references:
+  - server.search_token
+  calls:
+  - _make_kb
+  - server.search_token

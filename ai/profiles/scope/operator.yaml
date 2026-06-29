@@ -1,0 +1,30 @@
+---
+scope: operator
+version: "1.0"
+repo: CIC-Relay
+description: >
+  Operator orchestration: coordinates nexus sub-systems, builds the runtime
+  execution context. Nexus top-level coordinator.
+
+owns:
+  - core/nexus/operator/
+
+reads:
+  - core/nexus/recorder/
+  - core/nexus/iac/
+  - core/nexus/crypto/
+  - core/nexus/isolation/
+  - core/nexus/git/
+  - pkg/obs/
+
+test_cmd: go test ./core/nexus/operator/...
+coverage_min: 75
+
+mcp_focus_queries:
+  - "operator nexus coordinator"
+  - "buildOperatorIfConfigured"
+  - "nexus runtime context"
+
+invariants:
+  - operator must not import cabinet (one-way dependency)
+  - buildOperatorIfConfigured error must be a hard failure (no silencing)

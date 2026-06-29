@@ -1,0 +1,42 @@
+---
+profile: companion
+version: "1.0"
+description: >
+  Fill semantic fields in companion YAMLs for a scope. Uses go.meta.gen.py --merge
+  and update_companion MCP tool. The primary KB enrichment agent.
+
+boot_sequence:
+  - kb_status
+  - missing_companions(source_dir=scope_root)
+  - focus_pack(scope_query)
+  - read go.meta.schema.yaml for allowed field values
+
+allowed:
+  - read Go source files (no modification)
+  - run go.meta.gen.py --merge on specific files
+  - call update_companion via MCP
+  - write companion .yaml files
+
+forbidden:
+  - modify .go source files
+  - modify auto-generated fields (package, objects[].references)
+  - add invented information not derivable from the source code
+  - git push
+
+output:
+  - type: companion_yaml
+    description: Companion YAMLs with category, used_in, related_nodes, description filled
+    commit_required: true
+
+accept:
+  - missing_companions() returns 0 incomplete for the scope
+  - go.meta.gen.py --dry-run reports 0 errors
+  - no Go source files modified
+
+mcp_tools_required:
+  - kb_status
+  - missing_companions
+  - update_companion
+  - focus_pack
+  - neighbors
+  - explain_node
