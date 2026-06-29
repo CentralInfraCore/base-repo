@@ -493,11 +493,13 @@ def create_knowledge_graph_with_content(chunks, embeddings):
                                       'weight': 1.0, 'evidence_chunk_id': chunk['id']})
 
     # Call graph edges from AST calls lists.
-    # Resolves internal calls by name within indexed Go chunks.
+    # Resolves calls by name within indexed Go and Python chunks.
     # pkg.Name format: only the Name part is matched (pkg aliases can't be resolved cross-file).
     call_name_index: dict = {}
     for chunk in chunks:
-        if chunk.get('lang') == 'go' and chunk.get('type', '').startswith('go_'):
+        lang = chunk.get('lang', '')
+        ctype = chunk.get('type', '')
+        if (lang == 'go' and ctype.startswith('go_')) or (lang == 'python' and ctype.startswith('py_')):
             call_name_index.setdefault(chunk['section'], []).append(chunk_id_to_node_id[chunk['id']])
 
     seen_calls: set = set()

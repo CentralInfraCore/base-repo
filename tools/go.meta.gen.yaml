@@ -95,6 +95,14 @@ objects:
   references: []
   calls:
   - _is_stdlib_path
+- name: _extract_interface_methods
+  kind: function
+  decorators: []
+  description: Extract exported method names from an interface body.
+  references: []
+  calls:
+  - m.group
+  - methods.append
 - name: _extract_calls
   kind: function
   decorators: []
@@ -197,6 +205,7 @@ objects:
   - _extract_block_content
   - _extract_calls
   - _extract_doc_comments
+  - _extract_interface_methods
   - _extract_param_types
   - _extract_refs
   - clean.find
@@ -218,6 +227,25 @@ objects:
   - _suggest_tags
   - go_file.read_text
   - pkg_m.group
+- name: _detect_implements
+  kind: function
+  decorators: []
+  description: 'Scan all YAML files in yaml_dir and return {struct_name: [interface_names]}
+    based on method-set inclusion. A struct S implements interface I if all exported
+    methods of I appear as kind=method objects with receiver=S across any YAML in
+    the directory. Returns a dict mapping struct names to the list of interfaces they
+    implement. Does NOT modify any files — callers are responsible for applying results.'
+  references: []
+  calls:
+  - data.get
+  - iface_methods.issubset
+  - ifaces.items
+  - impls.append
+  - obj.get
+  - struct_methods.items
+  - struct_methods.setdefault
+  - yaml.safe_load
+  - yaml_dir.glob
 - name: _merge_data
   kind: function
   decorators: []
@@ -251,15 +279,21 @@ objects:
   description: ''
   references: []
   calls:
+  - _detect_implements
   - _merge_data
   - _write_yaml
   - d.glob
   - d.rglob
+  - data.get
+  - dirs_processed.add
   - go_file.exists
   - go_file.with_suffix
+  - impl_map.get
   - o.get
+  - obj.get
   - parser.add_argument
   - parser.parse_args
   - parser.print_help
   - yaml.safe_load
+  - yaml_dir.glob
   - yaml_file.exists
