@@ -177,6 +177,14 @@ def _is_external(pkg: str, imports: dict[str, str], module_name: str = "") -> bo
     return not _is_stdlib_path(imports[pkg])
 
 
+def _extract_interface_methods(body: str) -> list[str]:
+    """Extract exported method names from an interface body."""
+    methods = []
+    for m in re.finditer(r'^\s+([A-Z]\w*)\s*\(', body, re.MULTILINE):
+        methods.append(m.group(1))
+    return sorted(set(methods))
+
+
 def _extract_calls(body: str, refs: list[str] | None = None) -> list[str]:
     """Extract function/method calls from function body with type resolution.
 
@@ -480,8 +488,10 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
         name = m.group(1)
         body = _extract_block_content(clean, m.end() - 1)
         refs = _extract_refs(body, imports, module_name)
+        methods = _extract_interface_methods(body)
         objects.append({"name": name, "kind": "interface",
-                        "description": doc.get(name, ""), "references": refs})
+                        "description": doc.get(name, ""), "references": refs,
+                        "methods": methods})
 
     iface_names = {o["name"] for o in objects if o["kind"] == "interface"}
 
@@ -582,6 +592,48 @@ def generate(go_file: Path) -> dict:
     }
 
 
+def _detect_implements(yaml_dir: Path) -> dict[str, list[str]]:
+    """Scan all YAML files in yaml_dir and return {struct_name: [interface_names]}
+    based on method-set inclusion.
+
+    A struct S implements interface I if all exported methods of I appear as
+    kind=method objects with receiver=S across any YAML in the directory.
+
+    Returns a dict mapping struct names to the list of interfaces they implement.
+    Does NOT modify any files — callers are responsible for applying results.
+    """
+    ifaces: dict[str, set[str]] = {}   # {iface_name: {method_name, ...}}
+    struct_methods: dict[str, set[str]] = {}  # {struct_name: {method_name, ...}}
+
+    for yaml_file in sorted(yaml_dir.glob("*.yaml")):
+        try:
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+        for obj in data.get("objects", []):
+            kind = obj.get("kind")
+            name = obj.get("name", "")
+            if kind == "interface":
+                methods = obj.get("methods", [])
+                if methods:
+                    ifaces[name] = set(methods)
+            elif kind == "method":
+                receiver = obj.get("receiver", "")
+                if receiver:
+                    struct_methods.setdefault(receiver, set()).add(name)
+
+    result: dict[str, list[str]] = {}
+    for struct, methods in struct_methods.items():
+        impls = []
+        for iface, iface_methods in ifaces.items():
+            if iface_methods and iface_methods.issubset(methods):
+                impls.append(iface)
+        if impls:
+            result[struct] = sorted(impls)
+    return result
+
+
 def _merge_data(new_data: dict, old_data: dict) -> dict:
     """Merge freshly generated data into an existing YAML.
 
@@ -661,9 +713,14 @@ def main() -> None:
                         help="Skip _test.go files")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print actions without writing files")
+    parser.add_argument("--detect-implements", action="store_true",
+                        help="After generating/merging, detect interface implementations "
+                             "by method-set inclusion across all YAMLs in the same directory "
+                             "and fill in the implements field. Only effective with --dir.")
     args = parser.parse_args()
 
     files: list[Path] = [Path(f) for f in args.files]
+    dirs_processed: set[Path] = set()
     if args.dir:
         d = Path(args.dir)
         glob = d.rglob("*.go") if args.recursive else d.glob("*.go")
@@ -720,9 +777,37 @@ def main() -> None:
         else:
             _write_yaml(data, yaml_file)
             print(f"{action}: {yaml_file}  [{obj_count} objects, {ref_count} refs]")
+            dirs_processed.add(go_file.parent)
 
     summary = f"\nDone: {generated} generated, {merged_count} merged, {skipped} skipped, {errors} errors"
     print(summary)
+
+    # Interface implementation detection pass
+    if args.detect_implements and not args.dry_run and dirs_processed:
+        impl_count = 0
+        for yaml_dir in sorted(dirs_processed):
+            impl_map = _detect_implements(yaml_dir)
+            if not impl_map:
+                continue
+            for yaml_file in sorted(yaml_dir.glob("*.yaml")):
+                try:
+                    with open(yaml_file) as f:
+                        data = yaml.safe_load(f) or {}
+                except Exception:
+                    continue
+                changed = False
+                for obj in data.get("objects", []):
+                    if obj.get("kind") == "struct":
+                        impls = impl_map.get(obj["name"], [])
+                        if impls and obj.get("implements") != impls:
+                            obj["implements"] = impls
+                            changed = True
+                            impl_count += 1
+                if changed:
+                    _write_yaml(data, yaml_file)
+                    print(f"IMPLEMENTS: {yaml_file.name} — updated {sum(1 for o in data['objects'] if o.get('kind')=='struct' and o.get('implements'))} structs")
+        print(f"Interface detection: {impl_count} struct(s) updated with implements")
+
     if errors:
         sys.exit(1)
 
