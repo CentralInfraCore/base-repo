@@ -47,27 +47,16 @@ class TestMainCLI:
             main()
         assert excinfo.value.code == 2
 
-    def test_validate_command_success(self, mocker):
-        mocker.patch.object(sys, "argv", ["compiler.py", "validate"])
-        mock_release_manager_class = mocker.patch("tools.compiler.ReleaseManager")
-        mock_rm_instance = mock_release_manager_class.return_value
-
-        main()
-
-        mock_release_manager_class.assert_called_once()
-        mock_rm_instance.run_validation.assert_called_once()
-        mock_rm_instance.run_release_close.assert_not_called()  # Changed from run_release
-
-    def test_release_command_requires_version(self, mocker):
-        mocker.patch.object(sys, "argv", ["compiler.py", "release"])
+    def test_close_command_requires_version(self, mocker):
+        mocker.patch.object(sys, "argv", ["compiler.py", "close"])
         with pytest.raises(SystemExit) as excinfo:
             main()
         assert excinfo.value.code == 2
 
-    def test_release_command_success(self, mocker):
-        """Test the 'release' command success case."""
+    def test_close_command_success(self, mocker):
+        """Test the 'close' command success case."""
         mocker.patch.object(
-            sys, "argv", ["compiler.py", "release", "--version", "1.2.3"]
+            sys, "argv", ["compiler.py", "close", "--version", "1.2.3"]
         )
         mock_release_manager_class = mocker.patch("tools.compiler.ReleaseManager")
         mock_rm_instance = mock_release_manager_class.return_value
@@ -75,17 +64,16 @@ class TestMainCLI:
         main()
 
         mock_release_manager_class.assert_called_once()
-        # The main method now only calls run_release_close, which orchestrates everything else.
-        mock_rm_instance.run_release_close.assert_called_once_with(
+        # 'close' maps to the finalization phase; the other phases have their own commands.
+        mock_rm_instance.run_finalize_release.assert_called_once_with(
             release_version="1.2.3"
-        )  # Changed from run_release
-        # We no longer check for internal calls like run_validation from this top-level test.
-        mock_rm_instance.run_validation.assert_not_called()
+        )
+        mock_rm_instance.run_prepare_release.assert_not_called()
 
-    def test_release_command_with_vault_files(self, mocker):
-        """Test 'release' command reads Vault token and CA from files."""
+    def test_close_command_with_vault_files(self, mocker):
+        """Test 'close' command reads Vault token and CA from files."""
         mocker.patch.object(
-            sys, "argv", ["compiler.py", "release", "--version", "1.2.3"]
+            sys, "argv", ["compiler.py", "close", "--version", "1.2.3"]
         )
         mocker.patch("tools.compiler.ReleaseManager")
         mock_vault_service = mocker.patch("tools.compiler.VaultService")
@@ -118,11 +106,11 @@ class TestMainCLI:
     def test_main_handles_manual_intervention(self, mocker):
         """Test that main catches ManualInterventionRequired and exits with 0."""
         mocker.patch.object(
-            sys, "argv", ["compiler.py", "release", "--version", "1.0.0"]
+            sys, "argv", ["compiler.py", "close", "--version", "1.0.0"]
         )
         mock_release_manager_class = mocker.patch("tools.compiler.ReleaseManager")
         mock_rm_instance = mock_release_manager_class.return_value
-        mock_rm_instance.run_release_close.side_effect = ManualInterventionRequired(
+        mock_rm_instance.run_finalize_release.side_effect = ManualInterventionRequired(
             "Do something"
         )  # Changed from run_release
 
@@ -131,10 +119,10 @@ class TestMainCLI:
         assert excinfo.value.code == 0
 
     def test_main_handles_release_error(self, mocker):
-        mocker.patch.object(sys, "argv", ["compiler.py", "validate"])
+        mocker.patch.object(sys, "argv", ["compiler.py", "close", "--version", "1.0.0"])
         mock_release_manager_class = mocker.patch("tools.compiler.ReleaseManager")
         mock_rm_instance = mock_release_manager_class.return_value
-        mock_rm_instance.run_validation.side_effect = ReleaseError("Test error")
+        mock_rm_instance.run_finalize_release.side_effect = ReleaseError("Test error")
 
         with pytest.raises(SystemExit) as excinfo:
             main()
@@ -149,14 +137,14 @@ class TestConfigLoader:
     def test_load_project_config_io_error(self, mocker):
         mocker.patch("builtins.open", side_effect=IOError("File not found"))
         with pytest.raises(SystemExit) as excinfo:
-            load_project_config()
+            load_project_config(logging.getLogger("test_logger"))
         assert excinfo.value.code == 1
 
     def test_load_project_config_key_error(self, mocker):
         mocker.patch("builtins.open", mock_open(read_data="{}"))
         mocker.patch("yaml.safe_load", return_value={})
         with pytest.raises(SystemExit) as excinfo:
-            load_project_config()
+            load_project_config(logging.getLogger("test_logger"))
         assert excinfo.value.code == 1
 
 

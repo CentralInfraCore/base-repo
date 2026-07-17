@@ -16,6 +16,7 @@ langdetect
 sentence-transformers
 faiss-cpu
 rank-bm25
+watchdog
 numpy
 fastapi
 uvicorn

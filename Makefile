@@ -4,7 +4,7 @@
 include mk/infra.mk
 
 # ---- Phony ----
-.PHONY: all help validate release-check release-prepare release-close test up down shell build fmt lint check typecheck repo.init manifest-verify manifest-update kb.gitmodules kb.gitmodules.check kb.build mcp.run mcp.run.sse mcp.config
+.PHONY: all help release-check release-prepare release-close test up down shell build fmt lint check typecheck repo.init manifest-verify manifest-update kb.gitmodules kb.gitmodules.check kb.build mcp.run mcp.run.sse mcp.config
 
 # Default to showing help
 all: help
@@ -61,10 +61,6 @@ build: infra.build
 # =============================================================================
 # Main Development Tasks
 # =============================================================================
-
-validate:
-	@echo "--- Validating all schemas against the meta-schema ---"
-	@docker compose exec builder python -m tools.compiler validate $(COMPILER_CLI_ARGS)
 
 release-check:
 ifeq ($(VERSION),)
@@ -154,7 +150,6 @@ help:
 	@echo "  build         Build the development environment."
 	@echo ""
 	@echo "Main Tasks:"
-	@echo "  validate      Run fast, offline validation of all schemas."
 	@echo "  test          Run pytest for the compiler infrastructure code."
 	@echo ""
 	@echo "Release Process (multi-step):"
@@ -166,7 +161,7 @@ help:
 	@echo "  manifest-verify  Verify the integrity of the repository using MANIFEST.sha256."
 	@echo "  manifest-update  Re-generate the MANIFEST.sha256 file."
 	@echo ""
-	@echo "Options for validate/release-*:"
+	@echo "Options for release-*:"
 	@echo "  VERBOSE=1     Enable verbose output."
 	@echo "  DEBUG=1       Enable debug output (most verbose)."
 	@echo "  DRY_RUN=1     Perform a trial run without making any changes."

@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from .infra import ReleaseManager
-from .releaselib.exceptions import ReleaseError
+from .releaselib.exceptions import ManualInterventionRequired, ReleaseError
 from .releaselib.git_service import GitService
 from .releaselib.vault_service import VaultService
 
@@ -97,11 +97,6 @@ def main():
         dest="command", required=True, help="Available commands"
     )
 
-    # 'validate' command
-    subparsers.add_parser(
-        "validate", help="Validate all schemas.", parents=[parent_parser]
-    )
-
     # 'check' command
     check_parser = subparsers.add_parser(
         "check", help="Run pre-flight checks for a release.", parents=[parent_parser]
@@ -181,12 +176,7 @@ def main():
             logger=logger,
         )
 
-        if args.command == "validate":
-            logger.info("--- Running Schema Validation ---")
-            # manager.run_validation() # Assuming a validation method exists
-            logger.info("✓ Schema validation command is placeholder.")
-
-        elif args.command == "check":
+        if args.command == "check":
             manager.run_check(release_version=args.version)
 
         elif args.command == "prepare":
@@ -195,6 +185,11 @@ def main():
         elif args.command == "close":
             manager.run_finalize_release(release_version=args.version)
 
+    # Must precede ReleaseError — ManualInterventionRequired subclasses it, and a
+    # release that stops for a human is a normal outcome, not a failure.
+    except ManualInterventionRequired as e:
+        logger.info(f"[ACTION REQUIRED] {e}")
+        sys.exit(0)
     except ReleaseError as e:
         logger.critical(f"[RELEASE FAILED] {e}")
         sys.exit(1)

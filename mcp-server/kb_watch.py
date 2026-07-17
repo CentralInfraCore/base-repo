@@ -120,7 +120,6 @@ def _generate_yaml_companions(watch_dir: Path, changed_files: list) -> list:
 
     Returns list of newly generated/merged .yaml file paths (to be included in processing).
     """
-    import subprocess
     generated = []
 
     # Locate generator scripts (siblings of kb_watch.py)
@@ -414,7 +413,7 @@ class KBWatchHandler(FileSystemEventHandler):
         self.kb_dir = kb_dir
         self.model = model
         self.file_state = file_state
-        self.pending_files = set()
+        self.pending_files: set[str] = set()
 
     def on_modified(self, event):
         if not event.is_directory and self._should_process(event.src_path):
@@ -500,14 +499,14 @@ def main():
     # Wait for chunks.pkl if KB is being bootstrapped
     chunks_pkl = pkl_dir / 'chunks.pkl'
     if not chunks_pkl.exists():
-        print(f"[watch] waiting for KB bootstrap (chunks.pkl not yet created)...", flush=True)
+        print("[watch] waiting for KB bootstrap (chunks.pkl not yet created)...", flush=True)
         for i in range(600):  # wait up to 10 minutes
             if chunks_pkl.exists():
-                print(f"[watch] KB bootstrap complete, starting watch...", flush=True)
+                print("[watch] KB bootstrap complete, starting watch...", flush=True)
                 break
             time.sleep(1)
         else:
-            print(f"[watch] timeout waiting for KB bootstrap", file=sys.stderr)
+            print("[watch] timeout waiting for KB bootstrap", file=sys.stderr)
             return
 
     model = _load_model(kb_dir)

@@ -9,7 +9,6 @@ boot_sequence:
   - kb_status
   - read project.yaml for current version
   - run make release-check VERSION=target
-  - verify make validate is green
 
 allowed:
   - read all files in scope
