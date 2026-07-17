@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import ANY, MagicMock
 
 import pytest
-import requests  # Import requests for API accessibility check
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -80,8 +79,6 @@ def mock_services(mocker):
     )
 
     # Capture the mocked objects for direct assertion in tests, but don't pass them to ReleaseManager
-    mock_requests_get = mocker.patch("tools.infra.requests.get")
-    mock_sys_exit = mocker.patch("sys.exit")
     mock_infra_validate = mocker.patch("tools.infra.validate")
 
     return {
@@ -92,8 +89,6 @@ def mock_services(mocker):
         "project_root": Path("/fake/project"),
         "dry_run": False,
         # These mocks are for assertion in tests, not for ReleaseManager constructor
-        "mocker_requests_get": mock_requests_get,
-        "mocker_sys_exit": mock_sys_exit,
         "mocker_infra_validate": mock_infra_validate,
     }
 
@@ -170,7 +165,7 @@ class TestReleaseManagerPhases:
             dry_run=mock_services["dry_run"],
             logger=mock_services["logger"],
         )
-        manager.run_release_close(release_version="1.0.0")
+        manager.run_prepare_release(release_version="1.0.0")
 
         # Verify Git operations for branch creation and commit
         mock_services["git_service"].checkout.assert_any_call(
@@ -191,15 +186,14 @@ class TestReleaseManagerPhases:
             "kv", "CICRootCA", "cert"
         )  # Assuming 'cert' is the key for CICRootCA too
 
-        # Verify sys.exit is called for API check
-        mock_services["mocker_sys_exit"].assert_called_once_with(0)
 
     def test_finalization_phase_success(self, mock_services):
         mock_services["git_service"].get_current_branch.return_value = (
             "base/releases/v1.0.0"
         )
-        # Simulate dirty repo for finalization commit
-        mock_services["git_service"].is_dirty.side_effect = [False, True]
+        # run_finalize_release calls is_dirty once. The clean-tree pre-flight that
+        # used to consume the first value now lives in run_check.
+        mock_services["git_service"].is_dirty.return_value = True
         manager = ReleaseManager(
             config=mock_services["config"],
             git_service=mock_services["git_service"],
@@ -209,7 +203,7 @@ class TestReleaseManagerPhases:
             logger=mock_services["logger"],
         )
 
-        manager.run_release_close(release_version="1.0.0")
+        manager.run_finalize_release(release_version="1.0.0")
 
         # Verify validation is called
         mock_services["mocker_infra_validate"].assert_called_once()
@@ -243,7 +237,7 @@ class TestReleaseManagerPhases:
             logger=mock_services["logger"],
         )
 
-        manager.run_release_close(release_version="1.0.0")
+        manager.run_prepare_release(release_version="1.0.0")
 
         from tools.infra import write_yaml
 
@@ -257,12 +251,7 @@ class TestReleaseManagerPhases:
         mock_services["logger"].info.assert_any_call(
             "[DRY-RUN] The following data would be written to project.yaml:"
         )
-        mock_services["logger"].info.assert_any_call(
-            "[DRY-RUN] Simulating Developer Preparation Phase."
-        )
 
-        # API check still runs and exits in dry-run
-        mock_services["mocker_sys_exit"].assert_called_once_with(0)
 
     def test_invalid_branch(self, mock_services):
         mock_services["git_service"].get_current_branch.return_value = (
@@ -278,26 +267,9 @@ class TestReleaseManagerPhases:
         )
 
         with pytest.raises(
-            GitStateError, match="Release command must be run from the main branch"
+            GitStateError, match="Release preparation must be run from the main branch"
         ):
-            manager.run_release_close(release_version="1.0.0")
-
-    def test_api_accessibility_check_failure(self, mock_services):
-        mock_services["mocker_requests_get"].side_effect = (
-            requests.exceptions.RequestException("API is down")
-        )
-        manager = ReleaseManager(
-            config=mock_services["config"],
-            git_service=mock_services["git_service"],
-            vault_service=mock_services["vault_service"],
-            project_root=mock_services["project_root"],
-            dry_run=mock_services["dry_run"],
-            logger=mock_services["logger"],
-        )
-
-        manager.run_release_close(release_version="1.0.0")
-        mock_services["logger"].warning.assert_called_once_with(ANY)
-        mock_services["mocker_sys_exit"].assert_called_once_with(0)
+            manager.run_prepare_release(release_version="1.0.0")
 
     def test_finalization_phase_validation_failure(self, mock_services):
         mock_services["git_service"].get_current_branch.return_value = (
@@ -317,14 +289,15 @@ class TestReleaseManagerPhases:
         )
 
         with pytest.raises(ReleaseError, match="Final project.yaml validation failed"):
-            manager.run_release_close(release_version="1.0.0")
+            manager.run_finalize_release(release_version="1.0.0")
 
     def test_finalization_phase_dirty_repo_commit(self, mock_services):
         mock_services["git_service"].get_current_branch.return_value = (
             "base/releases/v1.0.0"
         )
-        # Simulate dirty repo *after* initial clean check, but *before* finalization commit
-        mock_services["git_service"].is_dirty.side_effect = [False, True]
+        # run_finalize_release calls is_dirty once. The clean-tree pre-flight that
+        # used to consume the first value now lives in run_check.
+        mock_services["git_service"].is_dirty.return_value = True
         manager = ReleaseManager(
             config=mock_services["config"],
             git_service=mock_services["git_service"],
@@ -334,7 +307,7 @@ class TestReleaseManagerPhases:
             logger=mock_services["logger"],
         )
 
-        manager.run_release_close(release_version="1.0.0")
+        manager.run_finalize_release(release_version="1.0.0")
         mock_services["git_service"].run.assert_any_call(
             ["git", "commit", "-m", "release: Finalize base v1.0.0 build artifacts"]
         )
@@ -372,11 +345,6 @@ class TestReleaseManagerPhases:
             "Vault error during cert retrieval"
         )  # Trigger error
 
-        # Mock _check_api_accessibility to prevent sys.exit(0)
-        mocker.patch.object(
-            ReleaseManager, "_check_api_accessibility", side_effect=None
-        )
-
         manager = ReleaseManager(
             config=mock_services["config"],
             git_service=mock_services["git_service"],
@@ -388,9 +356,9 @@ class TestReleaseManagerPhases:
 
         with pytest.raises(
             ReleaseError,
-            match="Release process failed: Vault error during cert retrieval",
+            match="Release preparation failed: Vault error during cert retrieval",
         ):
-            manager.run_release_close(release_version="1.0.0")
+            manager.run_prepare_release(release_version="1.0.0")
 
         # Verify cleanup attempts
         mock_services["git_service"].checkout.assert_any_call(
@@ -418,7 +386,7 @@ class TestReleaseManagerPhases:
             logger=mock_services["logger"],
         )
 
-        manager.run_release_close(release_version="1.0.0")
+        manager.run_finalize_release(release_version="1.0.0")
 
         mock_services["git_service"].add.assert_not_called()  # No add if not dirty
         mock_services["git_service"].run.assert_any_call(
@@ -440,4 +408,4 @@ class TestReleaseManagerPhases:
             logger=mock_services["logger"],
         )
         with pytest.raises(VaultServiceError, match="VaultService is not initialized."):
-            manager.run_release_close(release_version="1.0.0")
+            manager.run_check(release_version="1.0.0")
