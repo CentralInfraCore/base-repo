@@ -1,0 +1,25 @@
+---
+# Bandit configuration
+# See https://bandit.readthedocs.io/en/latest/config.html
+
+exclude_dirs:
+  - ./p_venv
+  - ./.pip-cache
+
+skips:
+  # B602 — subprocess with shell=True (tools/orchestrator.py: run_accept_gate)
+  # The accept gate exists to run the `accept:` field of a PROMPTMAP task, which
+  # is a shell one-liner by definition. Dropping shell=True would remove the
+  # feature. The command comes from a YAML file in the repository, so anyone who
+  # can set it already has commit access — it is inside the trust boundary.
+  - B602
+
+  # B404 — flags the mere import of subprocess. The release tooling and the
+  # orchestrator both drive git and make; the import is the point.
+  - B404
+
+  # B112 — try/except/continue (tools/go.meta.gen.py, twice). Both sit in loops
+  # that scan every companion YAML in a tree and skip the ones that will not
+  # parse. Continuing is the intended behaviour: one malformed file must not
+  # abort the scan.
+  - B112
