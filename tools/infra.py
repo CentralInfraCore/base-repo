@@ -7,6 +7,11 @@ import os
 import tempfile
 from pathlib import Path
 
+# Nothing in this module calls requests, but tests/test_tools/test_infra.py
+# patches tools.infra.requests.get for an API-accessibility check whose code is
+# gone. Removing the import turns those tests from failures into setup errors.
+# It goes when those tests are repaired.
+import requests  # noqa: F401
 import yaml
 from jsonschema import ValidationError as JsonSchemaValidationError
 from jsonschema import validate
