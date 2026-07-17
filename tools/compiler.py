@@ -97,11 +97,6 @@ def main():
         dest="command", required=True, help="Available commands"
     )
 
-    # 'validate' command
-    subparsers.add_parser(
-        "validate", help="Validate all schemas.", parents=[parent_parser]
-    )
-
     # 'check' command
     check_parser = subparsers.add_parser(
         "check", help="Run pre-flight checks for a release.", parents=[parent_parser]
@@ -181,12 +176,7 @@ def main():
             logger=logger,
         )
 
-        if args.command == "validate":
-            logger.info("--- Running Schema Validation ---")
-            # manager.run_validation() # Assuming a validation method exists
-            logger.info("✓ Schema validation command is placeholder.")
-
-        elif args.command == "check":
+        if args.command == "check":
             manager.run_check(release_version=args.version)
 
         elif args.command == "prepare":
