@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from .infra import ReleaseManager
-from .releaselib.exceptions import ReleaseError
+from .releaselib.exceptions import ManualInterventionRequired, ReleaseError
 from .releaselib.git_service import GitService
 from .releaselib.vault_service import VaultService
 
@@ -185,6 +185,11 @@ def main():
         elif args.command == "close":
             manager.run_finalize_release(release_version=args.version)
 
+    # Must precede ReleaseError — ManualInterventionRequired subclasses it, and a
+    # release that stops for a human is a normal outcome, not a failure.
+    except ManualInterventionRequired as e:
+        logger.info(f"[ACTION REQUIRED] {e}")
+        sys.exit(0)
     except ReleaseError as e:
         logger.critical(f"[RELEASE FAILED] {e}")
         sys.exit(1)
