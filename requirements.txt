@@ -346,6 +346,8 @@ uvicorn==0.51.0
     # via
     #   -r requirements.in
     #   mcp
+watchdog==6.0.0
+    # via -r requirements.in
 yamllint==1.37.1
     # via -r requirements.in
 
