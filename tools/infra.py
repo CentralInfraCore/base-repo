@@ -7,7 +7,6 @@ import os
 import tempfile
 from pathlib import Path
 
-import requests
 import yaml
 from jsonschema import ValidationError as JsonSchemaValidationError
 from jsonschema import validate

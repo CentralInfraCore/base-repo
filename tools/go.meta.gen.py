@@ -199,7 +199,6 @@ def _extract_calls(body: str, refs: list[str] | None = None) -> list[str]:
         body: "s.Set(db.Query())"  refs: None
         → ["Set", "Query"]
     """
-    calls = []
     call_names = set()
 
     # Extract bare method/function names

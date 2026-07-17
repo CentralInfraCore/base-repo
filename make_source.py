@@ -1,16 +1,13 @@
 
 import os
 import yaml
-import markdown
 import json
-import datetime
 import pickle
 import sqlite3
 import re
 import hashlib
 import argparse
 import numpy as np
-from bs4 import BeautifulSoup
 from langdetect import detect, LangDetectException
 from sentence_transformers import SentenceTransformer
 from rank_bm25 import BM25Okapi
@@ -732,10 +729,13 @@ def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
     }
 
 def save_knowledge_base_legacy(kb_data, output_dir="kb_data", save_json=True, save_pickle=True):
-    if not (save_json or save_pickle): return
+    if not (save_json or save_pickle):
+        return
     os.makedirs(output_dir, exist_ok=True)
-    if save_json: os.makedirs(os.path.join(output_dir, 'json'), exist_ok=True)
-    if save_pickle: os.makedirs(os.path.join(output_dir, 'pkl'), exist_ok=True)
+    if save_json:
+        os.makedirs(os.path.join(output_dir, 'json'), exist_ok=True)
+    if save_pickle:
+        os.makedirs(os.path.join(output_dir, 'pkl'), exist_ok=True)
 
     legacy_data = {
         "chunks": kb_data.get("chunks", {}),
@@ -787,9 +787,11 @@ def save_kb_to_sqlite(kb_data, output_dir="sqlite_data"):
     os.makedirs(output_dir, exist_ok=True)
     db_path = os.path.join(output_dir, 'knowledge_base.sqlite')
     schema_path = os.path.join(output_dir, 'db_schema.json')
-    if os.path.exists(db_path): os.remove(db_path)
+    if os.path.exists(db_path):
+        os.remove(db_path)
 
-    with open(schema_path, 'r', encoding='utf-8') as f: schema = json.load(f)
+    with open(schema_path, 'r', encoding='utf-8') as f:
+        schema = json.load(f)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("PRAGMA foreign_keys = ON;")

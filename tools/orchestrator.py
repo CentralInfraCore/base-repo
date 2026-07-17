@@ -191,7 +191,7 @@ def build_briefing(task: dict, task_profile: dict, scope_profile: dict) -> str:
 
     if task.get("accept"):
         lines += ["## Accept gate", ""]
-        lines += [f"```bash", task.get("accept", "").strip(), "```", ""]
+        lines += ["```bash", task.get("accept", "").strip(), "```", ""]
 
     return "\n".join(lines)
 

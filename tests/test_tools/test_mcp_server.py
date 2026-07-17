@@ -3,7 +3,6 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../mcp-server")))
@@ -81,21 +80,18 @@ def _make_kb(with_faiss=True, with_bm25=True):
 
 class TestSearchQuerySemantic:
     def test_returns_list(self):
-        import server as mcp_server
         kb = _make_kb(with_faiss=True)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_query("relay management", top_k=3)
         assert isinstance(results, list)
 
     def test_returns_at_most_top_k(self):
-        import server as mcp_server
         kb = _make_kb(with_faiss=True)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_query("relay", top_k=2)
         assert len(results) <= 2
 
     def test_result_has_required_fields(self):
-        import server as mcp_server
         kb = _make_kb(with_faiss=True)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_query("vault signing", top_k=3)
@@ -105,7 +101,6 @@ class TestSearchQuerySemantic:
             assert "file_paths" in r
 
     def test_chunk_ids_are_valid(self):
-        import server as mcp_server
         kb = _make_kb(with_faiss=True)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_query("host environment", top_k=5)
@@ -113,7 +108,6 @@ class TestSearchQuerySemantic:
             assert r["chunk_id"] in SAMPLE_CHUNKS
 
     def test_threshold_filters_low_scores(self):
-        import server as mcp_server
         kb = _make_kb(with_faiss=True)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_query("relay", top_k=5, threshold=0.99)
@@ -128,7 +122,6 @@ class TestSearchQuerySemantic:
 
 class TestSearchQueryFallback:
     def test_falls_back_to_inverted_index(self):
-        import server as mcp_server
         kb = _make_kb(with_faiss=False, with_bm25=False)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_query("relay", top_k=5)
@@ -137,7 +130,6 @@ class TestSearchQueryFallback:
         assert "c1" in cids or "c5" in cids
 
     def test_empty_query_returns_empty(self):
-        import server as mcp_server
         kb = _make_kb(with_faiss=False, with_bm25=False)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_query("", top_k=5)
@@ -150,14 +142,12 @@ class TestSearchQueryFallback:
 
 class TestSearchTokenBm25:
     def test_returns_list(self):
-        import server as mcp_server
         kb = _make_kb(with_bm25=True)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_token("relay", top_k=3)
         assert isinstance(results, list)
 
     def test_result_has_chunk_id_and_score(self):
-        import server as mcp_server
         kb = _make_kb(with_bm25=True)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_token("host", top_k=3)
@@ -166,14 +156,12 @@ class TestSearchTokenBm25:
             assert "score" in r
 
     def test_returns_at_most_top_k(self):
-        import server as mcp_server
         kb = _make_kb(with_bm25=True)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_token("relay", top_k=2)
         assert len(results) <= 2
 
     def test_unknown_token_returns_empty_or_low_scores(self):
-        import server as mcp_server
         kb = _make_kb(with_bm25=True)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_token("xyznotaword123", top_k=5)
@@ -187,7 +175,6 @@ class TestSearchTokenBm25:
 
 class TestSearchTokenFallback:
     def test_falls_back_to_inverted_index(self):
-        import server as mcp_server
         kb = _make_kb(with_bm25=False)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_token("vault", top_k=3)
@@ -195,7 +182,6 @@ class TestSearchTokenFallback:
         assert results[0]["chunk_id"] == "c3"
 
     def test_unknown_token_returns_empty(self):
-        import server as mcp_server
         kb = _make_kb(with_bm25=False)
         with patch.object(mcp_server, "load_kb", return_value=kb):
             results = mcp_server.search_token("xyznotaword", top_k=3)

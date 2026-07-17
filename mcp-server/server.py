@@ -41,6 +41,8 @@ _kb: dict | None = None
 _kb_lock = threading.RLock()
 _kb_mtime: float = 0  # last known mtime of KB artifacts (for auto-reload detection)
 _kb_ready: bool = False  # True when KB is loaded and ready for queries
+_watch_dir: Path | None = None  # set by the watch-mode entry point; _watch_loop reads it
+_watch_interval: float = 2.0
 
 # MCP server name — can be overridden via environment or later in main()
 MCP_SERVER_NAME = os.environ.get("MCP_SERVER_NAME", "cic-relay")
@@ -177,7 +179,7 @@ def load_kb(auto_reload: bool = True) -> dict[str, Any]:
                 if p.exists()
             )
             if current_mtime > _kb_mtime:
-                print(f"[kb] artifact mtime changed — reloading KB", flush=True)
+                print("[kb] artifact mtime changed — reloading KB", flush=True)
                 _kb = _load_kb_from_disk()
                 _kb_mtime = current_mtime
 
@@ -528,7 +530,7 @@ def refresh_graph() -> dict:
 
     start = _time.time()
     _kb_ready = False  # Signal: server not ready
-    print(f"[graph] refresh_graph() starting — reloading KB from disk", flush=True)
+    print("[graph] refresh_graph() starting — reloading KB from disk", flush=True)
 
     try:
         with _kb_lock:  # LOCK: block all queries and watch updates
@@ -573,7 +575,7 @@ def refresh_graph() -> dict:
             kb['edges'] = {e['id']: e for e in edges_list if 'id' in e}
 
             # Rebuild metadata_index from updated chunks
-            print(f"[graph] rebuilding metadata index...", flush=True)
+            print("[graph] rebuilding metadata index...", flush=True)
             metadata_index = _ms.build_metadata_index(all_chunks)
             kb['metadata_index'] = metadata_index
 
@@ -608,7 +610,7 @@ def refresh_graph() -> dict:
         }
     finally:
         _kb_ready = True  # Signal: server ready again
-        print(f"[graph] refresh_graph() complete — server READY", flush=True)
+        print("[graph] refresh_graph() complete — server READY", flush=True)
 
     return {
         'success': True,
@@ -989,13 +991,6 @@ def search_code(code_snippet: str, top_k: int = DEFAULT_TOPK) -> list[dict]:
             meta = chunk.get("metadata", {})
             if not isinstance(meta, dict):
                 meta = {}
-
-            file_path = (
-                chunk.get("file_path") or
-                meta.get("file_path") or
-                chunk.get("path") or
-                meta.get("path")
-            )
 
             raw_lines = (
                 chunk.get("line_range") or
@@ -1836,7 +1831,6 @@ def get_next_task(repo: str = "", sprint: Optional[int] = None) -> Optional[dict
 
 def _update_task_status(pm_path: Path, task_id: str, new_status: str, extra: Optional[dict] = None) -> bool:
     """Mutate a task's status in a PROMPTMAP file. Returns True if found and saved."""
-    import yaml as _yaml
     data = _load_promptmap(pm_path)
     found = False
 
@@ -2219,7 +2213,7 @@ def main() -> None:
                     try:
                         manifest = load_manifest()
                         if manifest.get("graph_stale") and time.time() - last_refresh > 5:  # min 5s between refreshes
-                            print(f"[monitor] graph_stale detected, triggering refresh_graph()", flush=True)
+                            print("[monitor] graph_stale detected, triggering refresh_graph()", flush=True)
                             try:
                                 refresh_graph()
                                 last_refresh = time.time()
@@ -2231,7 +2225,7 @@ def main() -> None:
 
             monitor_thread = threading.Thread(target=monitor_and_refresh_graph, daemon=True)
             monitor_thread.start()
-            print(f"[monitor] graph auto-refresh enabled", flush=True)
+            print("[monitor] graph auto-refresh enabled", flush=True)
 
     if args.sse:
         print(f"Starting SSE server on http://{args.host}:{args.port}")
