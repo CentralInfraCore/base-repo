@@ -413,7 +413,7 @@ class KBWatchHandler(FileSystemEventHandler):
         self.kb_dir = kb_dir
         self.model = model
         self.file_state = file_state
-        self.pending_files = set()
+        self.pending_files: set[str] = set()
 
     def on_modified(self, event):
         if not event.is_directory and self._should_process(event.src_path):

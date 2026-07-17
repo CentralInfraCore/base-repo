@@ -325,7 +325,7 @@ def _load_kb_from_disk() -> dict[str, Any]:
     if faiss_idx is not None:
         for i, cid in enumerate(faiss_chunk_ids):
             try:
-                embeddings_by_id[str(cid)] = faiss_idx.reconstruct(i)
+                embeddings_by_id[str(cid)] = np.asarray(faiss_idx.reconstruct(i))
             except Exception:
                 pass
 
@@ -810,6 +810,9 @@ def _watch_loop() -> None:
         file_state: dict = json.loads(state_path.read_text()) if state_path.exists() else {}
     except Exception:
         file_state = {}
+
+    if _watch_dir is None:
+        raise RuntimeError("_watch_loop started before _watch_dir was set")
 
     print(f"[watch] watching {_watch_dir}  interval={_watch_interval}s", flush=True)
     while True:
@@ -1597,7 +1600,7 @@ def guided_path(topic: str, max_steps: int = 10) -> dict:
 SOURCE_DIR = Path(os.environ.get("SOURCE_DIR", str(Path.cwd())))
 
 
-_COMPANION_LANGS = {
+_COMPANION_LANGS: dict[str, dict[str, Any]] = {
     "go": {"glob": "*.go", "is_test": lambda name: "_test.go" in name},
     "py": {"glob": "*.py", "is_test": lambda name: name.startswith("test_") or name.endswith("_test.py")},
 }
@@ -1763,7 +1766,7 @@ def list_tasks(
 
     Returns list of dicts with keys: repo, sprint, task, status, priority, prompt (truncated).
     """
-    results = []
+    results: list[dict[str, Any]] = []
     for pm_path in _find_promptmaps():
         repo_name = _promptmap_repo_name(pm_path)
         if repo and repo.lower() not in repo_name.lower():

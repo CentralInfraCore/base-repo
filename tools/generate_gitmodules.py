@@ -70,7 +70,8 @@ def select_sources(data: dict, profile: str) -> tuple[list[dict], list[dict]]:
         raise ValueError(f"unknown profile '{profile}'. allowed: {sorted(profiles)}")
 
     include_visibility = set(profiles[profile].get("includeVisibility", []))
-    included, excluded = [], []
+    included: list[dict] = []
+    excluded: list[dict] = []
     for source in data["sources"]:
         (included if source["visibility"] in include_visibility else excluded).append(source)
     return included, excluded

@@ -473,8 +473,8 @@ def main() -> None:
 
         if existing and args.merge:
             try:
-                with open(yaml_file) as f:
-                    old_data = yaml.safe_load(f) or {}
+                with open(yaml_file) as fh:
+                    old_data = yaml.safe_load(fh) or {}
                 data = _merge_data(data, old_data)
                 action = "MERGED"
                 merged_count += 1

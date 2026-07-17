@@ -134,16 +134,16 @@ def _parse_imports(source: str) -> dict[str, str]:
             if not line:
                 continue
             # alias "path"
-            m = re.match(r'(\w+|_|\.)\s+"([^"]+)"', line)
-            if m:
-                alias = m.group(1) if m.group(1) not in ('_', '.') else m.group(2).split('/')[-1]
-                imports[alias] = m.group(2)
+            alias_m = re.match(r'(\w+|_|\.)\s+"([^"]+)"', line)
+            if alias_m:
+                alias = alias_m.group(1) if alias_m.group(1) not in ('_', '.') else alias_m.group(2).split('/')[-1]
+                imports[alias] = alias_m.group(2)
                 continue
             # "path"
-            m = re.match(r'"([^"]+)"', line)
-            if m:
-                alias = m.group(1).split('/')[-1]
-                imports[alias] = m.group(1)
+            path_m = re.match(r'"([^"]+)"', line)
+            if path_m:
+                alias = path_m.group(1).split('/')[-1]
+                imports[alias] = path_m.group(1)
 
     return imports
 
@@ -239,8 +239,8 @@ def _extract_param_types(params_str: str, imports: dict[str, str], module_name: 
         return result
 
     # Split by comma, but handle nested parens (e.g., func types)
-    parts = []
-    current = []
+    parts: list[str] = []
+    current: list[str] = []
     depth = 0
     for c in params_str:
         if c == '(':

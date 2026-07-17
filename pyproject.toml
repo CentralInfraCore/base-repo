@@ -5,7 +5,10 @@
 [[tool.mypy.overrides]]
 module = [
     "jsonschema.*",
-    "jsonref.*"
+    "jsonref.*",
+    "langdetect.*",
+    "rank_bm25.*",
+    "watchdog.*"
 ]
 ignore_missing_imports = true
 
