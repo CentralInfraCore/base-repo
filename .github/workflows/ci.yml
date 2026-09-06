@@ -26,6 +26,9 @@ jobs:
           make infra.deps
           git diff --exit-code requirements.txt
 
+      - name: Start development environment
+        run: make up
+
       - name: Run code quality checks
         run: make check
 
@@ -37,3 +40,7 @@ jobs:
         with:
           name: html-coverage-report
           path: htmlcov/
+
+      - name: Stop development environment
+        if: always()
+        run: make down
