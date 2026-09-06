@@ -5,6 +5,17 @@
 # Licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License
 # See https://creativecommons.org/licenses/by-nc-sa/4.0/
 
+# FIXME: This script is a temporary, local-only solution to simulate the
+# central signing environment for development purposes. It launches a temporary,
+# in-memory Vault instance and exposes a private key for signing.
+#
+# !!! WARNING !!!
+# This script is NOT for production use. It handles sensitive key material
+# in a local, non-hardened environment. It should only be activated
+# temporarily during the release process on a trusted developer machine.
+# The long-term goal is to replace this with a proper, centralized signing API
+# and a secure build environment.
+
 set -e
 
 KEYFILE=""
@@ -69,8 +80,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$STOP" == "1" ]]; then
-  if [[ -f $XDG_RUNTIME_DIR/vault/vault.pid ]]; then
-    kill $(cat $XDG_RUNTIME_DIR/vault/vault.pid) && echo "[*] Vault stopped." && rm -f $XDG_RUNTIME_DIR/vault/vault.pid
+  if [[ -f $XDG_RUNTIME_DIR/vault_CA/vault.pid ]]; then
+    kill $(cat $XDG_RUNTIME_DIR/vault_CA/vault.pid) && echo "[*] Vault stopped." && rm -f $XDG_RUNTIME_DIR/vault_CA/vault.pid
   else
     echo "[!] vault.pid file not found – is Vault running?"
   fi
@@ -78,21 +89,21 @@ if [[ "$STOP" == "1" ]]; then
 fi
 
 
-if [[ -f $XDG_RUNTIME_DIR/vault/vault.pid ]]; then
+if [[ -f $XDG_RUNTIME_DIR/vault_CA/vault.pid ]]; then
   echo "[!] vault.pid file found – is Vault running? First stop the vault"
   exit 0
 fi
 
 TMPDIR=$(mktemp -d)
-VAULT_PORT=18200
-TOKEN_FILE="$XDG_RUNTIME_DIR/vault/sign-token"
-SERVER_CA_FILE="$XDG_RUNTIME_DIR/vault/server.crt" # New file for server CA cert
+VAULT_PORT=18202
+TOKEN_FILE="$XDG_RUNTIME_DIR/vault_CA/sign-token"
+SERVER_CA_FILE="$XDG_RUNTIME_DIR/vault_CA/server.crt" # New file for server CA cert
 VAULT_KEY="$TMPDIR/vault-key.pem"
 VAULT_CERT="$TMPDIR/vault-cert.pem"
 PIDFILE="vault.pid"
 export VAULT_API_ADDR="https://127.0.0.1:$VAULT_PORT"
 export VAULT_ADDR="https://127.0.0.1:$VAULT_PORT"
-mkdir -p $XDG_RUNTIME_DIR/vault
+mkdir -p $XDG_RUNTIME_DIR/vault_CA
 
 if [[ -z "$KEYFILE" || -z "$CRTFILE" || -z "$ROOT_CA_FILE" ]]; then
   echo "[!] Key file, certificate file, and Root CA file must all be specified."
@@ -142,8 +153,8 @@ ui = false
 EOF
 
 nohup vault server -config="$TMPDIR/vault-config.hcl" > "$TMPDIR/vault.log" 2>&1 &
-echo $! > "$XDG_RUNTIME_DIR/vault/$PIDFILE"
-VAULT_PID=$(cat "$XDG_RUNTIME_DIR/vault/$PIDFILE")
+echo $! > "$XDG_RUNTIME_DIR/vault_CA/$PIDFILE"
+VAULT_PID=$(cat "$XDG_RUNTIME_DIR/vault_CA/$PIDFILE")
 
 sleep 2
 

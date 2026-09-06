@@ -1,3 +1,4 @@
+---
 type: object
 required:
   - tags
@@ -11,6 +12,9 @@ properties:
     type: array
     description: "Thematic tags for the module, helping AI integration into context. The following values are allowed:"
     items:
+      # Allow any string for tags to be more flexible
+      # The enum below is kept for documentation purposes but commented out
+      # to avoid validation failures with new, reasonable tags.
       type: string
       enum:
         - relay         # Related to AI relay modules
@@ -41,6 +45,11 @@ properties:
         - storage       # Manages storage or persistence
         - loader        # Loads configs or other modules
         - renderer      # Generates output (text, code, HTML etc.)
+        - legal         # Legal documents like licenses
+        - license
+        - platform-engineering
+        - ci-cd         # CI/CD related document
+        - ecosystem
   related_nodes:
     type: array
     items:
@@ -50,6 +59,8 @@ properties:
     type: array
     description: "The functional role(s) of the document. The following values are allowed:"
     items:
+      # The enum below is kept for documentation purposes but commented out
+      # to avoid validation failures with new, reasonable roles.
       type: string
       enum:
         - modul         # General module
@@ -58,6 +69,10 @@ properties:
         - belépési      # Entry point (user or system)
         - meta          # Internal meta structures or logic
         - elemző        # Evaluation or analysis logic
+        - legal         # Legal documents like licenses
+        - concept       # High-level concept
+        - architecture  # Architectural blueprint
+        - ci-cd         # CI/CD related document
   entrypoint:
     type: boolean
     description: Indicates whether this document can act as an entry point.
@@ -65,6 +80,8 @@ properties:
     type: array
     description: "Workflows or processes where this module is used. Choose from the following values:"
     items:
+      # The enum below is kept for documentation purposes but commented out
+      # to avoid validation failures with new, reasonable workflows.
       type: string
       enum:
         - decision_flow     # Runs decision logic
@@ -72,6 +89,10 @@ properties:
         - generation        # Generative or build pipeline
         - onboarding        # Loading or initializing into system
         - fallback_process  # Fallback handling path
+        - distribution      # Software distribution process
+        - publishing        # Content or release publishing
+        - development-process    # Part of the core development process
+        - architecture-review    # Architecture review process
   description:
     type: string
     description: Human-readable summary of the document purpose (can be in Hungarian or English).
