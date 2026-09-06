@@ -9,7 +9,7 @@ services:
       dockerfile: Dockerfile
     # Run as the current host user to avoid file permission issues
     # on mounted volumes.
-    user: "${UID:-1000}:${GID:-1000}"
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       # Mount the project root to access requirements files
       - ./:/app
@@ -31,7 +31,7 @@ services:
       dockerfile: Dockerfile
     # Run as the current host user to avoid file permission issues
     # on mounted volumes.
-    user: "${UID:-1000}:${GID:-1000}"
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       # Mount the populated venv directory as a read-only cache
       - ./p_venv:/app/p_venv:ro
