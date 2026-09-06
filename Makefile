@@ -8,6 +8,16 @@ MAKEFLAGS += --no-builtin-rules --warn-undefined-variables
 # ---- Includes ----
 include mk/infra.mk
 
+# Host UID/GID for the containers' `user:` directive (docker-compose.yml), so
+# files written into bind-mounted volumes are owned by the invoking user, not
+# a stale default. Deliberately NOT named UID/GID: bash treats UID as a
+# read-only special variable, so a future `SHELL := /bin/bash` would break a
+# same-named export silently — HOST_UID/HOST_GID sidesteps that entirely.
+# `export` here (GNU Make) makes both available to every recipe's shell,
+# including docker compose calls in mk/infra.mk.
+export HOST_UID := $(shell id -u)
+export HOST_GID := $(shell id -g)
+
 # ---- Phony ----
 .PHONY: all help validate release test up down shell build fmt lint check typecheck repo.init manifest-verify manifest-update
 

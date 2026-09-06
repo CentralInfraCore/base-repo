@@ -49,6 +49,10 @@ infra.security:
 infra.check: infra.fmt infra.lint infra.typecheck infra.security
 	@echo "--- Running all code quality checks (format, lint, typecheck) ---"
 
+typecheck:
+	@echo "--- Running static type checking with MyPy ---"
+	@docker compose exec builder python3 -m mypy --exclude p_venv .
+
 # =============================================================================
 # Repository Setup
 # =============================================================================
@@ -63,6 +67,12 @@ infra.repo.init:
 
 infra.deps:
 	@echo "--- Initializing Python dependencies into ./p_venv cache ---"
+	@# p_venv/ is .gitignore'd, so a fresh checkout has no such directory —
+	@# if docker compose has to create the bind-mount source itself, it does
+	@# so as root (the daemon's own user), and the container then can't
+	@# write into it even as the correct HOST_UID:HOST_GID. Pre-create it
+	@# as the invoking user so ownership is right from the start.
+	@mkdir -p p_venv
 	@docker compose run --rm setup
 
 infra.coverage:
