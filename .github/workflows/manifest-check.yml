@@ -1,0 +1,26 @@
+name: manifest-check
+
+on:
+  pull_request:
+    branches: ["**"]
+  push:
+    branches: ["**"]
+
+jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate manifest
+        run: |
+          chmod +x scripts/gen_manifest.sh || true
+          scripts/gen_manifest.sh . /tmp/MANIFEST.sha256
+
+      - name: Diff with committed MANIFEST
+        run: |
+          if ! diff -u MANIFEST.sha256 /tmp/MANIFEST.sha256; then
+            echo "MANIFEST drift detected. Run: scripts/gen_manifest.sh . MANIFEST.sha256"
+            exit 1
+          fi
