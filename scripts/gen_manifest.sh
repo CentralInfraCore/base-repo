@@ -12,7 +12,12 @@ mapfile -t FILES < <(cd "$ROOT" &&   find ai context GOLDEN -type f -not -name "
 
 {
   echo "# MANIFEST of critical/golden files (sha256)"
-  echo "# generated: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  # No "generated: <timestamp>" line here on purpose: manifest-check.yml
+  # diffs this file byte-for-byte against a freshly regenerated copy, so
+  # anything that changes between two runs on the same content — a
+  # timestamp above all — makes the check permanently unpassable. The file
+  # list order is already deterministic (LC_ALL=C sort above); this must
+  # be too.
   for f in "${FILES[@]}"; do
     sha256sum "$ROOT/$f" | awk '{print $1, " *" $2}'
   done
