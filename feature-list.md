@@ -1,22 +1,13 @@
 # Feature List
 
-# Feature List
+Tracks planned, in-progress, and completed features for this template
+flavor. Each feature gets a unique ID (`feature-NNN`), a spec document under
+`features/feature-NNN/spec.md`, and an entry here.
 
-## Overview
-This document contains a list of all the features that are either planned, under development, or already completed. Each feature has an ID, title, and status to track progress.
-
----
+No features recorded yet — this flavor branch starts clean (see
+`proposals/schema-registry` in `cic-primitives` for the design this template
+implements).
 
 ## Features
-- **Feature-001**: Administering new features and specifications.
-    - **Status**: Active
-    - **Branch**: `d/feature-001`
-    - **Description**: This feature is dedicated to managing new feature development, administrating specifications, and organizing the overall project direction.
-    - **Spec Document**: [admin-dashboard-spec.md](features/feature-001/spec.md)
 
-- **Feature-002**: Developing and managing the git management system.
-    - **Status**: Completed 
-    - **Branch**: `d/feature-002`
-    - **Description**: This feature is focused on creating and managing the version control rules and the git workflow.
-    - **Spec Document**: [spec.md](features/feature-002/spec.md)
-    - **Completion Date**: 2025-03-05
+_(none yet)_
