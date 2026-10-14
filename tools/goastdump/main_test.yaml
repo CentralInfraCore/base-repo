@@ -1,0 +1,50 @@
+---
+package: main
+description: ''
+tags:
+- test
+category: []
+used_in: []
+entrypoint: true
+related_nodes: []
+objects:
+- name: byName
+  kind: func
+  description: ''
+  references: []
+  calls: []
+- name: TestDumpDeclarations
+  kind: func
+  description: ''
+  references: []
+  calls: []
+- name: TestDumpImportsAndDocs
+  kind: func
+  description: ''
+  references: []
+  calls: []
+- name: TestInterfaceMethodsExportedOnly
+  kind: func
+  description: ''
+  references: []
+  calls: []
+- name: TestCallResolution
+  kind: func
+  description: ''
+  references: []
+  calls: []
+- name: TestShadowedImportIsNotAReference
+  kind: func
+  description: ''
+  references: []
+  calls: []
+- name: TestGenericCallUnwrapped
+  kind: func
+  description: ''
+  references: []
+  calls: []
+- name: TestSyntaxErrorIsReportedNotFatal
+  kind: func
+  description: ''
+  references: []
+  calls: []

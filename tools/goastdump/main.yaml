@@ -1,0 +1,162 @@
+---
+package: main
+description: 'goastdump parses Go source files with go/parser and prints their top-level
+  declarations as JSON. It is the syntactic front end of tools/go.meta.gen.py: the
+  Python side decides what counts as an external reference and writes the companion
+  YAML, this tool only reports what the Go syntax tree says. Usage: goastdump <file.go>
+  [<file.go> ...] Only the standard library is used and no type checking happens,
+  so it runs offline and without the dependencies of the code it reads. A call receiver
+  is resolved to a type only where the syntax states it (parameter, receiver, "var
+  x T", "x := T{}" / "x := &T{}"); everything else stays untyped.'
+tags:
+- core
+- gateway
+category: []
+used_in: []
+entrypoint: true
+related_nodes: []
+objects:
+- name: Ref
+  kind: struct
+  description: 'Ref is a selector on an imported package alias: Pkg.Name.'
+  implements: []
+  references: []
+- name: Call
+  kind: struct
+  description: Call is an exported function or method call. Pkg is set for a call
+    through an import alias or a receiver typed by one; Type is set when the receiver
+    type is known (local or imported); both empty means the receiver could not be
+    typed.
+  implements: []
+  references: []
+- name: Object
+  kind: struct
+  description: Object is one top-level declaration.
+  implements: []
+  references: []
+- name: FileDump
+  kind: struct
+  description: FileDump is the result for one input file.
+  implements: []
+  references: []
+- name: fileCtx
+  kind: struct
+  description: ''
+  implements: []
+  references: []
+- name: collector
+  kind: struct
+  description: collector gathers refs and calls from a subtree, first occurrence order,
+    without duplicates.
+  implements: []
+  references: []
+- name: guessPkgName
+  kind: func
+  description: 'guessPkgName derives the default package name from an import path.
+    Without type information the declared name is unknown, so the usual conventions
+    are applied: "…/yaml.v3" -> yaml, "…/foo/v2" -> foo, otherwise the last element.'
+  references: []
+  calls:
+  - MatchString
+  - ReplaceAllString
+- name: docText
+  kind: func
+  description: ''
+  references: []
+  calls:
+  - ReplaceAllString
+- name: isImport
+  kind: method
+  receiver: fileCtx
+  description: 'isImport reports whether id names an imported package: its alias is
+    imported and the parser did not resolve it to a local declaration (a local variable
+    called like an import shadows it).'
+  references: []
+  calls: []
+- name: typeName
+  kind: method
+  receiver: fileCtx
+  description: typeName names the type an expression denotes, if it is a plain named
+    type.
+  references: []
+  calls:
+  - Lookup
+- name: exprType
+  kind: method
+  receiver: fileCtx
+  description: exprType resolves the type of the few initializer shapes that state
+    it.
+  references: []
+  calls: []
+- name: identType
+  kind: method
+  receiver: fileCtx
+  description: identType resolves a local identifier to its declared type through
+    the parser's scope resolution.
+  references: []
+  calls: []
+- name: exported
+  kind: func
+  description: ''
+  references: []
+  calls: []
+- name: newCollector
+  kind: func
+  description: ''
+  references: []
+  calls: []
+- name: addCall
+  kind: method
+  receiver: collector
+  description: ''
+  references: []
+  calls: []
+- name: visit
+  kind: method
+  receiver: collector
+  description: ''
+  references: []
+  calls: []
+- name: call
+  kind: method
+  receiver: collector
+  description: ''
+  references: []
+  calls: []
+- name: recvTypeName
+  kind: func
+  description: ''
+  references: []
+  calls: []
+- name: typeObject
+  kind: method
+  receiver: fileCtx
+  description: ''
+  references: []
+  calls: []
+- name: dump
+  kind: func
+  description: ''
+  references: []
+  calls:
+  - Error
+  - IsValid
+- name: main
+  kind: func
+  description: ''
+  references: []
+  calls:
+  - Encode
+  - SetEscapeHTML
+- name: reMajor
+  kind: var
+  description: ''
+  references: []
+- name: reDotVer
+  kind: var
+  description: ''
+  references: []
+- name: spaceRuns
+  kind: var
+  description: ''
+  references: []
