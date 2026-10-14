@@ -23,8 +23,15 @@ Options:
     --dry-run     Print what would be generated without writing files
 """
 
+import atexit
+import json
+import os
 import re
+import shlex
+import shutil
+import subprocess
 import sys
+import tempfile
 import argparse
 from pathlib import Path
 
@@ -569,19 +576,29 @@ def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") 
 # Main generator
 # ---------------------------------------------------------------------------
 
-def generate(go_file: Path) -> dict:
-    source = go_file.read_text(encoding="utf-8")
+def generate(go_file: Path, dump: dict | None = None) -> dict:
+    """Build the companion data for one Go file.
 
-    pkg_m = re.search(r'^\s*package\s+(\w+)', source, re.MULTILINE)
-    package = pkg_m.group(1) if pkg_m else ""
-
-    module_name = _find_module_name(go_file)
-    imports = _parse_imports(source)
-    objects = _parse_objects(source, imports, module_name)
+    With `dump` (one entry of the goastdump output) the declarations come from
+    go/ast; without it the regex reader is used.
+    """
+    if dump is not None:
+        imports = dump["imports"]
+        objects = _objects_from_dump(dump, imports)
+        package = dump["package"]
+        description = dump["package_doc"]
+    else:
+        source = go_file.read_text(encoding="utf-8")
+        pkg_m = re.search(r'^\s*package\s+(\w+)', source, re.MULTILINE)
+        package = pkg_m.group(1) if pkg_m else ""
+        module_name = _find_module_name(go_file)
+        imports = _parse_imports(source)
+        objects = _parse_objects(source, imports, module_name)
+        description = _extract_package_doc(source)
 
     return {
         "package": package,
-        "description": _extract_package_doc(source),
+        "description": description,
         "tags": _suggest_tags(go_file, imports, objects),
         "category": [],
         "used_in": [],
@@ -589,6 +606,112 @@ def generate(go_file: Path) -> dict:
         "related_nodes": [],
         "objects": objects,
     }
+
+
+# ---------------------------------------------------------------------------
+# go/ast front end (tools/goastdump)
+# ---------------------------------------------------------------------------
+
+_AST_DIR = Path(__file__).resolve().parent / "goastdump"
+_AST_CHUNK = 400  # files per goastdump invocation (argv length)
+_ast_bin: list[str] | None = None  # resolved command, cached after the first build
+_KIND_RANK = {"struct": 0, "interface": 1, "type": 2, "func": 3, "method": 3,
+              "var": 4, "const": 5}
+
+
+def _ast_command() -> list[str] | None:
+    """Return the command that runs goastdump, or None if it cannot be had.
+
+    GO_META_GOASTDUMP overrides it with a prebuilt binary (or any command).
+    Otherwise the helper is built once with the `go` on PATH.
+    """
+    global _ast_bin
+    if _ast_bin is not None:
+        return _ast_bin
+    override = os.environ.get("GO_META_GOASTDUMP")
+    if override:
+        _ast_bin = shlex.split(override)
+        return _ast_bin
+    go = shutil.which("go")
+    if not go or not (_AST_DIR / "main.go").exists():
+        return None
+    build_dir = tempfile.mkdtemp(prefix="goastdump-")
+    atexit.register(shutil.rmtree, build_dir, True)
+    out = Path(build_dir) / "goastdump"
+    res = subprocess.run([go, "build", "-o", str(out), "."], cwd=_AST_DIR,  # nosec B603 - argv list, no shell, builds this repo's own helper
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        print(f"goastdump build failed:\n{res.stderr}", file=sys.stderr)
+        return None
+    _ast_bin = [str(out)]
+    return _ast_bin
+
+
+def _ast_dump(files: list[Path]) -> dict[Path, dict]:
+    """Run goastdump over files; returns {resolved path: per-file dump}."""
+    cmd = _ast_command()
+    if cmd is None:
+        raise RuntimeError("goastdump unavailable (no Go toolchain on PATH)")
+    result: dict[Path, dict] = {}
+    resolved = [f.resolve() for f in files]
+    for i in range(0, len(resolved), _AST_CHUNK):
+        chunk = resolved[i:i + _AST_CHUNK]
+        res = subprocess.run(cmd + [str(f) for f in chunk],  # nosec B603 - argv list, no shell; cmd is the helper or GO_META_GOASTDUMP
+                             capture_output=True, text=True)
+        if res.returncode != 0:
+            raise RuntimeError(f"goastdump failed: {res.stderr.strip()}")
+        for entry in json.loads(res.stdout)["files"]:
+            result[Path(entry["file"])] = entry
+    return result
+
+
+def _format_call(c: dict, imports: dict[str, str]) -> str | None:
+    pkg = c.get("pkg", "")
+    if pkg and not _is_external(pkg, imports):
+        return None  # stdlib (or unknown alias): not part of the graph
+    return ".".join(p for p in (pkg, c.get("type", ""), c["name"]) if p)
+
+
+def _objects_from_dump(dump: dict, imports: dict[str, str]) -> list[dict]:
+    """Turn a goastdump file entry into the objects list the regex reader made.
+
+    Key order and the kind grouping (structs, interfaces, types, funcs/methods,
+    vars, consts) follow the regex reader so a regenerated YAML differs only by
+    what the syntax tree adds, not by reordering.
+    """
+    objects: list[dict] = []
+    for o in dump["objects"]:
+        kind = o["kind"]
+        refs = [f"{r['pkg']}.{r['name']}" for r in o["refs"]
+                if _is_external(r["pkg"], imports)]
+        if kind in ("func", "method"):
+            # a call on an imported type is a reference to that type's method
+            for c in o["calls"]:
+                if c.get("pkg") and c.get("type") and _is_external(c["pkg"], imports):
+                    ref = f"{c['pkg']}.{c['type']}.{c['name']}"
+                    if ref not in refs:
+                        refs.append(ref)
+            calls = sorted({t for t in (_format_call(c, imports) for c in o["calls"]) if t})
+
+        desc = o["doc"]
+        if kind == "struct":
+            obj = {"name": o["name"], "kind": kind, "description": desc,
+                   "implements": [], "references": refs}
+        elif kind == "interface":
+            obj = {"name": o["name"], "kind": kind, "description": desc,
+                   "references": refs, "methods": o.get("methods", [])}
+        elif kind == "method":
+            obj = {"name": o["name"], "kind": kind, "receiver": o["receiver"],
+                   "description": desc, "references": refs, "calls": calls}
+        elif kind == "func":
+            obj = {"name": o["name"], "kind": kind, "description": desc,
+                   "references": refs, "calls": calls}
+        else:  # type, var, const
+            obj = {"name": o["name"], "kind": kind, "description": desc,
+                   "references": refs if kind == "type" else []}
+        objects.append(obj)
+    objects.sort(key=lambda x: _KIND_RANK[x["kind"]])  # stable: source order within a rank
+    return objects
 
 
 def _detect_implements(yaml_dir: Path) -> dict[str, list[str]]:
@@ -712,6 +835,12 @@ def main() -> None:
                         help="Skip _test.go files")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print actions without writing files")
+    parser.add_argument("--parser", choices=("auto", "ast", "regex"), default="auto",
+                        help="Declaration reader. ast: go/ast via tools/goastdump (needs a Go "
+                             "toolchain, fails loudly without one). regex: the legacy reader, "
+                             "known to miss grouped const/var blocks, unnamed receivers, generics "
+                             "and code after a string containing '//'. auto (default): ast, "
+                             "falling back to regex with a warning where ast is unavailable.")
     parser.add_argument("--detect-implements", action="store_true",
                         help="After generating/merging, detect interface implementations "
                              "by method-set inclusion across all YAMLs in the same directory "
@@ -728,6 +857,20 @@ def main() -> None:
     if not files:
         parser.print_help()
         sys.exit(1)
+
+    dumps: dict[Path, dict] = {}
+    if args.parser != "regex":
+        todo = [f for f in sorted(set(files))
+                if f.exists() and not (args.skip_tests and f.name.endswith("_test.go"))
+                and (args.overwrite or args.merge or not f.with_suffix(".yaml").exists())]
+        try:
+            dumps = _ast_dump(todo) if todo else {}
+        except RuntimeError as e:
+            if args.parser == "ast":
+                print(f"ERROR: {e}", file=sys.stderr)
+                sys.exit(2)
+            print(f"WARNING: {e}; falling back to the regex reader, which is known to "
+                  f"miss declarations (use --parser ast to make this an error)", file=sys.stderr)
 
     generated = merged_count = skipped = errors = 0
     for go_file in sorted(set(files)):
@@ -746,8 +889,16 @@ def main() -> None:
             skipped += 1
             continue
 
+        dump = dumps.get(go_file.resolve())
+        if dump is not None and dump.get("error"):
+            if args.parser == "ast":
+                print(f"ERROR: {go_file}: {dump['error']}", file=sys.stderr)
+                errors += 1
+                continue
+            print(f"WARNING: {go_file}: {dump['error']}; using the regex reader", file=sys.stderr)
+            dump = None
         try:
-            data = generate(go_file)
+            data = generate(go_file, dump)
         except Exception as e:
             print(f"ERROR: {go_file}: {e}", file=sys.stderr)
             errors += 1

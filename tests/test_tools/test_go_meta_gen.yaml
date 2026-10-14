@@ -1,0 +1,143 @@
+---
+module: test_tools.test_go_meta_gen
+description: 'Tests for tools/go.meta.gen.py: the go/ast front end against the regex
+  reader. The tests that need a Go toolchain skip when there is none, unless GO_META_REQUIRE_GO=1
+  (set in CI) — then a missing toolchain is a failure, so the go/ast path cannot go
+  unverified without anyone noticing.'
+tags:
+- test
+category: []
+used_in: []
+entrypoint: false
+related_nodes: []
+objects:
+- name: _TOOLS
+  kind: const
+  description: ''
+  references: []
+- name: _SAMPLE
+  kind: const
+  description: ''
+  references: []
+- name: _spec
+  kind: const
+  description: ''
+  references: []
+- name: gen
+  kind: const
+  description: ''
+  references: []
+- name: HAVE_GO
+  kind: const
+  description: ''
+  references: []
+- name: needs_go
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - pytest.mark
+  calls: []
+- name: _names
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: EXPECTED
+  kind: const
+  description: ''
+  references: []
+- name: _dump
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: _obj
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - base.update
+- name: test_objects_from_dump_filters_stdlib_and_formats_calls
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _dump
+  - _obj
+  - gen._objects_from_dump
+- name: test_objects_from_dump_keeps_regex_grouping_and_key_order
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _dump
+  - _obj
+  - gen._objects_from_dump
+- name: test_ast_mode_finds_every_declaration
+  kind: function
+  decorators:
+  - needs_go
+  description: ''
+  references: []
+  calls:
+  - _SAMPLE.resolve
+  - _names
+  - gen._ast_dump
+  - gen.generate
+- name: test_regex_mode_misses_what_ast_finds
+  kind: function
+  decorators:
+  - needs_go
+  description: Pins the gap the migration closes; if the regex reader ever catches
+    up, this fails and the comparison above needs a fresh look.
+  references: []
+  calls:
+  - _names
+  - gen.generate
+- name: test_ast_references_and_calls_on_sample
+  kind: function
+  decorators:
+  - needs_go
+  description: ''
+  references: []
+  calls:
+  - _SAMPLE.resolve
+  - gen._ast_dump
+  - gen.generate
+  - r.startswith
+- name: _run_main
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - monkeypatch.delenv
+  - monkeypatch.setattr
+  - src.write_text
+- name: test_ast_mode_without_go_is_an_error
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - pytest.raises
+  calls:
+  - _run_main
+  - gen.main
+  - pytest.raises
+  - src.with_suffix
+- name: test_auto_mode_without_go_warns_and_falls_back
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _run_main
+  - capsys.readouterr
+  - gen.main
+  - src.with_suffix

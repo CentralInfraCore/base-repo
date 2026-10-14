@@ -52,3 +52,33 @@ jobs:
         with:
           name: html-coverage-report
           path: htmlcov/
+
+  go_ast_front_end:
+    # The go/ast reader behind tools/go.meta.gen.py. The builder image above has
+    # no Go toolchain, so the Go-dependent tests run here, where a missing
+    # toolchain is a failure (GO_META_REQUIRE_GO=1), not a skip.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/goastdump/go.mod
+
+      - name: gofmt
+        run: test -z "$(gofmt -l tools/goastdump)"
+
+      - name: go vet and go test
+        working-directory: tools/goastdump
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Python tests against the real front end
+        env:
+          GO_META_REQUIRE_GO: "1"
+        run: |
+          pip install pytest pytest-cov pyyaml
+          python -m pytest tests/test_tools/test_go_meta_gen.py

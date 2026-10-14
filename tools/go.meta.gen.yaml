@@ -66,9 +66,11 @@ objects:
   references: []
   calls:
   - _remove_comments
+  - alias_m.group
   - block_m.group
   - line.strip
   - m.group
+  - path_m.group
 - name: _find_module_name
   kind: function
   decorators: []
@@ -217,16 +219,72 @@ objects:
 - name: generate
   kind: function
   decorators: []
-  description: ''
+  description: Build the companion data for one Go file. With `dump` (one entry of
+    the goastdump output) the declarations come from go/ast; without it the regex
+    reader is used.
   references: []
   calls:
   - _extract_package_doc
   - _find_module_name
+  - _objects_from_dump
   - _parse_imports
   - _parse_objects
   - _suggest_tags
   - go_file.read_text
   - pkg_m.group
+- name: _AST_DIR
+  kind: const
+  description: ''
+  references: []
+- name: _AST_CHUNK
+  kind: const
+  description: ''
+  references: []
+- name: _KIND_RANK
+  kind: const
+  description: ''
+  references: []
+- name: _ast_command
+  kind: function
+  decorators: []
+  description: Return the command that runs goastdump, or None if it cannot be had.
+    GO_META_GOASTDUMP overrides it with a prebuilt binary (or any command). Otherwise
+    the helper is built once with the `go` on PATH.
+  references: []
+  calls: []
+- name: _ast_dump
+  kind: function
+  decorators: []
+  description: 'Run goastdump over files; returns {resolved path: per-file dump}.'
+  references: []
+  calls:
+  - RuntimeError
+  - _ast_command
+  - f.resolve
+- name: _format_call
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _is_external
+  - c.get
+- name: _objects_from_dump
+  kind: function
+  decorators: []
+  description: Turn a goastdump file entry into the objects list the regex reader
+    made. Key order and the kind grouping (structs, interfaces, types, funcs/methods,
+    vars, consts) follow the regex reader so a regenerated YAML differs only by what
+    the syntax tree adds, not by reordering.
+  references: []
+  calls:
+  - _format_call
+  - _is_external
+  - c.get
+  - o.get
+  - objects.append
+  - objects.sort
+  - refs.append
 - name: _detect_implements
   kind: function
   decorators: []
@@ -279,6 +337,7 @@ objects:
   description: ''
   references: []
   calls:
+  - _ast_dump
   - _detect_implements
   - _merge_data
   - _write_yaml
@@ -286,7 +345,12 @@ objects:
   - d.rglob
   - data.get
   - dirs_processed.add
+  - dump.get
+  - dumps.get
+  - f.exists
+  - f.with_suffix
   - go_file.exists
+  - go_file.resolve
   - go_file.with_suffix
   - impl_map.get
   - o.get
