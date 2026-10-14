@@ -638,7 +638,7 @@ def _ast_command() -> list[str] | None:
     build_dir = tempfile.mkdtemp(prefix="goastdump-")
     atexit.register(shutil.rmtree, build_dir, True)
     out = Path(build_dir) / "goastdump"
-    res = subprocess.run([go, "build", "-o", str(out), "."], cwd=_AST_DIR,
+    res = subprocess.run([go, "build", "-o", str(out), "."], cwd=_AST_DIR,  # nosec B603 - argv list, no shell, builds this repo's own helper
                          capture_output=True, text=True)
     if res.returncode != 0:
         print(f"goastdump build failed:\n{res.stderr}", file=sys.stderr)
@@ -656,7 +656,7 @@ def _ast_dump(files: list[Path]) -> dict[Path, dict]:
     resolved = [f.resolve() for f in files]
     for i in range(0, len(resolved), _AST_CHUNK):
         chunk = resolved[i:i + _AST_CHUNK]
-        res = subprocess.run(cmd + [str(f) for f in chunk],
+        res = subprocess.run(cmd + [str(f) for f in chunk],  # nosec B603 - argv list, no shell; cmd is the helper or GO_META_GOASTDUMP
                              capture_output=True, text=True)
         if res.returncode != 0:
             raise RuntimeError(f"goastdump failed: {res.stderr.strip()}")
