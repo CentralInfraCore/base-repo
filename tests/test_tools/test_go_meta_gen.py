@@ -16,6 +16,7 @@ _TOOLS = Path(__file__).resolve().parents[2] / "tools"
 _SAMPLE = _TOOLS / "goastdump" / "testdata" / "sample.go"
 
 _spec = importlib.util.spec_from_file_location("go_meta_gen", _TOOLS / "go.meta.gen.py")
+assert _spec is not None and _spec.loader is not None
 gen = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gen)
 
