@@ -45,6 +45,15 @@ jobs:
         run: |
           BINARY=./output/dev/canonicalize make verify
 
+      - name: go.meta.gen against the real go/ast front end
+        # The Python builder image has no Go toolchain, so the tests that need
+        # one run here, where a missing toolchain is a failure, not a skip.
+        env:
+          GO_META_REQUIRE_GO: "1"
+        run: |
+          pip install pytest pytest-cov pyyaml
+          python -m pytest tests/test_tools/test_go_meta_gen.py
+
   coverage:
     runs-on: ubuntu-latest
     steps:
