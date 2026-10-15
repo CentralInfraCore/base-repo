@@ -1,0 +1,468 @@
+---
+module: test_tools.test_kb_build_info
+description: 'Tests for kb_build_info: the provenance record written with every KB
+  build/update. The unit tests run against real, throw-away git repositories. The
+  integration tests at the end exercise the two write paths (make_source.build_knowledge_base
+  and kb_watch.incremental_update); they need the heavy KB dependencies and skip without
+  them.'
+tags:
+- test
+category: []
+used_in: []
+entrypoint: false
+related_nodes: []
+objects:
+- name: _GIT
+  kind: const
+  description: ''
+  references: []
+- name: git
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: make_repo
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - path.mkdir
+- name: commit_file
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: test_collect_sources_records_commit_branch_and_clean_state
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.collect_sources
+  calls:
+  - kb_build_info.collect_sources
+- name: test_tag_and_describe_follow_the_checked_out_commit
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.collect_sources
+  calls:
+  - kb_build_info.collect_sources
+- name: test_detached_head_has_no_branch
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.collect_sources
+  calls:
+  - kb_build_info.collect_sources
+- name: test_dirty_counts_tracked_changes_only
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.collect_sources
+  calls:
+  - kb_build_info.collect_sources
+- name: test_remote_never_keeps_credentials
+  kind: function
+  decorators:
+  - pytest.mark.parametrize
+  description: ''
+  references:
+  - pytest.mark
+  - yaml.safe_dump
+  - kb_build_info.collect_sources
+  calls:
+  - kb_build_info.collect_sources
+  - yaml.safe_dump
+- name: test_project_version_is_read_from_project_yaml
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.collect_sources
+  calls:
+  - kb_build_info.collect_sources
+- name: test_finds_repos_below_plain_directories_sorted_and_skips_noise
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.collect_sources
+  calls:
+  - kb_build_info.collect_sources
+- name: test_nested_repos_are_reached_through_gitmodules_only
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.collect_sources
+  calls:
+  - kb_build_info.collect_sources
+- name: test_source_dir_inside_a_repo_reports_that_repo
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.collect_sources
+  calls:
+  - kb_build_info.collect_sources
+- name: test_not_under_git_gives_no_sources
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.collect_sources
+  calls:
+  - kb_build_info.collect_sources
+- name: test_build_trigger_sets_built_at_and_counts_sources
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.SCHEMA
+  - kb_build_info.build_info
+  calls:
+  - kb_build_info.build_info
+- name: test_update_keeps_built_at_and_model_from_the_previous_record
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.build_info
+  calls:
+  - kb_build_info.build_info
+- name: test_write_and_load_round_trip_leave_no_temp_files
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.FILE_NAME
+  - kb_build_info.load
+  - kb_build_info.write
+  - kb_build_info.build_info
+  calls:
+  - kb_build_info.build_info
+  - kb_build_info.load
+  - kb_build_info.write
+- name: test_load_rejects_missing_garbage_and_foreign_files
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.load
+  - kb_build_info.FILE_NAME
+  calls:
+  - kb_build_info.load
+- name: test_write_failure_does_not_leave_a_temp_file
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.write
+  - pytest.raises
+  - kb_build_info.os
+  - kb_build_info.SCHEMA
+  calls:
+  - OSError
+  - kb_build_info.write
+  - monkeypatch.setattr
+  - pytest.raises
+  - tmp_path.iterdir
+- name: test_meta_chunk_has_a_fixed_id_and_carries_the_commits
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.render_text
+  - kb_build_info.CHUNK_TYPE
+  - kb_build_info.CHUNK_ID
+  - kb_build_info.meta_chunk
+  - kb_build_info.build_info
+  calls:
+  - kb_build_info.build_info
+  - kb_build_info.meta_chunk
+  - kb_build_info.render_text
+- name: _FakeModel
+  kind: class
+  decorators: []
+  description: ''
+  implements: []
+  references: []
+- name: encode
+  kind: method
+  receiver: _FakeModel
+  decorators: []
+  description: ''
+  references:
+  - numpy.ones
+  calls:
+  - numpy.ones
+- name: test_upsert_meta_chunk_replaces_instead_of_adding
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - numpy.float32
+  - kb_build_info.CHUNK_ID
+  - kb_build_info.build_info
+  - kb_build_info.upsert_meta_chunk
+  calls:
+  - _FakeModel
+  - kb_build_info.build_info
+  - kb_build_info.upsert_meta_chunk
+- name: test_upsert_meta_chunk_without_a_model_skips_the_embedding
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.CHUNK_ID
+  - kb_build_info.build_info
+  - kb_build_info.upsert_meta_chunk
+  calls:
+  - kb_build_info.build_info
+  - kb_build_info.upsert_meta_chunk
+- name: _state
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.staleness
+  calls:
+  - kb_build_info.staleness
+- name: test_staleness_current_then_behind_with_the_commit_count
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.staleness
+  - kb_build_info.build_info
+  calls:
+  - _state
+  - kb_build_info.build_info
+  - kb_build_info.staleness
+- name: test_staleness_ahead_when_the_tree_moved_back
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.build_info
+  calls:
+  - _state
+  - kb_build_info.build_info
+- name: test_staleness_diverged_on_another_branch
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.build_info
+  calls:
+  - _state
+  - kb_build_info.build_info
+- name: test_staleness_unknown_commit_and_missing_path
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.build_info
+  calls:
+  - _state
+  - kb_build_info.build_info
+- name: test_staleness_reports_dirty_now
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.staleness
+  - kb_build_info.build_info
+  calls:
+  - _state
+  - kb_build_info.build_info
+  - kb_build_info.staleness
+- name: test_upstream_distance_needs_a_fetch_and_says_when_it_last_happened
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.staleness
+  - kb_build_info.build_info
+  calls:
+  - _state
+  - kb_build_info.build_info
+  - kb_build_info.staleness
+  - origin.mkdir
+- name: test_no_remote_means_no_upstream_information
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.staleness
+  - kb_build_info.build_info
+  calls:
+  - _state
+  - kb_build_info.build_info
+  - kb_build_info.staleness
+- name: test_status_section_carries_the_upstream_fields
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.build_info
+  - kb_build_info.status_section
+  calls:
+  - kb_build_info.build_info
+  - kb_build_info.status_section
+- name: test_status_section_without_a_record_explains_itself
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.status_section
+  calls:
+  - kb_build_info.status_section
+- name: test_status_section_is_compact_and_shows_staleness
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.status_section
+  - kb_build_info.build_info
+  calls:
+  - kb_build_info.build_info
+  - kb_build_info.status_section
+- name: test_status_section_never_raises
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.status_section
+  - kb_build_info.build_info
+  calls:
+  - RuntimeError
+  - kb_build_info.build_info
+  - kb_build_info.status_section
+  - monkeypatch.setattr
+- name: test_build_knowledge_base_puts_the_record_into_the_dataset
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.CHUNK_ID
+  - kb_build_info.CHUNK_TYPE
+  - numpy.linalg
+  - numpy.random
+  - pytest.importorskip
+  calls:
+  - make_source.build_knowledge_base
+  - monkeypatch.setattr
+  - pytest.importorskip
+  - rng.normal
+- name: test_incremental_update_refreshes_record_chunk_and_file
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.staleness
+  - kb_build_info.CHUNK_ID
+  - kb_build_info.load
+  - kb_build_info.write
+  - pytest.importorskip
+  calls:
+  - _FakeModel
+  - kb_build_info.load
+  - kb_build_info.staleness
+  - kb_build_info.write
+  - kb_watch.incremental_update
+  - pickle.dumps
+  - pickle.loads
+  - pytest.importorskip
+- name: test_the_server_status_section_reads_the_file_next_to_the_pkl_files
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.load
+  - kb_build_info.status_section
+  - kb_build_info.build_info
+  - kb_build_info.write
+  calls:
+  - kb_build_info.build_info
+  - kb_build_info.load
+  - kb_build_info.status_section
+  - kb_build_info.write
+- name: _server
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - pytest.importorskip
+  calls:
+  - pytest.importorskip
+- name: test_kb_status_has_a_build_section_from_the_file
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.build_info
+  - kb_build_info.write
+  calls:
+  - _server
+  - kb_build_info.build_info
+  - kb_build_info.write
+  - monkeypatch.setattr
+  - server.kb_status
+- name: test_kb_status_prefers_the_in_memory_record
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.build_info
+  calls:
+  - _server
+  - kb_build_info.build_info
+  - monkeypatch.setattr
+  - server.kb_status
+- name: test_kb_status_without_a_record_says_so
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _server
+  - monkeypatch.setattr
+  - server.kb_status
+- name: test_in_process_watch_update_refreshes_the_record_in_memory_only
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.CHUNK_ID
+  - kb_build_info.FILE_NAME
+  - numpy.ones
+  calls:
+  - _FakeModel
+  - _server
+  - monkeypatch.setattr
+  - numpy.ones
+  - pkl.mkdir
+  - server._incremental_update_kb
+- name: test_bootstrap_writes_the_record_with_the_pkl_files
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - kb_build_info.CHUNK_ID
+  - kb_build_info.load
+  - numpy.linalg
+  - numpy.random
+  calls:
+  - _server
+  - kb_build_info.load
+  - monkeypatch.setattr
+  - pickle.loads
+  - rng.normal
+  - server._bootstrap_kb_from_source

@@ -480,7 +480,21 @@ def kb_status() -> dict:
             },
         },
         "manifest": load_manifest(),
+        "build": _build_status(kb),
     }
+
+
+def _build_status(kb: dict) -> dict:
+    """Source commits / tags this KB was built from, and how far the sources have moved since."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent.parent))
+    import kb_build_info as _kbi  # noqa: PLC0415
+
+    info = kb.get("build_info")
+    origin = "memory"
+    if info is None:
+        info, origin = _kbi.load(DATA_DIR), "file"
+    return _kbi.status_section(info, origin)
 
 
 @mcp.tool()
@@ -686,6 +700,18 @@ def _incremental_update_kb(changed: list, deleted: list) -> dict:
             kb['chunks'][chunk['id']] = chunk
             kb['embeddings_by_id'][chunk['id']] = vec.astype('float32')
 
+    # Provenance: refresh the build-info meta chunk. This update is in memory only (nothing is
+    # written to the pkl files), so only the in-memory record changes; kb_status reports its origin.
+    if _watch_dir is not None:
+        import kb_build_info as _kbi  # noqa: PLC0415
+        info = _kbi.build_info(
+            _watch_dir, trigger='watch',
+            counts={'chunks': len([c for c in kb['chunks'] if c != _kbi.CHUNK_ID])},
+            previous=kb.get('build_info') or _kbi.load(DATA_DIR),
+        )
+        kb['build_info'] = info
+        _kbi.upsert_meta_chunk(kb['chunks'], kb['embeddings_by_id'], info, model)
+
     # Rebuild FAISS from all current embeddings (no re-encoding)
     emb = kb['embeddings_by_id']
     if emb:
@@ -767,6 +793,12 @@ def _bootstrap_kb_from_source(source_dir: Path) -> None:
             chunk.get('text', '')
         )
 
+    import kb_build_info as _kbi  # noqa: PLC0415
+    boot_info = _kbi.build_info(
+        source_dir, trigger='boot', counts={'chunks': len(chunks)}, model_name=_ms.EMBEDDING_MODEL,
+    )
+    chunks.append(_kbi.meta_chunk(boot_info))
+
     print(f"[boot] {len(chunks)} chunks — embedding ...", flush=True)
     model_name = _ms.EMBEDDING_MODEL
     model, embeddings = _ms.create_embeddings([c['text'] for c in chunks], model_name)
@@ -795,6 +827,7 @@ def _bootstrap_kb_from_source(source_dir: Path) -> None:
         (pkl_dir / name).write_bytes(_pickle.dumps(obj))
 
     faiss.write_index(faiss_idx, str(pkl_dir / 'faiss.index'))
+    _kbi.write(pkl_dir, boot_info)
 
     # Persist file state for the watcher
     current = _scan_watch_dir(source_dir)
