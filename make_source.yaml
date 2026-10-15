@@ -153,11 +153,13 @@ objects:
 - name: create_bm25_inverted_index
   kind: function
   decorators: []
-  description: 'Build inverted index: word → chunk_ids (no score computation, deferred
-    to query time).'
+  description: 'Build inverted index: word → [{chunk_id, score}, ...] sorted by score
+    desc.'
   references: []
   calls:
-  - inverted_index.setdefault
+  - bm25.get_scores
+  - entries.sort
+  - vocab.update
 - name: build_metadata_index
   kind: function
   decorators: []
@@ -188,10 +190,16 @@ objects:
   - call_name_index.setdefault
   - chunk.get
   - chunk_id_to_node_id.get
+  - cid.encode
+  - cid.startswith
+  - ctype.startswith
   - edges.append
+  - iface_name_index.get
+  - iface_name_index.setdefault
   - nodes.append
   - path_to_chunk_ids.setdefault
   - seen_calls.add
+  - seen_impl.add
   - seen_refs.add
 - name: _content_hash
   kind: function
@@ -259,12 +267,17 @@ objects:
   kind: function
   decorators: []
   description: ''
-  references: []
+  references:
+  - kb_build_info.meta_chunk
+  - kb_build_info.build_info
   calls:
   - _dedup_chunks
   - _generate_chunk_id
   - chunk.get
+  - chunks_list.append
   - chunks_list.sort
+  - kb_build_info.build_info
+  - kb_build_info.meta_chunk
 - name: save_knowledge_base_legacy
   kind: function
   decorators: []

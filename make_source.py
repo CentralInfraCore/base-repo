@@ -1,6 +1,7 @@
 
 import os
 import yaml
+import kb_build_info
 import json
 import pickle
 import sqlite3
@@ -682,6 +683,14 @@ def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
             chunk.get('text', '')
         )
 
+    # Provenance: which commit / tag of each source repository this KB is built from.
+    # Appended before embedding so it is searchable and becomes a graph node.
+    info = kb_build_info.build_info(
+        source_directory, trigger='build',
+        counts={'chunks': len(chunks_list)}, model_name=model_name,
+    )
+    chunks_list.append(kb_build_info.meta_chunk(info))
+
     texts = [chunk['text'] for chunk in chunks_list]
 
     print("Building embeddings...")
@@ -726,6 +735,7 @@ def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
         "faiss_index": faiss_index,
         "embeddings_by_id": embeddings_by_id,
         "model_name": model_name,
+        "build_info": info,
     }
 
 def save_knowledge_base_legacy(kb_data, output_dir="kb_data", save_json=True, save_pickle=True):
@@ -924,6 +934,12 @@ if __name__ == "__main__":
         save_knowledge_base_legacy(kb_objects, output_dir=legacy_output_path, save_json=save_json, save_pickle=save_pkl)
         if save_pkl or save_json:
             generate_edge_types_doc(kb_objects, output_dir=legacy_output_path)
+
+    if save_pkl or save_json:
+        # build_info.yaml goes next to the pkl files (where the MCP server reads its data from)
+        info_dir = os.path.join(legacy_output_path, 'pkl' if save_pkl else 'json')
+        info_path = kb_build_info.write(info_dir, kb_objects['build_info'])
+        print(f"Build info: {info_path} ({len(kb_objects['build_info']['sources'])} source repositories)")
 
     if save_sqlite:
         save_kb_to_sqlite(kb_objects, output_dir=sqlite_output_path)
