@@ -1,0 +1,245 @@
+---
+module: kb_build_info
+description: 'kb_build_info.py — provenance of a knowledge-base build. A KB is built
+  from a tree of source repositories (usually git submodules under ``source/``). Nothing
+  in the pkl files says *which commit* of which repository the chunks came from, so
+  "how stale is the KB?" could only be answered by reading git logs by hand. This
+  module records that, in the style of ``project.yaml``: * ``build_info.yaml`` next
+  to the pkl files, per source repository: remote, commit, tag-based ``describe``,
+  branch, whether the checked-out tree was dirty and the ``metadata.version`` of its
+  ``project.yaml``; * one meta chunk (``c_kb_build_info``) in the dataset with the
+  same content, so ``search_nodes`` finds it without file access; * :func:`staleness`,
+  which compares the recorded commits with the source trees as they are now — the
+  ``build`` section of ``kb_status`` is built from it. It is written by every path
+  that changes the KB (``make_source.py``, ``kb_watch.py``, the server''s bootstrap),
+  so it cannot drift from the data. Only the standard library and PyYAML are used.'
+tags:
+- loader
+category: []
+used_in: []
+entrypoint: false
+related_nodes: []
+objects:
+- name: SCHEMA
+  kind: const
+  description: ''
+  references: []
+- name: FILE_NAME
+  kind: const
+  description: ''
+  references: []
+- name: CHUNK_ID
+  kind: const
+  description: ''
+  references: []
+- name: CHUNK_TYPE
+  kind: const
+  description: ''
+  references: []
+- name: CHUNK_PATH
+  kind: const
+  description: ''
+  references: []
+- name: CHUNK_TAGS
+  kind: const
+  description: ''
+  references: []
+- name: _GIT_TIMEOUT
+  kind: const
+  description: ''
+  references: []
+- name: _MAX_DEPTH
+  kind: const
+  description: ''
+  references: []
+- name: _SKIP_DIRS
+  kind: const
+  description: ''
+  references: []
+- name: _now
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls: []
+- name: _git
+  kind: function
+  decorators: []
+  description: Run ``git -C repo args``; the stripped stdout, or None on any failure.
+  references: []
+  calls: []
+- name: _strip_credentials
+  kind: function
+  decorators: []
+  description: Drop ``user:password@`` from a URL so a token never lands in the KB.
+  references: []
+  calls: []
+- name: _project_version
+  kind: function
+  decorators: []
+  description: ''
+  references:
+  - yaml.YAMLError
+  - yaml.safe_load
+  calls:
+  - data.get
+  - meta.get
+  - path.is_file
+  - path.read_text
+  - yaml.safe_load
+- name: _submodule_paths
+  kind: function
+  decorators: []
+  description: Paths declared in ``repo/.gitmodules`` (nested submodules).
+  references: []
+  calls:
+  - gm.is_file
+  - gm.read_text
+  - m.group
+  - paths.append
+- name: _describe_repo
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _git
+  - _project_version
+  - _strip_credentials
+  - status.splitlines
+- name: collect_sources
+  kind: function
+  decorators: []
+  description: 'Describe every git repository under ``source_dir``, sorted by path.
+    A repository is a directory with a ``.git`` entry (a file for submodules). The
+    walk does not descend into a repository except through the paths its ``.gitmodules``
+    declares, so large work trees are never scanned. If no repository is found but
+    ``source_dir`` lies inside one, that repository is reported with ``path: "."``.'
+  references: []
+  calls:
+  - _describe_repo
+  - _git
+  - _submodule_paths
+  - d.startswith
+  - found.values
+  - here.relative_to
+  - root.is_dir
+  - sub.is_dir
+- name: _builder_info
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _git
+- name: build_info
+  kind: function
+  decorators: []
+  description: 'The record for the KB as it is now. ``trigger`` is ``build`` (a full
+    build: ``built_at`` is now), or ``watch`` / ``boot`` (an update: ``built_at``
+    is carried over from ``previous`` when there is one).'
+  references: []
+  calls:
+  - _builder_info
+  - _now
+  - prev_kb.get
+- name: render_text
+  kind: function
+  decorators: []
+  description: The YAML text of the record (also the text of the meta chunk).
+  references:
+  - yaml.safe_dump
+  calls:
+  - yaml.safe_dump
+- name: write
+  kind: function
+  decorators: []
+  description: Atomically write ``build_info.yaml`` into ``pkl_dir``.
+  references: []
+  calls:
+  - fh.write
+- name: load
+  kind: function
+  decorators: []
+  description: The recorded info next to the pkl files, or None if absent / unreadable.
+  references:
+  - yaml.YAMLError
+  - yaml.safe_load
+  calls:
+  - data.get
+  - path.read_text
+  - yaml.safe_load
+- name: meta_chunk
+  kind: function
+  decorators: []
+  description: The dataset chunk carrying ``info`` (fixed id, so it is replaced, not
+    added).
+  references: []
+  calls:
+  - text.splitlines
+- name: upsert_meta_chunk
+  kind: function
+  decorators: []
+  description: Replace the meta chunk in ``chunks`` (and its embedding, if a model
+    is given).
+  references: []
+  calls:
+  - model.encode
+  - vec.astype
+- name: _rev_count
+  kind: function
+  decorators: []
+  description: ''
+  references: []
+  calls:
+  - _git
+  - out.isdigit
+- name: _upstream
+  kind: function
+  decorators: []
+  description: 'How far the checked-out commit is behind its upstream, from local
+    refs only. Only as fresh as the last ``git fetch`` of that repository, so the
+    time of the last fetch is reported with it: ``behind_upstream: 0`` next to an
+    old (or missing) ``upstream_fetched_at`` means "not known to be behind", not "up
+    to date".'
+  references: []
+  calls:
+  - _git
+  - _rev_count
+  - path.is_file
+  - path.stat
+  - stamp.replace
+- name: staleness
+  kind: function
+  decorators: []
+  description: Compare each recorded source with its working tree as it is now. Per
+    source ``state`` is one of ``current``, ``behind`` (the tree has ``commits_since``
+    newer commits), ``ahead`` (the tree is on an older commit than recorded), ``diverged``,
+    ``unknown`` (the recorded commit is not in the repository any more) or ``missing``
+    (the path is gone). ``dirty_now`` reports uncommitted changes to tracked files.
+    ``behind_upstream`` is how far the working tree itself is behind its upstream
+    (see :func:`_upstream`); it does not affect ``stale``, which is about the KB versus
+    the working trees.
+  references: []
+  calls:
+  - _git
+  - _now
+  - _rev_count
+  - _upstream
+  - info.get
+  - r.get
+  - repo.is_dir
+  - row.update
+  - rows.append
+  - src.get
+- name: status_section
+  kind: function
+  decorators: []
+  description: The ``build`` section of ``kb_status``; never raises.
+  references: []
+  calls:
+  - by_path.get
+  - cur.get
+  - info.get
+  - sources.append
+  - src.get

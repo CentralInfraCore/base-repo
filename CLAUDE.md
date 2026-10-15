@@ -76,7 +76,7 @@ A release tooling (validate, test, fmt) Docker containerben fut.
 | `neighbors` | Graph szomszédok lekérése |
 | `focus_pack` | Kontextus csomag (rule prioritizálással) |
 | `explain_node` | Node mély elemzése |
-| `kb_status` | KB állapot és fájl info |
+| `kb_status` | KB állapot, fájl info és a `build` szekció: mely forrás-repók mely commitjából/tagjéből épült a KB, és mennyit léptek előre azóta |
 | `reload_kb` | KB újratöltés lemezről |
 
 ## AI Reasoning Protocol
@@ -85,7 +85,7 @@ A release tooling (validate, test, fmt) Docker containerben fut.
 
 Mielőtt szakmai kérdésre válaszolsz, futtasd le ezt a szekvenciát:
 
-1. `kb_status` — KB artifact állapot ellenőrzése
+1. `kb_status` — KB artifact állapot ellenőrzése; a `build` szekcióban `stale: true` vagy `sources_dirty_now > 0` esetén a KB nem a forrásfák mai állapotát tükrözi, ezt jelezd, mielőtt tényállítást teszel. A `behind_upstream` mellett mindig nézd az `upstream_fetched_at`-et: fetch nélkül a `0` nem azt jelenti, hogy naprakész
 2. Keress rá az `axioms` és `symbols` node-okra (`search_nodes`)
 3. Keress rá a `limits` és `contract` fogalmakra
 4. Határozd meg a runtime státuszt: **production / scaffold / concept**

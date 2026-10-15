@@ -182,10 +182,16 @@ objects:
   description: 'Process changed/deleted files and update KB PKLs in-place. Returns
     a summary dict: {removed, added, total}.'
   references:
+  - kb_build_info.write
   - make_source.build_metadata_index
   - make_source.create_bm25_inverted_index
   - make_source.build_bm25_index
   - numpy.stack
+  - kb_build_info.upsert_meta_chunk
+  - kb_build_info.load
+  - kb_build_info.CHUNK_ID
+  - kb_build_info.build_info
+  - kb_build_info.FILE_NAME
   - make_source._generate_chunk_id
   calls:
   - _chunks_for_files
@@ -203,6 +209,10 @@ objects:
   - embeddings_by_id.keys
   - embeddings_by_id.pop
   - faiss_idx.add
+  - kb_build_info.build_info
+  - kb_build_info.load
+  - kb_build_info.upsert_meta_chunk
+  - kb_build_info.write
   - make_source._generate_chunk_id
   - make_source.build_bm25_index
   - make_source.build_metadata_index

@@ -29,6 +29,7 @@ from watchdog.events import FileSystemEventHandler
 
 # make_source lives one level up (next to mcp-server/)
 sys.path.insert(0, str(Path(__file__).parent.parent))
+import kb_build_info  # noqa: E402
 import make_source  # noqa: E402
 from make_source import _generate_chunk_id  # noqa: E402
 
@@ -340,6 +341,16 @@ def incremental_update(watch_dir: Path, changed: list, deleted: list,
             chunks_by_id[chunk['id']] = chunk
             embeddings_by_id[chunk['id']] = vec.astype('float32')
 
+    # ── provenance: refresh the build-info meta chunk before the indexes are rebuilt,
+    # so it is searchable and the file written below describes exactly this state ──
+    pkl_dir = _pkl_path(kb_dir, kb_build_info.FILE_NAME).parent
+    info = kb_build_info.build_info(
+        watch_dir, trigger='watch',
+        counts={'chunks': len([c for c in chunks_by_id if c != kb_build_info.CHUNK_ID])},
+        previous=kb_build_info.load(pkl_dir),
+    )
+    kb_build_info.upsert_meta_chunk(chunks_by_id, embeddings_by_id, info, model)
+
     # ── rebuild FAISS from ALL current embeddings (no re-encoding) ────────
     try:
         import faiss as _faiss
@@ -384,6 +395,7 @@ def incremental_update(watch_dir: Path, changed: list, deleted: list,
     _dump_pkl(kb_dir, 'metadata_index.pkl', metadata_index)
     _dump_pkl(kb_dir, 'embeddings_by_id.pkl', embeddings_by_id)
     _dump_pkl(kb_dir, 'inverted_index.pkl', inv_index)
+    kb_build_info.write(pkl_dir, info)  # last: only claims what has been persisted
 
     return {
         'removed': len(stale_ids),
