@@ -80,9 +80,24 @@ infra.coverage:
 	@docker compose exec builder python -m pytest --ignore p_venv --cov=tools.compiler --cov-report=html
 	@echo "HTML coverage report generated in ./htmlcov/index.html"
 
-infra.test:
+# The commit-signing toolchain (hook, verifier, resign, provenance, tag signing)
+# is covered by behavioural bash suites, not pytest. They use a fake Vault with
+# a throwaway key, so they need no token and no network.
+SIGNING_SUITES := \
+	tools/test-commit-msg-signer.sh \
+	tools/test-verify-signatures.sh \
+	tools/test-proof-binding.sh \
+	tools/test-resign-on-rebase.sh \
+	tools/test-check-hook-provenance.sh \
+	tools/test-sign-release-tag.sh
+
+infra.test: infra.test.signing
 	@echo "--- Running pytest for the compiler infrastructure ---"
 	@docker compose exec builder python -m pytest $(PYTEST_ARGS)
+
+infra.test.signing:
+	@echo "--- Running the commit-signing suites ---"
+	@docker compose exec builder sh -c 'set -e; for t in $(SIGNING_SUITES); do echo "== $$t"; bash "$$t"; done'
 
 infra.clean:
 	@echo "--- Cleaning up all generated files and caches ---"

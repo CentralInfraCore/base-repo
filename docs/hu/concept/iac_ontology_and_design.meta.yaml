@@ -1,0 +1,17 @@
+---
+tags:
+  - core
+  - doc
+  - architecture
+  - concept
+related_nodes:
+  - concept/git-managment
+  - concept/declarative_ecosystem_integration
+category:
+  - concept
+  - architecture
+entrypoint: false
+used_in:
+  - architecture-review
+  - onboarding
+description: "A CIC IaC rendszer fogalmi modelljének, a Relay-Host-Service architektúrának és a Provider mintának a részletes leírása."

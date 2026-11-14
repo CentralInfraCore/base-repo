@@ -3,6 +3,7 @@
 ## Alapkövetelmények
 - [ ] `make test` zöld (182 teszt, 89%+ coverage)
 - [ ] Signing formátum megőrzött (`[signing-metadata]` + `[certificate]` blokk)
+- [ ] `make test.signing` zöld; az aláíró eszközök az SPDX sor kivételével azonosak a `cic-factory-core`-ral
 - [ ] Titkot nem commit-oltam (token, cert, PAT, private key)
 - [ ] Változás diff + indoklás leírva
 

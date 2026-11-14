@@ -15,6 +15,7 @@ from tools.infra import (
     ReleaseError,
     ReleaseManager,
     ValidationFailureError,
+    VaultServiceError,
     _parse_certificate_info,
     load_and_resolve_schema,
     load_yaml,
@@ -273,3 +274,124 @@ class TestReleaseManager:
             GitStateError, match="Release command must be run from the main branch"
         ):
             manager.run_release_close(release_version="1.0.0")
+
+
+class TestReleasePhases:
+    """run_check / run_prepare_release / run_finalize_release: the three
+    commands tools/compiler.py dispatches to."""
+
+    @pytest.fixture
+    def manager(self, mock_config, mock_git_service, mock_vault_service, mocker):
+        return ReleaseManager(
+            config=mock_config,
+            git_service=mock_git_service,
+            vault_service=mock_vault_service,
+            project_root=Path("/fake/project"),
+            dry_run=False,
+            logger=mocker.MagicMock(spec=logging.Logger),
+        )
+
+    # --- run_check ---
+
+    def test_check_passes_on_main(self, manager):
+        assert manager.run_check(release_version="1.0.0") is True
+        manager.git_service.assert_clean_index.assert_called_once()
+
+    def test_check_passes_on_release_branch(self, manager):
+        manager.git_service.get_current_branch.return_value = "base/releases/v1.0.0"
+        assert manager.run_check(release_version="1.0.0") is True
+
+    def test_check_fails_when_dirty(self, manager):
+        manager.git_service.is_dirty.return_value = True
+        with pytest.raises(GitStateError, match="Uncommitted changes"):
+            manager.run_check(release_version="1.0.0")
+
+    def test_check_fails_on_unrelated_branch(self, manager):
+        manager.git_service.get_current_branch.return_value = "feature/x"
+        with pytest.raises(GitStateError, match="Neither the main branch"):
+            manager.run_check(release_version="1.0.0")
+
+    def test_check_fails_without_vault(self, manager):
+        manager.vault_service = None
+        with pytest.raises(VaultServiceError):
+            manager.run_check(release_version="1.0.0")
+
+    def test_check_changes_nothing(self, manager):
+        manager.run_check(release_version="1.0.0")
+        manager.git_service.checkout.assert_not_called()
+        manager.git_service.run.assert_not_called()
+        manager.git_service.add.assert_not_called()
+
+    # --- run_prepare_release ---
+
+    def test_prepare_runs_the_preparation_phase_from_main(self, manager, mocker):
+        phase = mocker.patch.object(manager, "_execute_developer_preparation_phase")
+        manager.run_prepare_release(release_version="1.0.0")
+        phase.assert_called_once_with("1.0.0", "base", "main")
+
+    def test_prepare_refuses_off_main(self, manager, mocker):
+        phase = mocker.patch.object(manager, "_execute_developer_preparation_phase")
+        manager.git_service.get_current_branch.return_value = "feature/x"
+        with pytest.raises(GitStateError, match="must be run from the main branch"):
+            manager.run_prepare_release(release_version="1.0.0")
+        phase.assert_not_called()
+
+    def test_prepare_dry_run_may_run_off_main(self, manager, mocker):
+        phase = mocker.patch.object(manager, "_execute_developer_preparation_phase")
+        manager.dry_run = True
+        manager.git_service.get_current_branch.return_value = "feature/x"
+        manager.run_prepare_release(release_version="1.0.0")
+        phase.assert_called_once()
+
+    def test_prepare_without_vault(self, manager):
+        manager.vault_service = None
+        with pytest.raises(VaultServiceError):
+            manager.run_prepare_release(release_version="1.0.0")
+
+    # --- run_finalize_release ---
+
+    def test_finalize_refuses_the_real_close(self, manager, mocker):
+        """The finalization phase merges the release branch back into main;
+        the release model forbids that, so the real close must not run it."""
+        phase = mocker.patch.object(manager, "_execute_finalization_phase")
+        manager.git_service.get_current_branch.return_value = "base/releases/v1.0.0"
+        with pytest.raises(ReleaseError, match="release model forbids"):
+            manager.run_finalize_release(release_version="1.0.0")
+        phase.assert_not_called()
+        manager.git_service.checkout.assert_not_called()
+        manager.git_service.merge.assert_not_called()
+        manager.git_service.delete_branch.assert_not_called()
+        manager.git_service.run.assert_not_called()
+
+    def test_finalize_refuses_off_release_branch(self, manager, mocker):
+        phase = mocker.patch.object(manager, "_execute_finalization_phase")
+        with pytest.raises(GitStateError, match="must be run from the release branch"):
+            manager.run_finalize_release(release_version="1.0.0")
+        phase.assert_not_called()
+
+    def test_finalize_dry_run_may_run_off_release_branch(self, manager, mocker):
+        phase = mocker.patch.object(manager, "_execute_finalization_phase")
+        manager.dry_run = True
+        manager.run_finalize_release(release_version="1.0.0")
+        phase.assert_called_once()
+
+    def test_finalize_without_vault(self, manager):
+        manager.vault_service = None
+        with pytest.raises(VaultServiceError):
+            manager.run_finalize_release(release_version="1.0.0")
+
+    def test_finalize_dry_run_end_to_end_changes_nothing(self, manager, mocker):
+        """Not mocked below the phase: the real dry-run path validates only."""
+        manager.dry_run = True
+        manager.git_service.get_current_branch.return_value = "base/releases/v1.0.0"
+        mocker.patch(
+            "tools.infra.load_yaml", return_value=yaml.safe_load(VALID_PROJECT_YAML)
+        )
+        mocker.patch("tools.infra.load_and_resolve_schema", return_value={"spec": {}})
+        validate = mocker.patch("tools.infra.validate")
+        manager.run_finalize_release(release_version="1.0.0")
+        validate.assert_called_once()
+        manager.git_service.run.assert_not_called()
+        manager.git_service.checkout.assert_not_called()
+        manager.git_service.merge.assert_not_called()
+        manager.git_service.delete_branch.assert_not_called()

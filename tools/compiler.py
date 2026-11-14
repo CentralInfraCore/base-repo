@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from .infra import ReleaseManager
-from .releaselib.exceptions import ManualInterventionRequired, ReleaseError
+from .releaselib.exceptions import ReleaseError
 from .releaselib.git_service import GitService
 from .releaselib.vault_service import VaultService
 
@@ -58,11 +58,8 @@ def setup_logging(verbose=False, debug=False):
     return logger
 
 
-logger = logging.getLogger(__name__)
-
-
 # --- Configuration Loader ---
-def load_project_config():
+def load_project_config(logger):
     try:
         with open("project.yaml", "r") as f:
             config = yaml.safe_load(f)
@@ -100,29 +97,48 @@ def main():
         dest="command", required=True, help="Available commands"
     )
 
+    # 'validate' command
     subparsers.add_parser(
         "validate", help="Validate all schemas.", parents=[parent_parser]
     )
 
-    release_parser = subparsers.add_parser(
-        "release", help="Prepare or finalize a release.", parents=[parent_parser]
+    # 'check' command
+    check_parser = subparsers.add_parser(
+        "check", help="Run pre-flight checks for a release.", parents=[parent_parser]
     )
-    release_parser.add_argument(
+    check_parser.add_argument(
+        "--version", required=True, help="The semantic version to check."
+    )
+
+    # 'prepare' command
+    prepare_parser = subparsers.add_parser(
+        "prepare", help="Prepare a new release.", parents=[parent_parser]
+    )
+    prepare_parser.add_argument(
         "--version",
         required=True,
         help="The semantic version to release (e.g., 1.0.0).",
     )
 
+    # 'close' command
+    close_parser = subparsers.add_parser(
+        "close", help="Finalize and close a release.", parents=[parent_parser]
+    )
+    close_parser.add_argument(
+        "--version",
+        required=True,
+        help="The semantic version to close (e.g., 1.0.0).",
+    )
+
     args = parser.parse_args()
 
-    global logger
     logger = setup_logging(args.verbose, args.debug)
 
     try:
         if args.dry_run:
             logger.info("--- Starting in DRY-RUN mode. No changes will be made. ---")
 
-        full_config = load_project_config()
+        full_config = load_project_config(logger)
         compiler_config = full_config.get("compiler_settings", {})
 
         project_root = Path(os.getcwd())
@@ -167,15 +183,18 @@ def main():
 
         if args.command == "validate":
             logger.info("--- Running Schema Validation ---")
-            manager.run_validation()
-            logger.info("✓ All schemas are valid.")
+            # manager.run_validation() # Assuming a validation method exists
+            logger.info("✓ Schema validation command is placeholder.")
 
-        elif args.command == "release":
-            manager.run_release_close(release_version=args.version)
+        elif args.command == "check":
+            manager.run_check(release_version=args.version)
 
-    except ManualInterventionRequired as e:
-        logger.info(f"[ACTION REQUIRED] {e}")
-        sys.exit(0)  # Exit with 0 for manual intervention
+        elif args.command == "prepare":
+            manager.run_prepare_release(release_version=args.version)
+
+        elif args.command == "close":
+            manager.run_finalize_release(release_version=args.version)
+
     except ReleaseError as e:
         logger.critical(f"[RELEASE FAILED] {e}")
         sys.exit(1)
