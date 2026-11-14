@@ -4,7 +4,7 @@
 
 - **Mi ez:** Schema Compiler & Signing Infrastructure Template. Ebből a repóból örökítenek a production repók (CIC-Schemas, CIC-Relay stb.) Renovate-en keresztül.
 - **Entrypoint:** `tools/compiler.py` — CLI, `tools/infra.py` — ReleaseManager orchestrátor.
-- **Signing mechanizmus:** `tools/git_hook_commit-msg.sh` — ECDSA SHA256 Vault Transit, staged tree digest → signature + certificate a commit message-be.
+- **Signing mechanizmus:** `tools/git_hook_commit-msg.sh` — ECDSA SHA256 Vault Transit, `cic-tree-manifest/v4` digest (fa + szerző + committer + üzenet + aláíró kulcs) → signature + certificate a commit message-be. Ellenőrzés: `tools/verify-signatures.sh`. Forrás: `cic-factory-core`.
 - **Schema pipeline (csak `repo_type: schema`):** `tools/schemalib/` — loader, validator, artifact.
 - **Mérce:** `make test` — pytest suite, 89%+ coverage. Ez kell zöldnek lennie.
 - **Konfiguráció:** `project.yaml` — minden repo saját példányban adja meg a `compiler_settings`-t.
@@ -20,12 +20,13 @@ Olvasd el: `ai/SYSTEM_CONTEXT.md`
 | `tools/schemalib/` (loader, validator, artifact) | Kész, 100% fedettség |
 | `tools/infra.py` repo_type routing | Kész |
 | `tools/compiler.py` subcommands | Kész |
-| `tools/git_hook_commit-msg.sh` signing hook | Referencia implementáció |
+| `tools/git_hook_commit-msg.sh` + verify/resign/provenance/tag eszközök | `cic-factory-core`-ból átemelve; változtatás ott, nem itt |
 
 ## Hogyan ellenőrzöl
 
 ```bash
-make test          # pytest suite — ez kell zöldnek
+make test          # signing suite-ok + pytest — ez kell zöldnek
+make test.signing  # csak az aláíró eszközök hat bash suite-ja
 make validate      # schema validáció (csak schema repo_type)
 make build         # Docker image build
 ```

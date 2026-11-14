@@ -1,6 +1,6 @@
 # LLM Rules
 
-- A signing formátum (`[signing-metadata]` + `[certificate]` blokk) invariáns — ne módosítsd.
+- A signing formátum (`[signing-metadata]` + `[certificate]` blokk) invariáns — ne módosítsd. A digest jelentését a blokk `manifest =` sora adja; új manifest-verzió csak a `cic-factory-core`-ban születik, és onnan kerül át ide.
 - `project.yaml`-t csak a `compiler_settings` dokumentált mezőivel bővítsd (`project.schema.yaml` a referencia).
 - Vault hívásokban `prehashed: true` és `hash_algorithm: sha2-256` — ne változtasd.
 - Új fájl létrehozása előtt olvasd fel a könyvtár struktúráját — illeszkedj a konvenciókhoz.

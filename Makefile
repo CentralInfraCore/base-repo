@@ -98,6 +98,7 @@ endif
 		builder python -m tools.compiler close --version $(VERSION) $(COMPILER_CLI_ARGS)
 
 test: infra.test
+test.signing: infra.test.signing
 
 # =============================================================================
 # Manifest Management
@@ -144,7 +145,8 @@ help:
 	@echo ""
 	@echo "Main Tasks:"
 	@echo "  validate      Run fast, offline validation of all schemas."
-	@echo "  test          Run pytest for the compiler infrastructure code."
+	@echo "  test          Run the commit-signing suites, then pytest for the compiler infrastructure code."
+	@echo "  test.signing  Run only the commit-signing suites (hook, verifier, resign, provenance, tag)."
 	@echo ""
 	@echo "Release Process (multi-step):"
 	@echo "  release-check    Run pre-flight checks before starting a release."
