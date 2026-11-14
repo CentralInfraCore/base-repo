@@ -19,7 +19,7 @@ from tools.compiler import (  # noqa: E402
     main,
     setup_logging,
 )
-from tools.infra import ReleaseManager
+from tools.infra import ReleaseManager  # noqa: E402
 from tools.releaselib.exceptions import (  # noqa: E402
     ManualInterventionRequired,
     ReleaseError,
