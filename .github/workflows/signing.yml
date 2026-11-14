@@ -1,0 +1,57 @@
+---
+# Commit-signing toolchain: behavioural suites and shellcheck.
+#
+# ci.yml only runs for PRs into main/master. This workflow runs on every PR,
+# whatever the target branch, so a change to the signing tools is checked
+# against the PR head before it reaches devel. The suites use a fake Vault and
+# a throwaway key: no token, no network, no Docker.
+name: signing
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - devel
+
+permissions:
+  contents: read
+
+jobs:
+  signing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Tool versions
+        run: |
+          git --version
+          openssl version
+          jq --version
+          shellcheck --version | head -2
+
+      - name: shellcheck (signing tools)
+        run: |
+          shellcheck --severity=error \
+            tools/git_hook_commit-msg.sh tools/lib-vault-sign.sh \
+            tools/verify-signatures.sh tools/lib-tag-manifest.sh \
+            tools/sign-release-tag.sh tools/resign-range.sh \
+            tools/git_hook_post-rewrite.sh tools/check-hook-provenance.sh \
+            tools/init-hooks.sh tools/measure-rebase-signatures.sh \
+            tools/test-commit-msg-signer.sh tools/test-verify-signatures.sh \
+            tools/test-proof-binding.sh tools/test-resign-on-rebase.sh \
+            tools/test-check-hook-provenance.sh tools/test-sign-release-tag.sh
+
+      - name: test-commit-msg-signer
+        run: bash tools/test-commit-msg-signer.sh
+      - name: test-verify-signatures
+        run: bash tools/test-verify-signatures.sh
+      - name: test-proof-binding
+        run: bash tools/test-proof-binding.sh
+      - name: test-resign-on-rebase
+        run: bash tools/test-resign-on-rebase.sh
+      - name: test-check-hook-provenance
+        run: bash tools/test-check-hook-provenance.sh
+      - name: test-sign-release-tag
+        run: bash tools/test-sign-release-tag.sh

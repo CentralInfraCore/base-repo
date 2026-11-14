@@ -1,31 +1,34 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Sinkó Gábor Zoltán / CentralInfraCore
 set -euo pipefail
 
 # Commit message fájl (Git adja paraméterként)
 COMMIT_MSG_FILE="$1"
 
 # --- Vault Configuration ---
-# Use environment variables for paths if they exist, otherwise use local defaults.
-# This allows the script to run both locally and inside a Docker container.
-VAULT_TOKEN_FILE="${CIC_VAULT_TOKEN_FILE:-$XDG_RUNTIME_DIR/vault/sign-token}"
-VAULT_CA_CERT_FILE="${CIC_VAULT_CA_FILE:-$XDG_RUNTIME_DIR/vault/server.crt}"
-VAULT_ADDR="${VAULT_ADDR:-https://127.0.0.1:18200}" # Default to local dev server
-KEY_NAME="cic-my-sign-key"
-
-# --- Load Vault Token from file ---
-if [ ! -f "$VAULT_TOKEN_FILE" ]; then
-    echo "[!] Vault token file not found at $VAULT_TOKEN_FILE"
+# A CA/https/token ellenőrzés és a curl-config felépítése közös libben él,
+# mert a sign-release-tag.sh ugyanezt csinálja -- két független másolat
+# driftelne, ahogy a #82 mérte.
+#
+# A lib helyét a REPÓ GYÖKERÉHEZ képest keressük, nem a hook-fájl saját
+# könyvtárához képest: a hook egy symlinken, wrapperen vagy egy elavult
+# másolaton át is meghívódhat (#82 pont ez volt), és attól még a repó SAJÁT
+# tools/-ját kell aláírásra használnia, ne azt, ahol a hook-fájl fizikailag
+# fekszik.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [[ -z "$REPO_ROOT" ]]; then
+    echo "[!] Nem egy git repóban futok — nincs mit aláírni." >&2
     exit 1
 fi
-export VAULT_TOKEN=$(cat "$VAULT_TOKEN_FILE")
+# shellcheck source=lib-vault-sign.sh
+source "$REPO_ROOT/tools/lib-vault-sign.sh"
 
-# --- Helper for curl ---
-CURL_OPTS=""
-if [ -f "$VAULT_CA_CERT_FILE" ]; then
-  CURL_OPTS="--cacert $VAULT_CA_CERT_FILE"
-else
-  echo "[WARNING] Vault CA certificate not found. Proceeding without TLS verification."
-  CURL_OPTS="-k"
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+if ! vault_setup "$tmpdir"; then
+    exit 1
 fi
 
 # ===== Staged tartalom snapshot =====
@@ -34,39 +37,111 @@ if ! TREE_ID=$(git write-tree 2>/dev/null); then
   exit 0
 fi
 
-tmpdir=$(mktemp -d)
-trap 'rm -rf "$tmpdir"' EXIT
+# ===== Kanonikus manifest (cic-tree-manifest/v2) =====
+#
+# Az aláírt payload eddig egy `git archive` + `tar` roundtrip sha256-ja volt.
+# Két baja volt, és az egyik mérve:
+#
+#   1. A git archive a GITLINKET üres könyvtárként írja. Két fa, ami CSAK a
+#      submodule commitjában tér el, azonos digestet adott — aláírás-kollízió
+#      a repository saját objektummodelljén belül (#38).
+#
+#   2. A digest a tar kódolásától és a kibontó umaskjától függött, nem a Git
+#      objektummodelljétől. A verifier ezért négy umaskot próbál végig.
+#
+# A v2 manifest a Git fáját írja le közvetlenül: minden bejegyzés mode, típus,
+# OID és path — a gitlink is, `commit` típussal. Nincs fájlrendszer az útban,
+# tehát nincs umask, nincs tar-formátum, és a submodule sem tűnik el.
+#
+# Verziózott: a régi aláírások a v1 (tar) úton ellenőrizhetők tovább, a
+# verify-signatures.sh mindkettőt tudja.
+MANIFEST_VERSION="cic-tree-manifest/v4"
+OBJECT_FORMAT=$(git rev-parse --show-object-format 2>/dev/null || echo sha1)
 
-# Kibontjuk, majd determinisztikus tar streamet készítünk
-git archive --format=tar "$TREE_ID" | tar -xf - -C "$tmpdir"
-DIGEST_B64=$(tar --sort=name --mtime='UTC 1970-01-01' \
-  --owner=0 --group=0 --numeric-owner -cf - -C "$tmpdir" . \
-  | openssl dgst -sha256 -binary | openssl base64 -A)
-
-# ===== Vault aláírás =====
-SIGNATURE_RESPONSE=$(curl -s ${CURL_OPTS} \
-  -H "X-Vault-Token: ${VAULT_TOKEN}" \
-  -X POST \
-  -d "{\"input\": \"${DIGEST_B64}\", \"prehashed\": true, \"hash_algorithm\": \"sha2-256\"}" \
-  "${VAULT_ADDR}/v1/transit/sign/${KEY_NAME}")
-
-SIGNATURE=$(echo "${SIGNATURE_RESPONSE}" | jq -r '.data.signature')
-
-if [[ -z "${SIGNATURE:-}" || "$SIGNATURE" == "null" ]]; then
-  echo "[!] Signing failed. Vault response: ${SIGNATURE_RESPONSE}"
-  exit 1
+# A v3 a commit KONTEXTUSÁT is beleköti, nem csak a fáját.
+#
+# Mérve (#44): a v2 aláírás átültethető volt. Egy A repóban készült blokk
+# változtatás nélkül átment egy MÁSIK repó MÁSIK commitján, más üzenettel —
+# mert csak a fa volt aláírva, és a fa azonos volt.
+#
+# Amit a hook be tud kötni: a commit OID-t nem, mert az még nem létezik. A
+# szerzőt, a committert és az üzenetet igen — és ez zárja az átültetést.
+#
+# Két kézenfekvő mezőt szándékosan NEM kötünk be, mindkettőt mérés után:
+#
+#   remote URL — környezeti állapot, nem commit-állapot. Ugyanaz a repó SSH-n és
+#   HTTPS-en más URL-t ad, egy mirror harmadikat, egy remote nélküli másolat
+#   semmit. Mind legitim, és mind hamis elutasítást kapott volna.
+#
+#   parents — a hook a commit ELŐTT fut, tehát csak a HEAD-et látja. `--amend`
+#   esetén az új commit szülője a HEAD SZÜLŐJE, nem a HEAD: a kötés önmagát
+#   utasította volna el, és először pont ezen a commiton bukott el. A `git rebase`
+#   pedig nem futtatja újra ezt a hookot (mérve) — a régi blokkot változatlanul
+#   viszi át egy ÚJ szülő alá, tehát minden rebase-elt commit ellenőrizhetetlenné
+#   vált volna. Ebben a projektben a rebase minden PR előtt kötelező.
+# v4 additionally binds the SIGNER'S PUBLIC KEY.
+#
+# Under v3 the digest did not depend on who signed it: the same digest could be
+# re-signed with any other key, the [certificate] block swapped, and the commit
+# still verified. v4 puts the public key (base64 DER SubjectPublicKeyInfo, taken
+# from the certificate Vault returns) into the signed manifest, so the signature
+# commits to the key that made it.
+#
+# This binds the key; it does not make the key trusted. Whether the key belongs
+# to an authorised signer is a separate check against a trust anchor.
+#
+# The certificate is therefore fetched BEFORE signing, not after.
+CERT=$(vault_fetch_cert) || exit 1
+if ! SIGNER_KEY=$(printf '%s\n' "$CERT" | openssl x509 -noout -pubkey 2>/dev/null \
+        | openssl pkey -pubin -outform DER 2>/dev/null | openssl base64 -A) \
+   || [[ -z "$SIGNER_KEY" ]]; then
+    echo "[!] The certificate returned by Vault has no readable public key; not signing." >&2
+    exit 1
 fi
 
-# ===== Tanúsítvány beolvasás =====
-CERT_RESPONSE=$(curl -s ${CURL_OPTS} \
-  -H "X-Vault-Token: ${VAULT_TOKEN}" \
-  "${VAULT_ADDR}/v1/${KEY_NAME}/data/crt") # Assuming KV v2 mount at KEY_NAME, secret 'crt'
+AUTHOR="$(git var GIT_AUTHOR_IDENT 2>/dev/null | sed 's/ [0-9]* [+-][0-9]*$//')"
+COMMITTER="$(git var GIT_COMMITTER_IDENT 2>/dev/null | sed 's/ [0-9]* [+-][0-9]*$//')"
+# Az üzenet a blokk hozzáfűzése ELŐTT.
+#
+# Két normalizálás kell, és mindkettőt MÉRÉS hozta elő:
+#
+#   `git stripspace --strip-comments` — a `git commit` szerkesztővel a fájlban
+#   `#` kezdetű sorok állnak, amiket a git a hook LEFUTÁSA UTÁN takarít el. A
+#   hook azokat is behashelte volna, a verifier már nem látná őket.
+#
+#   `$( )` — a parancshelyettesítés levágja a záró újsorokat. A merge `MERGE_MSG`
+#   fájlja nem újsorral végződik, a `git log %B` kimenete igen: enélkül minden
+#   merge commit ellenőrizhetetlen lett volna.
+MSG_BODY=$(git stripspace --strip-comments < "$COMMIT_MSG_FILE")
+MSG_SHA=$(printf '%s' "$MSG_BODY" | openssl dgst -sha256 -binary | openssl base64 -A)
 
-CERT=$(echo "${CERT_RESPONSE}" | jq -r '.data.data.bar') # Assuming PEM data is under 'bar' key
+DIGEST_B64=$( {
+    printf '%s\n' "$MANIFEST_VERSION"
+    printf 'object-format: %s\n' "$OBJECT_FORMAT"
+    printf 'signer-public-key: %s\n' "$SIGNER_KEY"
+    printf 'author: %s\n' "$AUTHOR"
+    printf 'committer: %s\n' "$COMMITTER"
+    printf 'message-sha256: %s\n' "$MSG_SHA"
+    printf 'tree: %s\n' "$TREE_ID"
+    # LC_ALL=C: a rendezés ne függjön a futtató locale-jától.
+    git ls-tree -r -t "$TREE_ID" | LC_ALL=C sort
+  } | openssl dgst -sha256 -binary | openssl base64 -A )
 
-if [[ -z "${CERT:-}" || "$CERT" == "null" ]]; then
-  echo "[!] CERT get failed. Vault response: ${CERT_RESPONSE}"
-  exit 1
+# ===== Vault aláírás és tanúsítvány =====
+SIGNATURE=$(vault_sign_digest "$DIGEST_B64") || exit 1
+
+# Self-check: the signature must verify against the key the manifest names.
+# The certificate comes from a KV path, the signature from the transit key; if
+# the two have drifted apart (key rotated, certificate not), every commit signed
+# from now on would be unverifiable. Fail here, not in CI after the push.
+printf '%s\n' "$CERT" | openssl x509 -noout -pubkey > "$tmpdir/pub.pem" 2>/dev/null
+printf '%s' "$DIGEST_B64" | openssl base64 -d -A > "$tmpdir/dig.bin"
+printf '%s' "${SIGNATURE#vault:v1:}" | openssl base64 -d -A > "$tmpdir/sig.der" 2>/dev/null
+if ! openssl pkeyutl -verify -pubin -inkey "$tmpdir/pub.pem" \
+        -in "$tmpdir/dig.bin" -sigfile "$tmpdir/sig.der" >/dev/null 2>&1; then
+    echo "[!] The Vault signature does not verify against the certificate's public key." >&2
+    echo "    The transit key and the stored certificate do not belong together; not signing." >&2
+    exit 1
 fi
 
 # ===== Metaadat blokk hozzáfűzése =====
@@ -77,6 +152,7 @@ fi
   echo "key = $KEY_NAME"
   echo "signature = $SIGNATURE"
   echo "hash-algorithm = sha256"
+  echo "manifest = $MANIFEST_VERSION"
   echo "digest = $DIGEST_B64"
   echo ""
   echo "[certificate]"
