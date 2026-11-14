@@ -440,7 +440,7 @@ class ReleaseManager:
         )
 
     def run_check(self, release_version: str):
-        """Pre-flight checks for a release. Changes nothing.
+        """Local release pre-checks. Changes nothing.
 
         Verifies that Vault is configured, the working tree and index are
         clean, and the current branch is one a release phase can start from:
@@ -474,7 +474,10 @@ class ReleaseManager:
                 f"('{release_branch_name}'). Currently on '{current_branch}'."
             )
 
-        self.logger.info("✓ Pre-flight checks passed.")
+        self.logger.info(
+            "✓ Local release pre-checks passed (Vault reachability, key and "
+            "signing permission are NOT checked)."
+        )
         return True
 
     def run_prepare_release(self, release_version: str):
@@ -514,6 +517,19 @@ class ReleaseManager:
             raise GitStateError(
                 f"Release finalization must be run from the release branch ('{release_branch_name}'). "
                 f"Currently on '{original_base_branch}'."
+            )
+        if not self.dry_run:
+            # _execute_finalization_phase merges the release branch back into
+            # the main branch and deletes it. The release model says a release
+            # branch never merges back: the tag fixes the point, and a merge
+            # would erase the release branches' distinctness in main's history.
+            # Until the finalization phase conforms, refuse the real close
+            # instead of exposing the forbidden transition through the CLI.
+            raise ReleaseError(
+                "Refusing to close the release: the finalization phase merges "
+                f"'{release_branch_name}' into '{self.config.get('main_branch', 'main')}' "
+                "and deletes it, which the release model forbids. "
+                "Use --dry-run to validate, and tag the release branch by hand."
             )
         self._execute_finalization_phase(
             release_version,

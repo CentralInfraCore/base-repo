@@ -350,15 +350,18 @@ class TestReleasePhases:
 
     # --- run_finalize_release ---
 
-    def test_finalize_runs_the_finalization_phase_from_release_branch(
-        self, manager, mocker
-    ):
+    def test_finalize_refuses_the_real_close(self, manager, mocker):
+        """The finalization phase merges the release branch back into main;
+        the release model forbids that, so the real close must not run it."""
         phase = mocker.patch.object(manager, "_execute_finalization_phase")
         manager.git_service.get_current_branch.return_value = "base/releases/v1.0.0"
-        manager.run_finalize_release(release_version="1.0.0")
-        phase.assert_called_once_with(
-            "1.0.0", "base", "base/releases/v1.0.0", "base/releases/v1.0.0"
-        )
+        with pytest.raises(ReleaseError, match="release model forbids"):
+            manager.run_finalize_release(release_version="1.0.0")
+        phase.assert_not_called()
+        manager.git_service.checkout.assert_not_called()
+        manager.git_service.merge.assert_not_called()
+        manager.git_service.delete_branch.assert_not_called()
+        manager.git_service.run.assert_not_called()
 
     def test_finalize_refuses_off_release_branch(self, manager, mocker):
         phase = mocker.patch.object(manager, "_execute_finalization_phase")
@@ -377,15 +380,18 @@ class TestReleasePhases:
         with pytest.raises(VaultServiceError):
             manager.run_finalize_release(release_version="1.0.0")
 
-    def test_finalize_end_to_end_tags_the_release(self, manager, mocker):
-        """Not mocked below the phase: the real finalization path runs."""
+    def test_finalize_dry_run_end_to_end_changes_nothing(self, manager, mocker):
+        """Not mocked below the phase: the real dry-run path validates only."""
+        manager.dry_run = True
         manager.git_service.get_current_branch.return_value = "base/releases/v1.0.0"
         mocker.patch(
             "tools.infra.load_yaml", return_value=yaml.safe_load(VALID_PROJECT_YAML)
         )
         mocker.patch("tools.infra.load_and_resolve_schema", return_value={"spec": {}})
-        mocker.patch("tools.infra.validate")
+        validate = mocker.patch("tools.infra.validate")
         manager.run_finalize_release(release_version="1.0.0")
-        manager.git_service.run.assert_any_call(
-            ["git", "tag", "-a", "base@v1.0.0", "-m", "Release base v1.0.0"]
-        )
+        validate.assert_called_once()
+        manager.git_service.run.assert_not_called()
+        manager.git_service.checkout.assert_not_called()
+        manager.git_service.merge.assert_not_called()
+        manager.git_service.delete_branch.assert_not_called()
