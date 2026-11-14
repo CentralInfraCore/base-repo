@@ -15,4 +15,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pip-tools globally in the container for the setup service to use
-RUN pip install --no-cache-dir pip-tools
+RUN pip install --no-cache-dir pip-tools==7.6.2
