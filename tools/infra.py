@@ -432,6 +432,96 @@ class ReleaseManager:
                 f"to finalize it. Currently on '{original_base_branch}'."
             )
 
+    def _release_branch_name(self, release_version: str, component_name: str) -> str:
+        return (
+            f"{component_name}/releases/v{release_version}"
+            if component_name != "main"
+            else f"releases/v{release_version}"
+        )
+
+    def run_check(self, release_version: str):
+        """Pre-flight checks for a release. Changes nothing.
+
+        Verifies that Vault is configured, the working tree and index are
+        clean, and the current branch is one a release phase can start from:
+        the main branch (to prepare) or the release branch (to finalize).
+
+        Not covered: Vault connectivity. VaultService has no connection probe;
+        a reachable-but-wrong Vault is only found when `prepare` signs.
+        """
+        component_name, current_branch = self._check_base_branch_and_version(
+            release_version
+        )
+        if not self.vault_service:
+            raise VaultServiceError("VaultService is not initialized.")
+
+        if self.git_service.is_dirty():
+            raise GitStateError(
+                "Uncommitted changes detected. Please commit or stash them before starting a release."
+            )
+        self.git_service.assert_clean_index()
+        self.logger.info("✓ Git repository is clean.")
+
+        main_branch = self.config.get("main_branch", "main")
+        release_branch_name = self._release_branch_name(release_version, component_name)
+        if current_branch == main_branch:
+            self.logger.info(f"✓ On '{main_branch}': ready for 'prepare'.")
+        elif current_branch == release_branch_name:
+            self.logger.info(f"✓ On '{release_branch_name}': ready for 'close'.")
+        else:
+            raise GitStateError(
+                f"Neither the main branch ('{main_branch}') nor the release branch "
+                f"('{release_branch_name}'). Currently on '{current_branch}'."
+            )
+
+        self.logger.info("✓ Pre-flight checks passed.")
+        return True
+
+    def run_prepare_release(self, release_version: str):
+        """Developer preparation phase: release branch, signed project.yaml, commit.
+
+        Must run from the main branch (a dry run may run from anywhere).
+        """
+        component_name, original_base_branch = self._check_base_branch_and_version(
+            release_version
+        )
+        if not self.vault_service:
+            raise VaultServiceError("VaultService is not initialized.")
+
+        main_branch = self.config.get("main_branch", "main")
+        if original_base_branch != main_branch and not self.dry_run:
+            raise GitStateError(
+                f"Release preparation must be run from the main branch ('{main_branch}'). "
+                f"Currently on '{original_base_branch}'."
+            )
+        self._execute_developer_preparation_phase(
+            release_version, component_name, original_base_branch
+        )
+
+    def run_finalize_release(self, release_version: str):
+        """Finalization phase: validate project.yaml, commit, tag, close.
+
+        Must run from the release branch (a dry run may run from anywhere).
+        """
+        component_name, original_base_branch = self._check_base_branch_and_version(
+            release_version
+        )
+        if not self.vault_service:
+            raise VaultServiceError("VaultService is not initialized.")
+
+        release_branch_name = self._release_branch_name(release_version, component_name)
+        if original_base_branch != release_branch_name and not self.dry_run:
+            raise GitStateError(
+                f"Release finalization must be run from the release branch ('{release_branch_name}'). "
+                f"Currently on '{original_base_branch}'."
+            )
+        self._execute_finalization_phase(
+            release_version,
+            component_name,
+            original_base_branch,
+            release_branch_name,
+        )
+
     def run_validation(self):
         """Runs offline validation on the canonical source schema."""
         self.logger.info("--- Running Schema Validation ---")

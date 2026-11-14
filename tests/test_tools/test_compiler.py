@@ -19,6 +19,7 @@ from tools.compiler import (  # noqa: E402
     main,
     setup_logging,
 )
+from tools.infra import ReleaseManager
 from tools.releaselib.exceptions import (  # noqa: E402
     ManualInterventionRequired,
     ReleaseError,
@@ -40,6 +41,16 @@ def mock_env(mocker):
     mocker.patch("os.path.exists", return_value=False)
 
 
+def _patch_manager(mocker):
+    """Patch ReleaseManager with an autospec'd class.
+
+    autospec makes the mock refuse any attribute the real class does not have,
+    so a compiler command that calls a ReleaseManager method which does not
+    exist fails here instead of passing against a free-form Mock.
+    """
+    return mocker.patch("tools.compiler.ReleaseManager", autospec=True)
+
+
 class TestMainCLI:
     def test_no_arguments(self, mocker):
         mocker.patch.object(sys, "argv", ["compiler.py"])
@@ -47,45 +58,58 @@ class TestMainCLI:
             main()
         assert excinfo.value.code == 2
 
-    def test_validate_command_success(self, mocker):
+    def test_validate_command_is_a_placeholder(self, mocker):
+        """'validate' currently validates nothing: it must not call the manager."""
         mocker.patch.object(sys, "argv", ["compiler.py", "validate"])
-        mock_release_manager_class = mocker.patch("tools.compiler.ReleaseManager")
-        mock_rm_instance = mock_release_manager_class.return_value
+        manager_class = _patch_manager(mocker)
 
         main()
 
-        mock_release_manager_class.assert_called_once()
-        mock_rm_instance.run_validation.assert_called_once()
-        mock_rm_instance.run_release_close.assert_not_called()  # Changed from run_release
+        manager_class.assert_called_once()
+        manager_class.return_value.run_validation.assert_not_called()
 
-    def test_release_command_requires_version(self, mocker):
-        mocker.patch.object(sys, "argv", ["compiler.py", "release"])
+    @pytest.mark.parametrize("command", ["check", "prepare", "close"])
+    def test_release_commands_require_version(self, mocker, command):
+        mocker.patch.object(sys, "argv", ["compiler.py", command])
         with pytest.raises(SystemExit) as excinfo:
             main()
         assert excinfo.value.code == 2
 
-    def test_release_command_success(self, mocker):
-        """Test the 'release' command success case."""
+    def test_old_release_command_is_gone(self, mocker):
         mocker.patch.object(
             sys, "argv", ["compiler.py", "release", "--version", "1.2.3"]
         )
-        mock_release_manager_class = mocker.patch("tools.compiler.ReleaseManager")
-        mock_rm_instance = mock_release_manager_class.return_value
+        with pytest.raises(SystemExit) as excinfo:
+            main()
+        assert excinfo.value.code == 2
+
+    @pytest.mark.parametrize(
+        "command, method",
+        [
+            ("check", "run_check"),
+            ("prepare", "run_prepare_release"),
+            ("close", "run_finalize_release"),
+        ],
+    )
+    def test_release_command_dispatch(self, mocker, command, method):
+        mocker.patch.object(sys, "argv", ["compiler.py", command, "--version", "1.2.3"])
+        manager_class = _patch_manager(mocker)
 
         main()
 
-        mock_release_manager_class.assert_called_once()
-        # The main method now only calls run_release_close, which orchestrates everything else.
-        mock_rm_instance.run_release_close.assert_called_once_with(
+        getattr(manager_class.return_value, method).assert_called_once_with(
             release_version="1.2.3"
-        )  # Changed from run_release
-        # We no longer check for internal calls like run_validation from this top-level test.
-        mock_rm_instance.run_validation.assert_not_called()
+        )
 
-    def test_release_command_with_vault_files(self, mocker):
-        """Test 'release' command reads Vault token and CA from files."""
+    def test_dispatched_methods_exist_on_release_manager(self):
+        """The compiler's dispatch targets must be real ReleaseManager methods."""
+        for method in ("run_check", "run_prepare_release", "run_finalize_release"):
+            assert callable(getattr(ReleaseManager, method, None)), method
+
+    def test_prepare_command_with_vault_files(self, mocker):
+        """A release command reads the Vault token and CA from files."""
         mocker.patch.object(
-            sys, "argv", ["compiler.py", "release", "--version", "1.2.3"]
+            sys, "argv", ["compiler.py", "prepare", "--version", "1.2.3"]
         )
         mocker.patch("tools.compiler.ReleaseManager")
         mock_vault_service = mocker.patch("tools.compiler.VaultService")
@@ -115,26 +139,25 @@ class TestMainCLI:
         assert kwargs.get("vault_token") == "file-token"
         assert kwargs.get("vault_cacert") == "/var/run/secrets/vault-ca.crt"
 
-    def test_main_handles_manual_intervention(self, mocker):
-        """Test that main catches ManualInterventionRequired and exits with 0."""
+    def test_manual_intervention_is_a_release_failure(self, mocker):
+        """ManualInterventionRequired is a ReleaseError and is no longer
+        special-cased: it exits 1, not 0."""
         mocker.patch.object(
-            sys, "argv", ["compiler.py", "release", "--version", "1.0.0"]
+            sys, "argv", ["compiler.py", "prepare", "--version", "1.0.0"]
         )
-        mock_release_manager_class = mocker.patch("tools.compiler.ReleaseManager")
-        mock_rm_instance = mock_release_manager_class.return_value
-        mock_rm_instance.run_release_close.side_effect = ManualInterventionRequired(
-            "Do something"
-        )  # Changed from run_release
+        manager_class = mocker.patch("tools.compiler.ReleaseManager")
+        manager_class.return_value.run_prepare_release.side_effect = (
+            ManualInterventionRequired("Do something")
+        )
 
         with pytest.raises(SystemExit) as excinfo:
             main()
-        assert excinfo.value.code == 0
+        assert excinfo.value.code == 1
 
     def test_main_handles_release_error(self, mocker):
-        mocker.patch.object(sys, "argv", ["compiler.py", "validate"])
-        mock_release_manager_class = mocker.patch("tools.compiler.ReleaseManager")
-        mock_rm_instance = mock_release_manager_class.return_value
-        mock_rm_instance.run_validation.side_effect = ReleaseError("Test error")
+        mocker.patch.object(sys, "argv", ["compiler.py", "check", "--version", "1.0.0"])
+        manager_class = mocker.patch("tools.compiler.ReleaseManager")
+        manager_class.return_value.run_check.side_effect = ReleaseError("Test error")
 
         with pytest.raises(SystemExit) as excinfo:
             main()
@@ -146,17 +169,21 @@ class TestConfigLoader:
     def mock_env(self, mocker):
         pass
 
-    def test_load_project_config_io_error(self, mocker):
+    @pytest.fixture
+    def logger(self):
+        return logging.getLogger("test_config_loader")
+
+    def test_load_project_config_io_error(self, mocker, logger):
         mocker.patch("builtins.open", side_effect=IOError("File not found"))
         with pytest.raises(SystemExit) as excinfo:
-            load_project_config()
+            load_project_config(logger)
         assert excinfo.value.code == 1
 
-    def test_load_project_config_key_error(self, mocker):
+    def test_load_project_config_key_error(self, mocker, logger):
         mocker.patch("builtins.open", mock_open(read_data="{}"))
         mocker.patch("yaml.safe_load", return_value={})
         with pytest.raises(SystemExit) as excinfo:
-            load_project_config()
+            load_project_config(logger)
         assert excinfo.value.code == 1
 
 
