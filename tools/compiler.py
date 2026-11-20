@@ -1,3 +1,21 @@
+"""Command-line entry point of the release tooling (``python -m tools.compiler``).
+
+Subcommands, run by the Makefile inside the builder container:
+
+- ``validate`` -- placeholder; logs success without validating anything.
+- ``check --version X`` -- local pre-flight checks (``ReleaseManager.run_check``).
+- ``prepare --version X`` -- developer preparation phase: release branch and
+  signed ``project.yaml`` (``ReleaseManager.run_prepare_release``).
+- ``close --version X`` -- finalization phase (``ReleaseManager.run_finalize_release``).
+
+Configuration comes from the ``compiler_settings`` block of ``project.yaml`` in
+the current directory. Vault access is taken from ``VAULT_ADDR`` and
+``VAULT_TOKEN`` (falling back to the token file named by
+``CIC_VAULT_TOKEN_FILE``, default ``/var/run/secrets/vault-token``) and
+``VAULT_CACERT`` (falling back to ``/var/run/secrets/vault-ca.crt``). Any
+failure exits with status 1.
+"""
+
 import argparse
 import logging
 import os
@@ -27,7 +45,15 @@ RESET_CODE = "\033[0m"
 
 
 class ColoredFormatter(logging.Formatter):
+    """Log formatter that colors each line with an ANSI code chosen by its content.
+
+    Lines containing ``DRY-RUN``, ``ACTION REQUIRED`` or ``✓`` get the dry-run,
+    manual-step and success colors; other lines are colored by level. Note that
+    ``setup_logging`` does not install it, so the CLI output is uncolored.
+    """
+
     def format(self, record):
+        """Format the record, then wrap it in the color code and a reset."""
         log_message = super().format(record)
         level_name = record.levelname
 
@@ -43,6 +69,12 @@ class ColoredFormatter(logging.Formatter):
 
 
 def setup_logging(verbose=False, debug=False):
+    """Return this module's logger writing to stdout at the requested verbosity.
+
+    The handler level is DEBUG with ``debug``, INFO with ``verbose``, WARNING
+    otherwise. A stdout handler is added only if the logger has no stream handler
+    yet, and propagation to the root logger is turned off.
+    """
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.DEBUG)
 
@@ -60,6 +92,11 @@ def setup_logging(verbose=False, debug=False):
 
 # --- Configuration Loader ---
 def load_project_config(logger):
+    """Load ``project.yaml`` from the current directory.
+
+    Returns the whole document. Exits the process with status 1 if the file
+    cannot be read or parsed or has no ``compiler_settings`` key.
+    """
     try:
         with open("project.yaml", "r") as f:
             config = yaml.safe_load(f)
@@ -73,6 +110,12 @@ def load_project_config(logger):
 
 # --- Main Application Logic ---
 def main():
+    """Parse the command line, build the services and dispatch the subcommand.
+
+    ``--dry-run`` is passed to both ``VaultService`` and ``ReleaseManager``, so a
+    dry run neither signs nor writes. A ``ReleaseError`` or any other exception is
+    logged as critical and exits with status 1.
+    """
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
         "--dry-run", action="store_true", help="Perform a trial run."

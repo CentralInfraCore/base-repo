@@ -1,3 +1,16 @@
+"""Release phases of the CIC template: ``ReleaseManager`` and its helpers.
+
+A release has two phases. *Prepare* runs on the main branch: it creates
+``{component}/releases/v{VERSION}``, fills ``project.yaml`` from the canonical
+source schema with a spec checksum, the creator's certificate chain read from
+Vault and a Vault Transit signature, and commits it. *Close* runs on that
+release branch after the build has set ``buildHash``: it validates
+``project.yaml`` against its schema, commits and tags ``{component}@v{VERSION}``.
+The finalization phase still merges the release branch back into main, which
+the release model forbids, so ``run_finalize_release`` refuses a real close and
+only its dry run is available.
+"""
+
 import base64
 import datetime
 import hashlib
@@ -124,6 +137,16 @@ def write_yaml(path: Path, data):
 
 
 class ReleaseManager:
+    """Drives the release phases for one project root.
+
+    ``config`` is the ``compiler_settings`` block of ``project.yaml``; the keys it
+    reads include ``component_name``, ``main_branch``, ``canonical_source_file``,
+    ``meta_schema_file``, ``vault_key_name`` and the ``vault_cert_*`` locations.
+    Git and Vault are reached only through the injected ``GitService`` and
+    ``VaultService``. With ``dry_run`` set, no branch, file, commit or tag is
+    written.
+    """
+
     def __init__(
         self,
         config,
@@ -141,10 +164,15 @@ class ReleaseManager:
         self.logger = logger if logger else logging.getLogger(__name__)
 
     def _path(self, relative_path):
+        """Resolve a path relative to the project root."""
         return self.project_root / relative_path
 
     def _check_base_branch_and_version(self, release_version: str):
-        """Checks git branch and version validity."""
+        """Return the component name from the config and the current git branch.
+
+        Despite the name, nothing is validated here: the version is unused and
+        any branch is accepted. Callers decide whether the branch fits the phase.
+        """
         component_name = self.config.get("component_name", "main")
         original_base_branch = self.git_service.get_current_branch()
         self.logger.info(
@@ -153,7 +181,11 @@ class ReleaseManager:
         return component_name, original_base_branch
 
     def _check_api_accessibility(self, api_url: str):
-        """Checks if a given API URL is accessible."""
+        """Log whether a GET on ``api_url`` succeeds, then exit the process.
+
+        Reachability is only logged (a failure is a warning, not an error), and
+        ``sys.exit(0)`` is called unconditionally, so this never returns.
+        """
         self.logger.info(f"Checking API accessibility for: {api_url}")
         try:
             response = requests.get(api_url, timeout=5)
@@ -433,6 +465,7 @@ class ReleaseManager:
             )
 
     def _release_branch_name(self, release_version: str, component_name: str) -> str:
+        """Return ``{component}/releases/v{version}``, or ``releases/v{version}`` for ``main``."""
         return (
             f"{component_name}/releases/v{release_version}"
             if component_name != "main"
