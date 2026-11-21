@@ -1,3 +1,8 @@
+"""Schema handling of the wasm flavor's release tooling: loading and ``$ref`` resolution
+(``loader``), canonical JSON, spec checksums and signed artifacts (``artifact``), and
+validation against a validator schema whose integrity is checked first (``validator``).
+"""
+
 from .artifact import (
     build_signing_payload,
     compute_spec_checksum,

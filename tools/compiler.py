@@ -1,3 +1,14 @@
+"""Command-line entry point of the wasm flavor's release tooling (``python -m
+tools.compiler``).
+
+Subcommands: ``validate`` validates the canonical source schema
+(``ReleaseManager.run_validation``); ``release --version X`` runs the release phase that
+matches the current branch (``ReleaseManager.run_release_close``); ``set-build-hash``
+writes the SHA-256 of the built module into ``metadata.buildHash`` of ``project.yaml``
+(standard library only, so it works before the builder's dependencies are installed).
+``--dry-run`` neither signs nor writes.
+"""
+
 import argparse
 import logging
 import os
@@ -27,7 +38,13 @@ RESET_CODE = "\033[0m"
 
 
 class ColoredFormatter(logging.Formatter):
+    """Log formatter that colors each line with an ANSI code chosen by its content: lines
+    with ``DRY-RUN``, ``ACTION REQUIRED`` or ``✓`` get the dry-run, manual-step and
+    success colors, other lines the color of their level.
+    """
+
     def format(self, record):
+        """Format the record, then wrap it in the color code and a reset."""
         log_message = super().format(record)
         level_name = record.levelname
 
@@ -43,6 +60,12 @@ class ColoredFormatter(logging.Formatter):
 
 
 def setup_logging(verbose=False, debug=False):
+    """Return this module's logger writing to stdout at the requested verbosity.
+
+    The handler level is DEBUG with ``debug``, INFO with ``verbose``, WARNING otherwise.
+    A stdout handler is added only if the logger has no stream handler yet, and
+    propagation to the root logger is turned off.
+    """
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.DEBUG)
 
@@ -63,6 +86,11 @@ logger = logging.getLogger(__name__)
 
 # --- Configuration Loader ---
 def load_project_config():
+    """Load ``project.yaml`` from the current directory.
+
+    Returns the whole document. Exits the process with status 1 if the file cannot be
+    read or parsed or has no ``compiler_settings`` key.
+    """
     try:
         with open("project.yaml", "r") as f:
             config = yaml.safe_load(f)
@@ -76,6 +104,13 @@ def load_project_config():
 
 # --- Main Application Logic ---
 def main():
+    """Parse the command line and dispatch the subcommand (``set-build-hash`` before any
+    service is built).
+
+    A ``ManualInterventionRequired`` is logged as an action and exits with status 0; a
+    ``ReleaseError`` or any other exception is logged as critical and exits with status
+    1.
+    """
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
         "--dry-run", action="store_true", help="Perform a trial run."

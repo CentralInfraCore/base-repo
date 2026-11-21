@@ -21,6 +21,9 @@ DOC_GLOBS = ["docs/**/*.md", "README.md", "README.hu.md"]
 
 
 def is_external_or_special(target: str) -> bool:
+    """Whether a link target is not a repository path - empty, a URL (any scheme), mailto
+    or an in-page anchor.
+    """
     if not target:
         return True
     if target.startswith(("http://", "https://", "mailto:", "#")):
@@ -31,6 +34,9 @@ def is_external_or_special(target: str) -> bool:
 
 
 def check_file(md_file: Path) -> list[str]:
+    """The broken internal links of one Markdown file - relative targets (anchor stripped)
+    that do not exist.
+    """
     errors = []
     text = md_file.read_text(encoding="utf-8")
     for match in LINK_RE.finditer(text):
@@ -48,6 +54,9 @@ def check_file(md_file: Path) -> list[str]:
 
 
 def main() -> int:
+    """Check every Markdown file of DOC_GLOBS and print the broken internal links; return 1
+    if there is any.
+    """
     all_errors: list[str] = []
     for pattern in DOC_GLOBS:
         for md_file in sorted(REPO_ROOT.glob(pattern)):

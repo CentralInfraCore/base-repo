@@ -41,6 +41,7 @@ WASM_TARGET_DEFAULT = "wasip1"
 
 
 def _print_result(step, ok, detail):
+    """Print one check's PASS/FAIL line and its indented detail; return ok."""
     status = "PASS" if ok else "FAIL"
     print(f"[{status}] {step}")
     for line in detail.splitlines():
@@ -233,6 +234,10 @@ def check_provenance(project_path):
 
 
 def main(argv=None):
+    """Run the release checks - schema, build hash, ABI exports, manifest - and report the
+    provenance status; exit 0 only if checks 1-4 pass (provenance is reported, not
+    enforced).
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", default="project.yaml")
     parser.add_argument("--schema", default="project.schema.yaml")

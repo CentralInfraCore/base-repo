@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+"""Finalize and CIC-sign a release ``project.yaml`` (deprecated: no build path calls it;
+the active chain is ``make release`` -> ``tools.compiler`` -> ``ReleaseManager``).
+
+Run as ``python -m tools.finalize_release <project.yaml> --cic-vault-key KEY
+(--cic-cert-file PATH | --cic-cert-vault-path MOUNT/data/SECRET:KEY)``. It checks that
+``metadata.checksum`` equals ``metadata.buildHash``, embeds the CIC CA certificate in
+``metadata.cicSignedCA.certificate``, signs the base64 SHA-256 of the canonical JSON of
+the whole document (with ``metadata.cicSign`` set to an empty string) through Vault
+Transit, and writes the signature to ``metadata.cicSign``. ``VAULT_ADDR`` and
+``VAULT_TOKEN`` must be set.
+"""
+
 # finalize_release.py - Finalizes and signs a release YAML file.
 #
 # Copyright (c) 2025, Gábor Zoltán Sinkó
@@ -52,7 +64,10 @@ RESET_CODE = "\033[0m"
 
 
 class ColoredFormatter(logging.Formatter):
+    """Log formatter that colors each line by level, and lines containing ✓ green."""
+
     def format(self, record):
+        """Format the record, then wrap it in the color code and a reset."""
         log_message = super().format(record)
         color_code = COLOR_CODES.get(record.levelname, RESET_CODE)
         if "✓" in log_message:
