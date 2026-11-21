@@ -113,7 +113,7 @@ objects:
 - name: _clamp_topk
   kind: function
   decorators: []
-  description: ''
+  description: Clamp a requested result count to 1..MAX_TOPK.
   references: []
   calls: []
 - name: _normalize_line_range
@@ -194,7 +194,8 @@ objects:
 - name: _tokenize
   kind: function
   decorators: []
-  description: ''
+  description: Split a query into lower-case alphabetic word tokens (accented letters
+    kept), close to how make_source.py tokenizes; no stopword removal.
   references: []
   calls:
   - q.lower
@@ -202,7 +203,8 @@ objects:
 - name: _extract_chunk_text
   kind: function
   decorators: []
-  description: ''
+  description: The text of a chunk - its ``content`` if set, else its ``text``, else
+    "".
   references: []
   calls:
   - chunk.get
@@ -224,7 +226,8 @@ objects:
 - name: _extract_chunk_section
   kind: function
   decorators: []
-  description: ''
+  description: The section name of a chunk, from the chunk itself or its ``metadata``;
+    "" if none.
   references: []
   calls:
   - chunk.get
@@ -241,7 +244,8 @@ objects:
 - name: _kb_mtimes
   kind: function
   decorators: []
-  description: ''
+  description: The modification times of the chunk, node, edge and inverted-index
+    pickles (None if missing).
   references: []
   calls:
   - CHUNKS_PKL.exists
@@ -363,14 +367,15 @@ objects:
 - name: _file_hash
   kind: function
   decorators: []
-  description: ''
+  description: The hex SHA-256 of a file's content, or "" if it cannot be read.
   references: []
   calls:
   - f.read
 - name: _scan_watch_dir
   kind: function
   decorators: []
-  description: ''
+  description: Map every non-hidden .md / .yaml / .yml file under watch_dir to its
+    content hash.
   references: []
   calls:
   - _file_hash
@@ -732,7 +737,7 @@ objects:
 - name: _load_promptmap
   kind: function
   decorators: []
-  description: ''
+  description: Load a PROMPTMAP.yaml file; an empty file is an empty dict.
   references: []
   calls:
   - _yaml.safe_load
@@ -740,7 +745,8 @@ objects:
 - name: _save_promptmap
   kind: function
   decorators: []
-  description: ''
+  description: Write a PROMPTMAP.yaml atomically (temporary file in the same directory,
+    then rename).
   references: []
   calls:
   - _yaml.dump
@@ -921,7 +927,11 @@ objects:
 - name: main
   kind: function
   decorators: []
-  description: ''
+  description: Parse the command line, point the KB paths at ``--kb-dir`` and serve
+    the tools over stdio, or SSE with ``--sse``. With ``--source`` a missing KB is
+    built in the background by make_source.py and kb_watch.py is started to keep it
+    current; with ``--rebuild-graph-on-watch`` a monitor thread refreshes the graph
+    after updates. Mutating tools are enabled only by ``--enable-mutations``.
   references: []
   calls:
   - CHUNKS_PKL.exists

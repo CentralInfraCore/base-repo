@@ -185,7 +185,7 @@ objects:
   calls:
   - make_source.create_knowledge_graph_with_content
   - self._make_embeddings
-- name: test_node_ids_sequential
+- name: test_node_ids_unique
   kind: method
   receiver: TestCreateKnowledgeGraph
   decorators: []
@@ -194,6 +194,7 @@ objects:
   - make_source.create_knowledge_graph_with_content
   calls:
   - make_source.create_knowledge_graph_with_content
+  - nid.startswith
   - self._make_embeddings
 - name: test_nodes_have_chunk_ids
   kind: method
@@ -215,19 +216,16 @@ objects:
   calls:
   - make_source.create_knowledge_graph_with_content
   - self._make_embeddings
-- name: test_related_to_edges_high_similarity
+- name: test_semantic_edges_disabled
   kind: method
   receiver: TestCreateKnowledgeGraph
   decorators: []
   description: ''
   references:
   - make_source.create_knowledge_graph_with_content
-  - numpy.linalg
-  - numpy.random
-  - numpy.tile
   calls:
   - make_source.create_knowledge_graph_with_content
-  - numpy.tile
+  - self._make_embeddings
 - name: test_edge_ids_unique
   kind: method
   receiver: TestCreateKnowledgeGraph

@@ -1,6 +1,14 @@
 ---
 module: tools.compiler
-description: ''
+description: 'Command-line entry point of the release tooling (``python -m tools.compiler``).
+  Subcommands, run by the Makefile inside the builder container: ``check --version
+  X`` (local pre-flight checks, ``ReleaseManager.run_check``), ``prepare --version
+  X`` (developer preparation phase - release branch and signed ``project.yaml``, ``ReleaseManager.run_prepare_release``)
+  and ``close --version X`` (finalization phase, ``ReleaseManager.run_finalize_release``).
+  Configuration comes from the ``compiler_settings`` block of ``project.yaml`` in
+  the current directory. Vault access is taken from ``VAULT_ADDR`` and ``VAULT_TOKEN``
+  (falling back to the token file named by ``CIC_VAULT_TOKEN_FILE``, default ``/var/run/secrets/vault-token``)
+  and ``VAULT_CACERT`` (falling back to ``/var/run/secrets/vault-ca.crt``).'
 tags:
 - builder
 - core
@@ -25,7 +33,9 @@ objects:
 - name: ColoredFormatter
   kind: class
   decorators: []
-  description: ''
+  description: 'Log formatter that colors each line with an ANSI code chosen by its
+    content: lines with ``DRY-RUN``, ``ACTION REQUIRED`` or ``✓`` get the dry-run,
+    manual-step and success colors, other lines the color of their level.'
   implements:
   - logging.Formatter
   references: []
@@ -33,14 +43,17 @@ objects:
   kind: method
   receiver: ColoredFormatter
   decorators: []
-  description: ''
+  description: Format the record, then wrap it in the color code and a reset.
   references: []
   calls:
   - COLOR_CODES.get
 - name: setup_logging
   kind: function
   decorators: []
-  description: ''
+  description: Return this module's logger writing to stdout at the requested verbosity.
+    The handler level is DEBUG with ``debug``, INFO with ``verbose``, WARNING otherwise.
+    A stdout handler is added only if the logger has no stream handler yet, and propagation
+    to the root logger is turned off.
   references: []
   calls:
   - handler.setLevel
@@ -49,7 +62,9 @@ objects:
 - name: load_project_config
   kind: function
   decorators: []
-  description: ''
+  description: Load ``project.yaml`` from the current directory. Returns the whole
+    document. Exits the process with status 1 if the file cannot be read or parsed
+    or has no ``compiler_settings`` key.
   references:
   - yaml.YAMLError
   - yaml.safe_load
@@ -60,9 +75,13 @@ objects:
 - name: main
   kind: function
   decorators: []
-  description: ''
+  description: Parse the command line, build the Git and Vault services and dispatch
+    the subcommand. A ``ManualInterventionRequired`` (a release that stops for a human)
+    is logged as an action and exits with status 0; a ``ReleaseError`` or any other
+    exception is logged as critical and exits with status 1.
   references:
   - .releaselib.exceptions.ReleaseError
+  - .releaselib.exceptions.ManualInterventionRequired
   - .infra.ReleaseManager
   - .releaselib.vault_service.VaultService
   - .releaselib.git_service.GitService

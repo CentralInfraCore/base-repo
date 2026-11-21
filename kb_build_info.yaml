@@ -59,7 +59,8 @@ objects:
 - name: _now
   kind: function
   decorators: []
-  description: ''
+  description: The current UTC time as an ISO 8601 string with second precision and
+    a "Z" suffix.
   references: []
   calls: []
 - name: _git
@@ -77,7 +78,8 @@ objects:
 - name: _project_version
   kind: function
   decorators: []
-  description: ''
+  description: The ``metadata.version`` of the repository's ``project.yaml``, or None
+    when the file is missing, unreadable or has no version.
   references:
   - yaml.YAMLError
   - yaml.safe_load
@@ -100,7 +102,9 @@ objects:
 - name: _describe_repo
   kind: function
   decorators: []
-  description: ''
+  description: 'One ``sources`` row: the repository''s remote (credentials stripped),
+    commit and its date, branch, ``git describe`` and exact tag, whether tracked files
+    are modified, and the ``project.yaml`` version.'
   references: []
   calls:
   - _git
@@ -128,7 +132,8 @@ objects:
 - name: _builder_info
   kind: function
   decorators: []
-  description: ''
+  description: The commit (and whether it is dirty) of the checkout this builder runs
+    from.
   references: []
   calls:
   - _git
@@ -189,7 +194,8 @@ objects:
 - name: _rev_count
   kind: function
   decorators: []
-  description: ''
+  description: The number of commits ``git rev-list --count spec`` reports, or None
+    if git fails.
   references: []
   calls:
   - _git

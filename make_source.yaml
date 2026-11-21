@@ -1,6 +1,13 @@
 ---
 module: make_source
-description: ''
+description: Build the CIC knowledge base from the ``source/`` tree. Markdown is split
+  into one chunk per heading section (merged with its companion ``.yaml`` metadata);
+  Go and Python code enters only through its companion YAMLs, one chunk per file plus
+  one per object; any other YAML is one chunk. The chunks are deduplicated, given
+  persistent ids, embedded, and indexed with BM25 and FAISS; a knowledge graph is
+  built from sequence, cosine similarity, ``related_nodes`` and call edges. The result
+  is written as pickles/JSON under ``kb_data/`` and as SQLite under ``sqlite_data/``,
+  together with the build provenance (``kb_build_info``).
 tags:
 - builder
 - core
@@ -22,7 +29,8 @@ objects:
 - name: tokenize
   kind: function
   decorators: []
-  description: ''
+  description: 'Split text into lower-case search tokens: camelCase and acronym boundaries
+    are split, and surrounding punctuation is stripped.'
   references: []
   calls:
   - t.strip
@@ -30,7 +38,8 @@ objects:
 - name: detect_language
   kind: function
   decorators: []
-  description: ''
+  description: The language code langdetect assigns to text, or "unknown" when it
+    cannot tell.
   references:
   - langdetect.LangDetectException
   - langdetect.detect
@@ -54,7 +63,9 @@ objects:
 - name: process_md_file
   kind: function
   decorators: []
-  description: ''
+  description: Split a Markdown file into one chunk per heading section (text before
+    the first heading is a section of its own), with line ranges, detected language
+    and the companion YAML's metadata.
   references: []
   calls:
   - _normalize_list
@@ -244,7 +255,10 @@ objects:
 - name: process_directory
   kind: function
   decorators: []
-  description: ''
+  description: Collect the chunks of every file under directory_path, skipping EXCLUDE_DIRS.
+    A first pass classifies each YAML by its sibling (.md, .go or .py); the second
+    routes Markdown, Go and Python companions and other YAML to their processors.
+    A companion without a sibling source is recognised by its keys.
   references: []
   calls:
   - _is_go_meta_yaml
@@ -266,7 +280,9 @@ objects:
 - name: build_knowledge_base
   kind: function
   decorators: []
-  description: ''
+  description: 'Build every KB artifact from source_directory and return them in one
+    dict: chunks with persistent ids, the build-info chunk, embeddings, BM25 and FAISS
+    indexes, the metadata index and the graph (edges carry their evidence location).'
   references:
   - kb_build_info.meta_chunk
   - kb_build_info.build_info
@@ -281,7 +297,8 @@ objects:
 - name: save_knowledge_base_legacy
   kind: function
   decorators: []
-  description: ''
+  description: 'Write the KB under output_dir: JSON files in ``json/`` and pickles
+    plus the FAISS index in ``pkl/`` (the files the MCP server loads).'
   references:
   - faiss.write_index
   calls:
@@ -291,7 +308,9 @@ objects:
 - name: save_kb_to_sqlite
   kind: function
   decorators: []
-  description: ''
+  description: 'Recreate ``knowledge_base.sqlite`` in output_dir from the table definitions
+    in ``db_schema.json`` and fill it: files, terms, chunks and their paths, nodes,
+    edges and the edge evidence.'
   references: []
   calls:
   - c.get

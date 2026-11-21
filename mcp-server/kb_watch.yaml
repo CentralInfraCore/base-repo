@@ -4,9 +4,10 @@ description: 'kb_watch.py — Incremental KB updater for development use. Watche
   directory for file changes and keeps the knowledge base PKLs up-to-date without
   a full rebuild.  Only newly changed files are re-processed; existing embeddings
   are reused from the sidecar `embeddings_by_id.pkl`. Works with any repo or directory
-  — not MCP-specific. Usage: python mcp-server/kb_watch.py <watch_dir> [--kb-dir kb_data]
-  [--interval 2] python mcp-server/kb_watch.py <watch_dir> --once    # single scan
-  + exit'
+  — not MCP-specific. Usage: python mcp-server/kb_watch.py [--source DIR] [--kb-dir
+  DIR]   # watch (inotify) python mcp-server/kb_watch.py [--source DIR] [--kb-dir
+  DIR] --once   # single scan + exit --source defaults to $SOURCE_DIR or ./source,
+  --kb-dir to $KB_DATA_DIR or ./kb_data.'
 tags:
 - core
 - gateway
@@ -36,14 +37,15 @@ objects:
 - name: _file_hash
   kind: function
   decorators: []
-  description: ''
+  description: The hex SHA-256 of a file's content, or "" if it cannot be read.
   references: []
   calls:
   - f.read
 - name: load_file_state
   kind: function
   decorators: []
-  description: ''
+  description: The {path - content hash} state saved by the last update, or {} if
+    there is none or it is unreadable.
   references: []
   calls:
   - p.exists
@@ -51,7 +53,7 @@ objects:
 - name: save_file_state
   kind: function
   decorators: []
-  description: ''
+  description: Save the {path - content hash} state next to the KB.
   references: []
   calls: []
 - name: save_manifest
@@ -133,13 +135,13 @@ objects:
 - name: _pkl_path
   kind: function
   decorators: []
-  description: ''
+  description: The path of a KB pickle under ``kb_dir/pkl``.
   references: []
   calls: []
 - name: _load_pkl
   kind: function
   decorators: []
-  description: ''
+  description: Load a KB pickle, or return default when it does not exist.
   references: []
   calls:
   - _pkl_path
@@ -164,7 +166,8 @@ objects:
 - name: _chunks_for_files
   kind: function
   decorators: []
-  description: ''
+  description: The ids of the chunks that come from any of file_paths (dedup-aware
+    - any of a chunk's paths counts).
   references: []
   calls:
   - c.get
@@ -172,7 +175,7 @@ objects:
 - name: _next_chunk_id
   kind: function
   decorators: []
-  description: ''
+  description: The next free number for a sequential ``c<N>`` chunk id.
   references: []
   calls:
   - cid.startswith
@@ -225,7 +228,8 @@ objects:
 - name: _load_model
   kind: function
   decorators: []
-  description: ''
+  description: Load the sentence-transformers model the KB was built with (``model_name.pkl``,
+    else the default).
   references:
   - make_source.EMBEDDING_MODEL
   calls:
@@ -250,7 +254,7 @@ objects:
   kind: method
   receiver: KBWatchHandler
   decorators: []
-  description: ''
+  description: Queue a modified watched file and process the pending changes.
   references: []
   calls:
   - self._process_changes
@@ -259,7 +263,7 @@ objects:
   kind: method
   receiver: KBWatchHandler
   decorators: []
-  description: ''
+  description: Queue a created watched file and process the pending changes.
   references: []
   calls:
   - self._process_changes
@@ -268,7 +272,7 @@ objects:
   kind: method
   receiver: KBWatchHandler
   decorators: []
-  description: ''
+  description: Queue a deleted watched file and process the pending changes.
   references: []
   calls:
   - self._process_changes
@@ -295,7 +299,10 @@ objects:
 - name: main
   kind: function
   decorators: []
-  description: ''
+  description: Watch --source and keep the KB under --kb-dir current. Waits up to
+    ten minutes for a bootstrap build to create chunks.pkl; with --once it applies
+    the changes since the saved state once and exits, otherwise it processes inotify
+    events until interrupted.
   references:
   - watchdog.observers.Observer
   calls:

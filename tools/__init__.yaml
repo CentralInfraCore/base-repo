@@ -1,6 +1,7 @@
 ---
 module: tools.__init__
-description: ''
+description: Release, companion-generation and orchestration tooling of the CIC MCP
+  template.
 tags:
 - builder
 category: []

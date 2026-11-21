@@ -45,7 +45,7 @@ objects:
 - name: _clean
   kind: function
   decorators: []
-  description: ''
+  description: Return the source with comments removed and string/rune literals blanked.
   references: []
   calls:
   - _remove_comments
@@ -200,7 +200,13 @@ objects:
 - name: _parse_objects
   kind: function
   decorators: []
-  description: ''
+  description: Find the top-level declarations of a Go file with regular expressions
+    (the fallback reader). Returns one companion object per struct, interface, other
+    named type, func, method, and single-line package-level ``var`` and ``const``;
+    grouped ``var (...)`` / ``const (...)`` blocks are not recognized. Each object
+    carries its doc comment as ``description`` and the external references found in
+    its body (for funcs and methods also in the signature). Used only with ``--parser
+    regex``, or with ``--parser auto`` when goastdump is unavailable.
   references: []
   calls:
   - _clean
@@ -264,7 +270,9 @@ objects:
 - name: _format_call
   kind: function
   decorators: []
-  description: ''
+  description: Format one goastdump call as "pkg.Type.Name" (empty parts omitted),
+    or None for a call into the standard library or an unknown alias, which is not
+    part of the graph.
   references: []
   calls:
   - _is_external
@@ -326,7 +334,7 @@ objects:
 - name: _write_yaml
   kind: function
   decorators: []
-  description: ''
+  description: Write the companion data as a YAML document, keeping the key order.
   references: []
   calls:
   - f.write
@@ -334,7 +342,12 @@ objects:
 - name: main
   kind: function
   decorators: []
-  description: ''
+  description: 'CLI entry point: generate, overwrite or merge the companion of each
+    Go file. Declarations come from goastdump unless ``--parser regex``; with ``--parser
+    ast`` a missing go/ast front end exits with status 2 instead of falling back.
+    Existing companions are skipped unless ``--overwrite`` or ``--merge`` is given;
+    ``--detect-implements`` then fills ``implements`` per directory. Exits with status
+    1 if no file was given or any file failed.'
   references: []
   calls:
   - _ast_dump
