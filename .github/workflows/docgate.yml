@@ -28,5 +28,7 @@ jobs:
         with:
           go-version: "1.26.11"
           cache: false
+      - name: Regression tests of the gate itself
+        run: python3 -m unittest discover -s tools/docgate -p "test_*.py" -v
       - name: Every non-test declaration has a doc comment
         run: python3 tools/docgate/docgate.py
