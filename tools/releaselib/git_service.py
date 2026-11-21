@@ -1,3 +1,5 @@
+"""Thin wrapper around the git CLI used by the release tooling."""
+
 import subprocess  # nosec
 from pathlib import Path
 from typing import Optional

@@ -1,3 +1,11 @@
+"""Exception hierarchy of the release tooling.
+
+Every error is a ``ReleaseError``, the one type ``tools.compiler`` catches to
+report a failed release and exit with status 1; the subclasses name the subsystem
+or condition that failed.
+"""
+
+
 class ReleaseError(Exception):
     """Base exception for all release-related errors."""
 

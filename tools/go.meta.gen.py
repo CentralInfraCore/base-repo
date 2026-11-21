@@ -19,6 +19,7 @@ Options:
     --dir         Process all .go files in directory (default: non-recursive)
     --recursive   Recurse into subdirectories (use with --dir)
     --overwrite   Overwrite existing .yaml files (default: skip)
+    --merge       Update auto fields in existing .yaml files, keep manual ones
     --skip-tests  Skip _test.go files (default: include)
     --dry-run     Print what would be generated without writing files
 """
@@ -152,6 +153,7 @@ def _remove_strings(source: str) -> str:
 
 
 def _clean(source: str) -> str:
+    """Return the source with comments removed and string/rune literals blanked."""
     # Comments first — prevents apostrophes in comments from poisoning rune literal regex
     return _remove_strings(_remove_comments(source))
 
@@ -431,6 +433,14 @@ def _suggest_tags(
 def _parse_objects(
     source: str, imports: dict[str, str], module_name: str = ""
 ) -> list[dict]:
+    """Find the top-level declarations of a Go file with regular expressions.
+
+    Returns one companion object per struct, interface, other named type,
+    func, method, and single-line package-level ``var`` and ``const``; grouped
+    ``var (...)`` / ``const (...)`` blocks are not recognized. Each object
+    carries its doc comment as ``description`` and the external references found
+    in its body (for funcs and methods also in the signature).
+    """
     objects: list[dict] = []
     clean = _clean(source)
     doc = _extract_doc_comments(source)
@@ -556,6 +566,11 @@ def _parse_objects(
 
 
 def generate(go_file: Path) -> dict:
+    """Build the companion YAML data for one Go file from its source alone.
+
+    Fills the auto fields (package, package doc, suggested tags, entrypoint for
+    ``package main``, objects) and leaves the manual ones empty.
+    """
     source = go_file.read_text(encoding="utf-8")
 
     pkg_m = re.search(r"^\s*package\s+(\w+)", source, re.MULTILINE)
@@ -628,6 +643,7 @@ def _merge_data(new_data: dict, old_data: dict) -> dict:
 
 
 def _write_yaml(data: dict, path: Path) -> None:
+    """Write the companion data as a YAML document, keeping the key order."""
     with open(path, "w", encoding="utf-8") as f:
         f.write("---\n")
         yaml.dump(
@@ -636,6 +652,12 @@ def _write_yaml(data: dict, path: Path) -> None:
 
 
 def main() -> None:
+    """CLI entry point: generate, overwrite or merge the companion of each Go file.
+
+    Existing companions are skipped unless ``--overwrite`` or ``--merge`` is given.
+    Prints one line per file and a summary; exits with status 1 if no file was
+    given or any file failed.
+    """
     parser = argparse.ArgumentParser(
         description="Generate companion YAML skeletons for Go source files.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
