@@ -1,0 +1,6 @@
+# docgate exclusions (tools/docgate/docgate.py): fnmatch globs of repository-relative paths.
+# Each entry is documented elsewhere or must not change; see the reason above it.
+
+# Identical to the base flavor (devel), documented there; synced by merging devel.
+tools/__init__.py
+tools/releaselib/*
