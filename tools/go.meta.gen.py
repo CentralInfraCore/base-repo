@@ -43,39 +43,11 @@ except ImportError:
 
 # Allowed tag values from go.meta.schema.yaml — used to filter suggestions.
 _ALLOWED_TAGS = {
-    "relay",
-    "compliance",
-    "workflow",
-    "cictor",
-    "schema",
-    "parser",
-    "guard",
-    "core",
-    "doc",
-    "interface",
-    "gateway",
-    "builder",
-    "test",
-    "meta",
-    "orchestrator",
-    "decision",
-    "reflector",
-    "context",
-    "validator",
-    "executor",
-    "hook",
-    "template",
-    "fallback",
-    "session",
-    "metrics",
-    "storage",
-    "loader",
-    "renderer",
-    "legal",
-    "license",
-    "platform-engineering",
-    "ci-cd",
-    "ecosystem",
+    "relay", "compliance", "workflow", "cictor", "schema", "parser", "guard",
+    "core", "doc", "interface", "gateway", "builder", "test", "meta",
+    "orchestrator", "decision", "reflector", "context", "validator", "executor",
+    "hook", "template", "fallback", "session", "metrics", "storage", "loader",
+    "renderer", "legal", "license", "platform-engineering", "ci-cd", "ecosystem",
 }
 
 # Known first path segments of Go standard library packages.
@@ -84,52 +56,14 @@ _ALLOWED_TAGS = {
 # project-internal packages that happen to use common alias names like "types".
 _STDLIB_ROOTS = {
     # single-segment stdlib
-    "builtin",
-    "unsafe",
+    "builtin", "unsafe",
     # multi-segment stdlib roots (first path component)
-    "archive",
-    "bufio",
-    "bytes",
-    "compress",
-    "container",
-    "context",
-    "crypto",
-    "database",
-    "debug",
-    "embed",
-    "encoding",
-    "errors",
-    "expvar",
-    "flag",
-    "fmt",
-    "go",
-    "hash",
-    "html",
-    "image",
-    "io",
-    "log",
-    "math",
-    "mime",
-    "net",
-    "os",
-    "path",
-    "plugin",
-    "reflect",
-    "regexp",
-    "runtime",
-    "sort",
-    "strconv",
-    "strings",
-    "sync",
-    "syscall",
-    "testing",
-    "text",
-    "time",
-    "unicode",
-    "unique",
-    "slices",
-    "maps",
-    "cmp",
+    "archive", "bufio", "bytes", "compress", "container", "context",
+    "crypto", "database", "debug", "embed", "encoding", "errors", "expvar",
+    "flag", "fmt", "go", "hash", "html", "image", "io", "log", "math",
+    "mime", "net", "os", "path", "plugin", "reflect", "regexp", "runtime",
+    "sort", "strconv", "strings", "sync", "syscall", "testing", "text",
+    "time", "unicode", "unique", "slices", "maps", "cmp",
 }
 
 
@@ -137,11 +71,10 @@ _STDLIB_ROOTS = {
 # Source cleaning
 # ---------------------------------------------------------------------------
 
-
 def _remove_comments(source: str) -> str:
     """Remove // and /* */ comments."""
-    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
-    source = re.sub(r"//[^\n]*", "", source)
+    source = re.sub(r'/\*.*?\*/', '', source, flags=re.DOTALL)
+    source = re.sub(r'//[^\n]*', '', source)
     return source
 
 
@@ -150,7 +83,7 @@ def _remove_strings(source: str) -> str:
     Must be called after comment removal so apostrophes in comments don't confuse
     the rune literal pattern."""
     # Raw strings: `...`
-    source = re.sub(r"`[^`]*`", "``", source, flags=re.DOTALL)
+    source = re.sub(r'`[^`]*`', '``', source, flags=re.DOTALL)
     # Interpreted strings: "..."
     source = re.sub(r'"(?:[^"\\]|\\.)*"', '""', source)
     # Rune literals: 'x' '\n' '\u0041' — max ~6 chars, never multiline
@@ -168,28 +101,26 @@ def _clean(source: str) -> str:
 # Block extraction (brace-matching)
 # ---------------------------------------------------------------------------
 
-
 def _extract_block_content(source: str, open_pos: int) -> str:
     """Return content between matching { } starting at open_pos (the '{')."""
     depth = 0
     content = []
     for i in range(open_pos, len(source)):
         c = source[i]
-        if c == "{":
+        if c == '{':
             depth += 1
-        elif c == "}":
+        elif c == '}':
             depth -= 1
             if depth == 0:
                 break
         elif depth > 0:
             content.append(c)
-    return "".join(content)
+    return ''.join(content)
 
 
 # ---------------------------------------------------------------------------
 # Import parsing
 # ---------------------------------------------------------------------------
-
 
 def _parse_imports(source: str) -> dict[str, str]:
     """Return {local_alias: import_path} for all imports in source.
@@ -199,14 +130,12 @@ def _parse_imports(source: str) -> dict[str, str]:
     no_comments = _remove_comments(source)  # keep strings intact
 
     # Single: import "path"  or  import alias "path"
-    for m in re.finditer(
-        r'^\s*import\s+(?:(\w+)\s+)?"([^"]+)"', no_comments, re.MULTILINE
-    ):
-        alias = m.group(1) or m.group(2).split("/")[-1]
+    for m in re.finditer(r'^\s*import\s+(?:(\w+)\s+)?"([^"]+)"', no_comments, re.MULTILINE):
+        alias = m.group(1) or m.group(2).split('/')[-1]
         imports[alias] = m.group(2)
 
     # Block: import ( ... )
-    block_m = re.search(r"\bimport\s*\(([^)]+)\)", no_comments, re.DOTALL)
+    block_m = re.search(r'\bimport\s*\(([^)]+)\)', no_comments, re.DOTALL)
     if block_m:
         for line in block_m.group(1).splitlines():
             line = line.strip()
@@ -215,17 +144,13 @@ def _parse_imports(source: str) -> dict[str, str]:
             # alias "path"
             alias_m = re.match(r'(\w+|_|\.)\s+"([^"]+)"', line)
             if alias_m:
-                alias = (
-                    alias_m.group(1)
-                    if alias_m.group(1) not in ("_", ".")
-                    else alias_m.group(2).split("/")[-1]
-                )
+                alias = alias_m.group(1) if alias_m.group(1) not in ('_', '.') else alias_m.group(2).split('/')[-1]
                 imports[alias] = alias_m.group(2)
                 continue
             # "path"
             path_m = re.match(r'"([^"]+)"', line)
             if path_m:
-                alias = path_m.group(1).split("/")[-1]
+                alias = path_m.group(1).split('/')[-1]
                 imports[alias] = path_m.group(1)
 
     return imports
@@ -237,7 +162,7 @@ def _find_module_name(go_file: Path) -> str:
         mod = parent / "go.mod"
         if mod.exists():
             for line in mod.read_text().splitlines():
-                m = re.match(r"^\s*module\s+(\S+)", line)
+                m = re.match(r'^\s*module\s+(\S+)', line)
                 if m:
                     return m.group(1)
     return ""
@@ -246,9 +171,9 @@ def _find_module_name(go_file: Path) -> str:
 def _is_stdlib_path(path: str) -> bool:
     """True if the import path is a Go standard library package.
     Stdlib paths have no dots and their first segment is a known stdlib root."""
-    if "." in path:
+    if '.' in path:
         return False  # third-party always has dots (github.com, gopkg.in, etc.)
-    return path.split("/")[0] in _STDLIB_ROOTS
+    return path.split('/')[0] in _STDLIB_ROOTS
 
 
 def _is_external(pkg: str, imports: dict[str, str], module_name: str = "") -> bool:
@@ -263,7 +188,7 @@ def _is_external(pkg: str, imports: dict[str, str], module_name: str = "") -> bo
 def _extract_interface_methods(body: str) -> list[str]:
     """Extract exported method names from an interface body."""
     methods = []
-    for m in re.finditer(r"^\s+([A-Z]\w*)\s*\(", body, re.MULTILINE):
+    for m in re.finditer(r'^\s+([A-Z]\w*)\s*\(', body, re.MULTILINE):
         methods.append(m.group(1))
     return sorted(set(methods))
 
@@ -286,11 +211,11 @@ def _extract_calls(body: str, refs: list[str] | None = None) -> list[str]:
 
     # Extract bare method/function names
     # First pattern: pkg.Name()
-    for m in re.finditer(r"\b\w+\.([A-Z]\w*)\s*\(", body):
+    for m in re.finditer(r'\b\w+\.([A-Z]\w*)\s*\(', body):
         call_names.add(m.group(1))
 
     # Second pattern: standalone Name()
-    for m in re.finditer(r"\b([A-Z]\w*)\s*\(", body):
+    for m in re.finditer(r'\b([A-Z]\w*)\s*\(', body):
         call_names.add(m.group(1))
 
     # Type resolution: match call names against references
@@ -298,7 +223,7 @@ def _extract_calls(body: str, refs: list[str] | None = None) -> list[str]:
         typed_calls = []
         for ref in refs:
             # ref format: "cabinet.Cabinet.Set", extract the method name
-            method_name = ref.split(".")[-1]  # "Set" from "cabinet.Cabinet.Set"
+            method_name = ref.split('.')[-1]  # "Set" from "cabinet.Cabinet.Set"
             if method_name in call_names:
                 typed_calls.append(ref)
 
@@ -310,9 +235,7 @@ def _extract_calls(body: str, refs: list[str] | None = None) -> list[str]:
     return sorted(call_names) if call_names else []
 
 
-def _extract_param_types(
-    params_str: str, imports: dict[str, str], module_name: str = ""
-) -> dict[str, str]:
+def _extract_param_types(params_str: str, imports: dict[str, str], module_name: str = "") -> dict[str, str]:
     """Extract {param_name: pkg_alias} from function parameter list.
 
     Examples:
@@ -328,28 +251,28 @@ def _extract_param_types(
     current: list[str] = []
     depth = 0
     for c in params_str:
-        if c == "(":
+        if c == '(':
             depth += 1
-        elif c == ")":
+        elif c == ')':
             depth -= 1
-        elif c == "," and depth == 0:
-            parts.append("".join(current).strip())
+        elif c == ',' and depth == 0:
+            parts.append(''.join(current).strip())
             current = []
             continue
         current.append(c)
     if current:
-        parts.append("".join(current).strip())
+        parts.append(''.join(current).strip())
 
     # Parse each parameter: [*]pkg.Type or [*]Type
     for part in parts:
-        if not part or part.startswith("..."):
+        if not part or part.startswith('...'):
             continue
 
         # Extract type: skip pointer, handle []
-        type_part = re.sub(r"^[\[\]*]+", "", part).strip()
+        type_part = re.sub(r'^[\[\]*]+', '', part).strip()
 
         # Extract param name: "s *Service" → name="s", type="Service"
-        m = re.match(r"^(\w+)\s+([\w.]+)$", type_part)
+        m = re.match(r'^(\w+)\s+([\w.]+)$', type_part)
         if m:
             param_name = m.group(1)
             param_type = m.group(2)
@@ -358,9 +281,7 @@ def _extract_param_types(
     return result
 
 
-def _extract_local_typed_vars(
-    text: str, imports: dict[str, str], module_name: str = ""
-) -> dict[str, str]:
+def _extract_local_typed_vars(text: str, imports: dict[str, str], module_name: str = "") -> dict[str, str]:
     """Return {var_name: pkg_alias} for explicitly typed local variable declarations.
 
     Recognises these Go patterns:
@@ -373,7 +294,7 @@ def _extract_local_typed_vars(
     """
     result: dict[str, str] = {}
     # var <name> [*[]][<pkg>.<Type>]
-    pattern = re.compile(r"\bvar\s+(\w+)\s+(?:\[\]|\*)*(\w+)\.([A-Z]\w*)")
+    pattern = re.compile(r'\bvar\s+(\w+)\s+(?:\[\]|\*)*(\w+)\.([A-Z]\w*)')
     for m in pattern.finditer(text):
         var_name, pkg = m.group(1), m.group(2)
         if _is_external(pkg, imports, module_name):
@@ -381,14 +302,10 @@ def _extract_local_typed_vars(
     return result
 
 
-def _extract_refs(
-    text: str,
-    imports: dict[str, str],
-    module_name: str = "",
-    param_types: dict[str, str] | None = None,
-    receiver_type: str | None = None,
-    receiver_name: str = "s",
-) -> list[str]:
+def _extract_refs(text: str, imports: dict[str, str], module_name: str = "",
+                   param_types: dict[str, str] | None = None,
+                   receiver_type: str | None = None,
+                   receiver_name: str = 's') -> list[str]:
     """Find non-stdlib pkg.Name references in text.
 
     Three passes:
@@ -399,14 +316,14 @@ def _extract_refs(
     seen: dict[str, None] = {}  # ordered set preserving insertion order
 
     # Pass 1 — direct: json.Marshal, relay.Actor, http.NewRequest, ...
-    for m in re.finditer(r"\b(\w+)\.([A-Z]\w*)", text):
+    for m in re.finditer(r'\b(\w+)\.([A-Z]\w*)', text):
         pkg, name = m.group(1), m.group(2)
         if _is_external(pkg, imports, module_name):
             seen[f"{pkg}.{name}"] = None
 
     # Pass 2 — typed variable methods: var db *sql.DB → db.QueryRow()
     local_vars = _extract_local_typed_vars(text, imports, module_name)
-    for m in re.finditer(r"\b(\w+)\.([A-Z]\w*)\s*\(", text):
+    for m in re.finditer(r'\b(\w+)\.([A-Z]\w*)\s*\(', text):
         var_name, method = m.group(1), m.group(2)
         pkg = local_vars.get(var_name)
         if pkg:
@@ -418,14 +335,12 @@ def _extract_refs(
     if param_types:
         local_vars.update(param_types)
     if receiver_type:
-        local_vars[receiver_name] = (
-            receiver_type  # implicit receiver, e.g., s *relayServer → s: relayServer
-        )
+        local_vars[receiver_name] = receiver_type  # implicit receiver, e.g., s *relayServer → s: relayServer
 
-    for m in re.finditer(r"\b(\w+)\.([A-Z]\w*)\s*\(", text):
+    for m in re.finditer(r'\b(\w+)\.([A-Z]\w*)\s*\(', text):
         var_name, method = m.group(1), m.group(2)
         type_name = local_vars.get(var_name)
-        if type_name and "." in type_name:
+        if type_name and '.' in type_name:
             # Already has package: "nexusgit.GitOps"
             seen[f"{type_name}.{method}"] = None
         elif type_name and _is_external(type_name, imports, module_name):
@@ -439,7 +354,6 @@ def _extract_refs(
 # ---------------------------------------------------------------------------
 # Doc comment extraction
 # ---------------------------------------------------------------------------
-
 
 def _extract_doc_comments(source: str) -> dict[str, str]:
     """Extract Go doc comments for top-level declarations.
@@ -458,10 +372,10 @@ def _extract_doc_comments(source: str) -> dict[str, str]:
     """
     result: dict[str, str] = {}
     pattern = re.compile(
-        r"((?:^[ \t]*//[^\n]*\n)+)"  # group 1: contiguous doc comment lines
-        r"[ \t]*(?:type|func|var|const)\s+"  # declaration keyword
-        r"(?:\([^)]*\)\s*)?"  # optional method receiver
-        r"(\w+)",  # group 2: identifier name
+        r'((?:^[ \t]*//[^\n]*\n)+)'        # group 1: contiguous doc comment lines
+        r'[ \t]*(?:type|func|var|const)\s+'  # declaration keyword
+        r'(?:\([^)]*\)\s*)?'                 # optional method receiver
+        r'(\w+)',                            # group 2: identifier name
         re.MULTILINE,
     )
     for m in pattern.finditer(source):
@@ -469,88 +383,85 @@ def _extract_doc_comments(source: str) -> dict[str, str]:
         name = m.group(2)
         lines = []
         for line in comment_block.splitlines():
-            cleaned = re.sub(r"^\s*//\s?", "", line).strip()
+            cleaned = re.sub(r'^\s*//\s?', '', line).strip()
             if cleaned:
                 lines.append(cleaned)
         if lines:
-            result[name] = " ".join(lines)
+            result[name] = ' '.join(lines)
     return result
 
 
 def _extract_package_doc(source: str) -> str:
     """Extract the package-level doc comment (// lines before 'package NAME')."""
-    m = re.search(r"((?:^[ \t]*//[^\n]*\n)+)[ \t]*package\s+\w+", source, re.MULTILINE)
+    m = re.search(r'((?:^[ \t]*//[^\n]*\n)+)[ \t]*package\s+\w+', source, re.MULTILINE)
     if not m:
         return ""
     lines = []
     for line in m.group(1).splitlines():
-        cleaned = re.sub(r"^\s*//\s?", "", line).strip()
+        cleaned = re.sub(r'^\s*//\s?', '', line).strip()
         if cleaned:
             lines.append(cleaned)
-    return " ".join(lines)
+    return ' '.join(lines)
 
 
 # ---------------------------------------------------------------------------
 # Tag suggestion
 # ---------------------------------------------------------------------------
 
-
-def _suggest_tags(
-    go_file: Path, imports: dict[str, str], objects: list[dict]
-) -> list[str]:
+def _suggest_tags(go_file: Path, imports: dict[str, str], objects: list[dict]) -> list[str]:
     """Suggest tags from file path, imports, and object naming conventions.
 
     Returns a sorted list of allowed tag values (see go.meta.schema.yaml).
     These are suggestions — review and trim before committing the YAML.
     """
     tags: set[str] = set()
-    path_str = str(go_file).replace("\\", "/")
+    path_str = str(go_file).replace('\\', '/')
     filename = go_file.name
 
     # --- file path hints ---
-    if "/cmd/" in path_str or filename == "main.go":
-        tags.update(["core", "gateway"])
-    if "/tools/" in path_str:
-        tags.add("builder")
-    if filename.endswith("_test.go"):
-        tags.add("test")
-    if "/core/" in path_str:
-        tags.add("core")
+    if '/cmd/' in path_str or filename == 'main.go':
+        tags.update(['core', 'gateway'])
+    if '/tools/' in path_str:
+        tags.add('builder')
+    if filename.endswith('_test.go'):
+        tags.add('test')
+    if '/core/' in path_str:
+        tags.add('core')
 
     # --- import hints ---
     import_paths = set(imports.values())
-    if any("net/http" in p for p in import_paths):
-        tags.add("interface")
-    if any("database/sql" in p or p.endswith("/sql") for p in import_paths):
-        tags.add("storage")
-    if any(p == "testing" for p in import_paths):
-        tags.add("test")
-    if any("metric" in p.lower() or "prometheus" in p.lower() for p in import_paths):
-        tags.add("metrics")
+    if any('net/http' in p for p in import_paths):
+        tags.add('interface')
+    if any('database/sql' in p or p.endswith('/sql') for p in import_paths):
+        tags.add('storage')
+    if any(p == 'testing' for p in import_paths):
+        tags.add('test')
+    if any('metric' in p.lower() or 'prometheus' in p.lower() for p in import_paths):
+        tags.add('metrics')
 
     # --- object naming convention hints ---
     for obj in objects:
-        name = obj["name"]
-        if re.match(r"^Validate", name):
-            tags.add("validator")
-        if re.match(r"^Execute", name):
-            tags.add("executor")
-        if re.match(r"^Load", name):
-            tags.add("loader")
-        if re.search(r"Handler$", name):
-            tags.add("interface")
-        if re.search(r"Server$", name):
-            tags.add("interface")
-        if re.search(r"Store$|Repository$", name):
-            tags.add("storage")
-        if re.search(r"[Mm]etric", name):
-            tags.add("metrics")
-        if re.search(r"[Ss]chema", name):
-            tags.add("schema")
-        if re.match(r"^Parse|^Parser", name) or name.endswith("Parser"):
-            tags.add("parser")
-        if re.match(r"^Hook", name) or name.endswith("Hook"):
-            tags.add("hook")
+        name = obj['name']
+        if re.match(r'^Validate', name):
+            tags.add('validator')
+        if re.match(r'^Execute', name):
+            tags.add('executor')
+        if re.match(r'^Load', name):
+            tags.add('loader')
+        if re.search(r'Handler$', name):
+            tags.add('interface')
+        if re.search(r'Server$', name):
+            tags.add('interface')
+        if re.search(r'Store$|Repository$', name):
+            tags.add('storage')
+        if re.search(r'[Mm]etric', name):
+            tags.add('metrics')
+        if re.search(r'[Ss]chema', name):
+            tags.add('schema')
+        if re.match(r'^Parse|^Parser', name) or name.endswith('Parser'):
+            tags.add('parser')
+        if re.match(r'^Hook', name) or name.endswith('Hook'):
+            tags.add('hook')
 
     # filter to allowed values only
     return sorted(tags & _ALLOWED_TAGS)
@@ -560,14 +471,13 @@ def _suggest_tags(
 # Object parsing
 # ---------------------------------------------------------------------------
 
-
-def _parse_objects(
-    source: str, imports: dict[str, str], module_name: str = ""
-) -> list[dict]:
+def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") -> list[dict]:
     """Find the top-level declarations of a Go file with regular expressions (the fallback
-    reader). Returns one companion object per struct, interface, other named type, func,
-    method, and single-line package-level ``var`` and ``const``; grouped ``var (...)`` /
-    ``const (...)`` blocks are not recognized. Each object carries its doc comment as
+    reader).
+
+    Returns one companion object per struct, interface, other named type, func, method,
+    and single-line package-level ``var`` and ``const``; grouped ``var (...)`` / ``const
+    (...)`` blocks are not recognized. Each object carries its doc comment as
     ``description`` and the external references found in its body (for funcs and methods
     also in the signature). Used only with ``--parser regex``, or with ``--parser auto``
     when goastdump is unavailable.
@@ -577,137 +487,98 @@ def _parse_objects(
     doc = _extract_doc_comments(source)
 
     # --- structs ---
-    for m in re.finditer(r"\btype\s+(\w+)\s+struct\s*\{", clean):
+    for m in re.finditer(r'\btype\s+(\w+)\s+struct\s*\{', clean):
         name = m.group(1)
         body = _extract_block_content(clean, m.end() - 1)
         # Struct fields could have types, but they're just declarations
         # Extract refs from field types
         refs = _extract_refs(body, imports, module_name)
-        obj: dict = {
-            "name": name,
-            "kind": "struct",
-            "description": doc.get(name, ""),
-            "implements": [],
-            "references": refs,
-        }
+        obj: dict = {"name": name, "kind": "struct",
+                     "description": doc.get(name, ""),
+                     "implements": [], "references": refs}
         objects.append(obj)
 
     struct_names = {o["name"] for o in objects}
 
     # --- interfaces ---
-    for m in re.finditer(r"\btype\s+(\w+)\s+interface\s*\{", clean):
+    for m in re.finditer(r'\btype\s+(\w+)\s+interface\s*\{', clean):
         name = m.group(1)
         body = _extract_block_content(clean, m.end() - 1)
         refs = _extract_refs(body, imports, module_name)
         methods = _extract_interface_methods(body)
-        objects.append(
-            {
-                "name": name,
-                "kind": "interface",
-                "description": doc.get(name, ""),
-                "references": refs,
-                "methods": methods,
-            }
-        )
+        objects.append({"name": name, "kind": "interface",
+                        "description": doc.get(name, ""), "references": refs,
+                        "methods": methods})
 
     iface_names = {o["name"] for o in objects if o["kind"] == "interface"}
 
     # --- type aliases (not struct/interface) ---
-    for m in re.finditer(
-        r"\btype\s+(\w+)\s+(?!struct\b|interface\b)(\S+)", clean, re.MULTILINE
-    ):
+    for m in re.finditer(r'\btype\s+(\w+)\s+(?!struct\b|interface\b)(\S+)', clean, re.MULTILINE):
         name = m.group(1)
         if name in struct_names or name in iface_names:
             continue
         underlying = m.group(2)
         refs = _extract_refs(underlying, imports, module_name)
-        objects.append(
-            {
-                "name": name,
-                "kind": "type",
-                "description": doc.get(name, ""),
-                "references": refs,
-            }
-        )
+        objects.append({"name": name, "kind": "type",
+                        "description": doc.get(name, ""), "references": refs})
 
     # --- funcs and methods ---
     func_re = re.compile(
-        r"\bfunc\s+"
-        r"(?:\(\s*(\w+)\s+\*?(\w+)\s*\)\s*)?"  # group 1: receiver name, group 2: receiver type (optional)
-        r"(\w+)\s*"  # group 3: func name
-        r"\(([^)]*(?:\([^)]*\)[^)]*)*)\)"  # group 4: params
-        r"([^{]*)",  # group 5: return types
+        r'\bfunc\s+'
+        r'(?:\(\s*(\w+)\s+\*?(\w+)\s*\)\s*)?'   # group 1: receiver name, group 2: receiver type (optional)
+        r'(\w+)\s*'                               # group 3: func name
+        r'\(([^)]*(?:\([^)]*\)[^)]*)*)\)'        # group 4: params
+        r'([^{]*)',                               # group 5: return types
         re.MULTILINE,
     )
     for m in func_re.finditer(clean):
         recv_name = m.group(1)
         recv_type = m.group(2)
         func_name = m.group(3)
-        params = m.group(4) or ""
-        returns = m.group(5) or ""
-        brace_pos = clean.find("{", m.end())
-        body = _extract_block_content(clean, brace_pos) if brace_pos != -1 else ""
+        params = m.group(4) or ''
+        returns = m.group(5) or ''
+        brace_pos = clean.find('{', m.end())
+        body = _extract_block_content(clean, brace_pos) if brace_pos != -1 else ''
 
         # Extract parameter types and pass to _extract_refs
         param_types = _extract_param_types(params, imports, module_name)
-        refs = _extract_refs(
-            f"{params} {returns} {body}",
-            imports,
-            module_name,
-            param_types=param_types,
-            receiver_type=recv_type,
-            receiver_name=recv_name or "s",
-        )
+        refs = _extract_refs(f"{params} {returns} {body}", imports, module_name,
+                            param_types=param_types, receiver_type=recv_type,
+                            receiver_name=recv_name or 's')
 
         # Extract function/method calls from body with type resolution
         # Pass refs for type resolution: match call names against full refs
         calls = _extract_calls(body, refs)
 
         if recv_type:
-            objects.append(
-                {
-                    "name": func_name,
-                    "kind": "method",
-                    "receiver": recv_type,
-                    "description": doc.get(func_name, ""),
-                    "references": refs,
-                    "calls": calls,
-                }
-            )
+            objects.append({
+                "name": func_name,
+                "kind": "method",
+                "receiver": recv_type,
+                "description": doc.get(func_name, ""),
+                "references": refs,
+                "calls": calls,
+            })
         else:
-            objects.append(
-                {
-                    "name": func_name,
-                    "kind": "func",
-                    "description": doc.get(func_name, ""),
-                    "references": refs,
-                    "calls": calls,
-                }
-            )
+            objects.append({
+                "name": func_name,
+                "kind": "func",
+                "description": doc.get(func_name, ""),
+                "references": refs,
+                "calls": calls,
+            })
 
     # --- package-level vars ---
-    for m in re.finditer(r"^var\s+(\w+)", clean, re.MULTILINE):
+    for m in re.finditer(r'^var\s+(\w+)', clean, re.MULTILINE):
         name = m.group(1)
-        objects.append(
-            {
-                "name": name,
-                "kind": "var",
-                "description": doc.get(name, ""),
-                "references": [],
-            }
-        )
+        objects.append({"name": name, "kind": "var",
+                        "description": doc.get(name, ""), "references": []})
 
     # --- package-level consts ---
-    for m in re.finditer(r"^const\s+(\w+)\b", clean, re.MULTILINE):
+    for m in re.finditer(r'^const\s+(\w+)\b', clean, re.MULTILINE):
         name = m.group(1)
-        objects.append(
-            {
-                "name": name,
-                "kind": "const",
-                "description": doc.get(name, ""),
-                "references": [],
-            }
-        )
+        objects.append({"name": name, "kind": "const",
+                        "description": doc.get(name, ""), "references": []})
 
     return objects
 
@@ -715,7 +586,6 @@ def _parse_objects(
 # ---------------------------------------------------------------------------
 # Main generator
 # ---------------------------------------------------------------------------
-
 
 def generate(go_file: Path, dump: dict | None = None) -> dict:
     """Build the companion data for one Go file.
@@ -730,7 +600,7 @@ def generate(go_file: Path, dump: dict | None = None) -> dict:
         description = dump["package_doc"]
     else:
         source = go_file.read_text(encoding="utf-8")
-        pkg_m = re.search(r"^\s*package\s+(\w+)", source, re.MULTILINE)
+        pkg_m = re.search(r'^\s*package\s+(\w+)', source, re.MULTILINE)
         package = pkg_m.group(1) if pkg_m else ""
         module_name = _find_module_name(go_file)
         imports = _parse_imports(source)
@@ -756,15 +626,8 @@ def generate(go_file: Path, dump: dict | None = None) -> dict:
 _AST_DIR = Path(__file__).resolve().parent / "goastdump"
 _AST_CHUNK = 400  # files per goastdump invocation (argv length)
 _ast_bin: list[str] | None = None  # resolved command, cached after the first build
-_KIND_RANK = {
-    "struct": 0,
-    "interface": 1,
-    "type": 2,
-    "func": 3,
-    "method": 3,
-    "var": 4,
-    "const": 5,
-}
+_KIND_RANK = {"struct": 0, "interface": 1, "type": 2, "func": 3, "method": 3,
+              "var": 4, "const": 5}
 
 
 def _ast_command() -> list[str] | None:
@@ -786,12 +649,8 @@ def _ast_command() -> list[str] | None:
     build_dir = tempfile.mkdtemp(prefix="goastdump-")
     atexit.register(shutil.rmtree, build_dir, True)
     out = Path(build_dir) / "goastdump"
-    res = subprocess.run(
-        [go, "build", "-o", str(out), "."],
-        cwd=_AST_DIR,  # nosec B603 - argv list, no shell, builds this repo's own helper
-        capture_output=True,
-        text=True,
-    )
+    res = subprocess.run([go, "build", "-o", str(out), "."], cwd=_AST_DIR,  # nosec B603 - argv list, no shell, builds this repo's own helper
+                         capture_output=True, text=True)
     if res.returncode != 0:
         print(f"goastdump build failed:\n{res.stderr}", file=sys.stderr)
         return None
@@ -807,15 +666,9 @@ def _ast_dump(files: list[Path]) -> dict[Path, dict]:
     result: dict[Path, dict] = {}
     resolved = [f.resolve() for f in files]
     for i in range(0, len(resolved), _AST_CHUNK):
-        chunk = resolved[i : i + _AST_CHUNK]
-        res = subprocess.run(
-            cmd
-            + [
-                str(f) for f in chunk
-            ],  # nosec B603 - argv list, no shell; cmd is the helper or GO_META_GOASTDUMP
-            capture_output=True,
-            text=True,
-        )
+        chunk = resolved[i:i + _AST_CHUNK]
+        res = subprocess.run(cmd + [str(f) for f in chunk],  # nosec B603 - argv list, no shell; cmd is the helper or GO_META_GOASTDUMP
+                             capture_output=True, text=True)
         if res.returncode != 0:
             raise RuntimeError(f"goastdump failed: {res.stderr.strip()}")
         for entry in json.loads(res.stdout)["files"]:
@@ -843,11 +696,8 @@ def _objects_from_dump(dump: dict, imports: dict[str, str]) -> list[dict]:
     objects: list[dict] = []
     for o in dump["objects"]:
         kind = o["kind"]
-        refs = [
-            f"{r['pkg']}.{r['name']}"
-            for r in o["refs"]
-            if _is_external(r["pkg"], imports)
-        ]
+        refs = [f"{r['pkg']}.{r['name']}" for r in o["refs"]
+                if _is_external(r["pkg"], imports)]
         if kind in ("func", "method"):
             # a call on an imported type is a reference to that type's method
             for c in o["calls"]:
@@ -855,55 +705,26 @@ def _objects_from_dump(dump: dict, imports: dict[str, str]) -> list[dict]:
                     ref = f"{c['pkg']}.{c['type']}.{c['name']}"
                     if ref not in refs:
                         refs.append(ref)
-            calls = sorted(
-                {t for t in (_format_call(c, imports) for c in o["calls"]) if t}
-            )
+            calls = sorted({t for t in (_format_call(c, imports) for c in o["calls"]) if t})
 
         desc = o["doc"]
         if kind == "struct":
-            obj = {
-                "name": o["name"],
-                "kind": kind,
-                "description": desc,
-                "implements": [],
-                "references": refs,
-            }
+            obj = {"name": o["name"], "kind": kind, "description": desc,
+                   "implements": [], "references": refs}
         elif kind == "interface":
-            obj = {
-                "name": o["name"],
-                "kind": kind,
-                "description": desc,
-                "references": refs,
-                "methods": o.get("methods", []),
-            }
+            obj = {"name": o["name"], "kind": kind, "description": desc,
+                   "references": refs, "methods": o.get("methods", [])}
         elif kind == "method":
-            obj = {
-                "name": o["name"],
-                "kind": kind,
-                "receiver": o["receiver"],
-                "description": desc,
-                "references": refs,
-                "calls": calls,
-            }
+            obj = {"name": o["name"], "kind": kind, "receiver": o["receiver"],
+                   "description": desc, "references": refs, "calls": calls}
         elif kind == "func":
-            obj = {
-                "name": o["name"],
-                "kind": kind,
-                "description": desc,
-                "references": refs,
-                "calls": calls,
-            }
+            obj = {"name": o["name"], "kind": kind, "description": desc,
+                   "references": refs, "calls": calls}
         else:  # type, var, const
-            obj = {
-                "name": o["name"],
-                "kind": kind,
-                "description": desc,
-                "references": refs if kind == "type" else [],
-            }
+            obj = {"name": o["name"], "kind": kind, "description": desc,
+                   "references": refs if kind == "type" else []}
         objects.append(obj)
-    objects.sort(
-        key=lambda x: _KIND_RANK[x["kind"]]
-    )  # stable: source order within a rank
+    objects.sort(key=lambda x: _KIND_RANK[x["kind"]])  # stable: source order within a rank
     return objects
 
 
@@ -917,16 +738,14 @@ def _detect_implements(yaml_dir: Path) -> dict[str, list[str]]:
     Returns a dict mapping struct names to the list of interfaces they implement.
     Does NOT modify any files — callers are responsible for applying results.
     """
-    ifaces: dict[str, set[str]] = {}  # {iface_name: {method_name, ...}}
+    ifaces: dict[str, set[str]] = {}   # {iface_name: {method_name, ...}}
     struct_methods: dict[str, set[str]] = {}  # {struct_name: {method_name, ...}}
 
     for yaml_file in sorted(yaml_dir.glob("*.yaml")):
         try:
             with open(yaml_file) as f:
                 data = yaml.safe_load(f) or {}
-        except (
-            Exception
-        ):  # nosec B112 - one malformed companion YAML must not abort the scan
+        except Exception:  # nosec B112 - one malformed companion YAML must not abort the scan
             continue
         for obj in data.get("objects", []):
             kind = obj.get("kind")
@@ -972,32 +791,32 @@ def _merge_data(new_data: dict, old_data: dict) -> dict:
     merged = dict(new_data)
 
     # preserve all manual top-level fields
-    merged["tags"] = old_data.get("tags", new_data.get("tags", []))
-    merged["category"] = old_data.get("category", [])
-    merged["used_in"] = old_data.get("used_in", [])
-    merged["related_nodes"] = old_data.get("related_nodes", [])
+    merged['tags'] = old_data.get('tags', new_data.get('tags', []))
+    merged['category'] = old_data.get('category', [])
+    merged['used_in'] = old_data.get('used_in', [])
+    merged['related_nodes'] = old_data.get('related_nodes', [])
 
     # description: keep new if non-empty (from doc comment), else preserve old
-    if not merged.get("description"):
-        merged["description"] = old_data.get("description", "")
+    if not merged.get('description'):
+        merged['description'] = old_data.get('description', '')
 
     # merge objects by name
-    old_by_name: dict[str, dict] = {o["name"]: o for o in old_data.get("objects", [])}
+    old_by_name: dict[str, dict] = {o['name']: o for o in old_data.get('objects', [])}
     merged_objects = []
-    for new_obj in new_data.get("objects", []):
-        name = new_obj["name"]
+    for new_obj in new_data.get('objects', []):
+        name = new_obj['name']
         if name in old_by_name:
             old_obj = old_by_name[name]
-            obj = dict(new_obj)  # structural fields from new
-            if obj.get("kind") == "struct":  # implements only meaningful on structs
-                obj["implements"] = old_obj.get("implements", [])
-            if not obj.get("description"):  # keep manual description if no doc comment
-                obj["description"] = old_obj.get("description", "")
+            obj = dict(new_obj)                          # structural fields from new
+            if obj.get('kind') == 'struct':              # implements only meaningful on structs
+                obj['implements'] = old_obj.get('implements', [])
+            if not obj.get('description'):               # keep manual description if no doc comment
+                obj['description'] = old_obj.get('description', '')
         else:
-            obj = new_obj  # new object — use as-is
+            obj = new_obj                                # new object — use as-is
         merged_objects.append(obj)
 
-    merged["objects"] = merged_objects
+    merged['objects'] = merged_objects
     return merged
 
 
@@ -1005,13 +824,13 @@ def _write_yaml(data: dict, path: Path) -> None:
     """Write the companion data as a YAML document, keeping the key order."""
     with open(path, "w", encoding="utf-8") as f:
         f.write("---\n")
-        yaml.dump(
-            data, f, allow_unicode=True, default_flow_style=False, sort_keys=False
-        )
+        yaml.dump(data, f, allow_unicode=True, default_flow_style=False,
+                  sort_keys=False)
 
 
 def main() -> None:
     """CLI entry point: generate, overwrite or merge the companion of each Go file.
+
     Declarations come from goastdump unless ``--parser regex``; with ``--parser ast`` a
     missing go/ast front end exits with status 2 instead of falling back. Existing
     companions are skipped unless ``--overwrite`` or ``--merge`` is given;
@@ -1023,48 +842,32 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument(
-        "files", nargs="*", metavar="FILE", help="Go source files to process"
-    )
-    parser.add_argument("--dir", metavar="DIR", help="Process all .go files in DIR")
-    parser.add_argument(
-        "--recursive",
-        action="store_true",
-        help="Recurse into subdirectories (use with --dir)",
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Overwrite existing YAML files completely",
-    )
-    parser.add_argument(
-        "--merge",
-        action="store_true",
-        help="Update auto fields (references, descriptions from doc comments) "
-        "while preserving manual fields (tags, category, used_in, "
-        "related_nodes, implements). Implies --overwrite for existing files.",
-    )
-    parser.add_argument("--skip-tests", action="store_true", help="Skip _test.go files")
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Print actions without writing files"
-    )
-    parser.add_argument(
-        "--parser",
-        choices=("auto", "ast", "regex"),
-        default="auto",
-        help="Declaration reader. ast: go/ast via tools/goastdump (needs a Go "
-        "toolchain, fails loudly without one). regex: the legacy reader, "
-        "known to miss grouped const/var blocks, unnamed receivers, generics "
-        "and code after a string containing '//'. auto (default): ast, "
-        "falling back to regex with a warning where ast is unavailable.",
-    )
-    parser.add_argument(
-        "--detect-implements",
-        action="store_true",
-        help="After generating/merging, detect interface implementations "
-        "by method-set inclusion across all YAMLs in the same directory "
-        "and fill in the implements field. Only effective with --dir.",
-    )
+    parser.add_argument("files", nargs="*", metavar="FILE",
+                        help="Go source files to process")
+    parser.add_argument("--dir", metavar="DIR",
+                        help="Process all .go files in DIR")
+    parser.add_argument("--recursive", action="store_true",
+                        help="Recurse into subdirectories (use with --dir)")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Overwrite existing YAML files completely")
+    parser.add_argument("--merge", action="store_true",
+                        help="Update auto fields (references, descriptions from doc comments) "
+                             "while preserving manual fields (tags, category, used_in, "
+                             "related_nodes, implements). Implies --overwrite for existing files.")
+    parser.add_argument("--skip-tests", action="store_true",
+                        help="Skip _test.go files")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print actions without writing files")
+    parser.add_argument("--parser", choices=("auto", "ast", "regex"), default="auto",
+                        help="Declaration reader. ast: go/ast via tools/goastdump (needs a Go "
+                             "toolchain, fails loudly without one). regex: the legacy reader, "
+                             "known to miss grouped const/var blocks, unnamed receivers, generics "
+                             "and code after a string containing '//'. auto (default): ast, "
+                             "falling back to regex with a warning where ast is unavailable.")
+    parser.add_argument("--detect-implements", action="store_true",
+                        help="After generating/merging, detect interface implementations "
+                             "by method-set inclusion across all YAMLs in the same directory "
+                             "and fill in the implements field. Only effective with --dir.")
     args = parser.parse_args()
 
     files: list[Path] = [Path(f) for f in args.files]
@@ -1080,24 +883,17 @@ def main() -> None:
 
     dumps: dict[Path, dict] = {}
     if args.parser != "regex":
-        todo = [
-            f
-            for f in sorted(set(files))
-            if f.exists()
-            and not (args.skip_tests and f.name.endswith("_test.go"))
-            and (args.overwrite or args.merge or not f.with_suffix(".yaml").exists())
-        ]
+        todo = [f for f in sorted(set(files))
+                if f.exists() and not (args.skip_tests and f.name.endswith("_test.go"))
+                and (args.overwrite or args.merge or not f.with_suffix(".yaml").exists())]
         try:
             dumps = _ast_dump(todo) if todo else {}
         except RuntimeError as e:
             if args.parser == "ast":
                 print(f"ERROR: {e}", file=sys.stderr)
                 sys.exit(2)
-            print(
-                f"WARNING: {e}; falling back to the regex reader, which is known to "
-                f"miss declarations (use --parser ast to make this an error)",
-                file=sys.stderr,
-            )
+            print(f"WARNING: {e}; falling back to the regex reader, which is known to "
+                  f"miss declarations (use --parser ast to make this an error)", file=sys.stderr)
 
     generated = merged_count = skipped = errors = 0
     for go_file in sorted(set(files)):
@@ -1122,10 +918,7 @@ def main() -> None:
                 print(f"ERROR: {go_file}: {dump['error']}", file=sys.stderr)
                 errors += 1
                 continue
-            print(
-                f"WARNING: {go_file}: {dump['error']}; using the regex reader",
-                file=sys.stderr,
-            )
+            print(f"WARNING: {go_file}: {dump['error']}; using the regex reader", file=sys.stderr)
             dump = None
         try:
             data = generate(go_file, dump)
@@ -1153,9 +946,7 @@ def main() -> None:
         ref_count = sum(len(o.get("references", [])) for o in data["objects"])
 
         if args.dry_run:
-            print(
-                f"DRY-RUN ({action}): {yaml_file}  [{obj_count} objects, {ref_count} refs]"
-            )
+            print(f"DRY-RUN ({action}): {yaml_file}  [{obj_count} objects, {ref_count} refs]")
         else:
             _write_yaml(data, yaml_file)
             print(f"{action}: {yaml_file}  [{obj_count} objects, {ref_count} refs]")
@@ -1175,9 +966,7 @@ def main() -> None:
                 try:
                     with open(yaml_file) as f:
                         data = yaml.safe_load(f) or {}
-                except (
-                    Exception
-                ):  # nosec B112 - one malformed companion YAML must not abort the scan
+                except Exception:  # nosec B112 - one malformed companion YAML must not abort the scan
                     continue
                 changed = False
                 for obj in data.get("objects", []):
@@ -1189,9 +978,7 @@ def main() -> None:
                             impl_count += 1
                 if changed:
                     _write_yaml(data, yaml_file)
-                    print(
-                        f"IMPLEMENTS: {yaml_file.name} — updated {sum(1 for o in data['objects'] if o.get('kind')=='struct' and o.get('implements'))} structs"
-                    )
+                    print(f"IMPLEMENTS: {yaml_file.name} — updated {sum(1 for o in data['objects'] if o.get('kind')=='struct' and o.get('implements'))} structs")
         print(f"Interface detection: {impl_count} struct(s) updated with implements")
 
     if errors:
