@@ -1,3 +1,11 @@
+"""Release phases of the mcp flavor: ``ReleaseManager`` and its helpers.
+
+``check`` runs the local pre-flight checks; ``prepare`` (on the main branch) creates the
+release branch and a signed ``project.yaml``; ``close`` (on the release branch)
+validates ``project.yaml`` against ``project.schema.yaml``, commits, tags, merges back
+and cleans up. Source trees are hashed reproducibly from git tree objects.
+"""
+
 import base64
 import datetime
 import hashlib
@@ -82,6 +90,12 @@ def get_reproducible_repo_hash(git_service, tree_id):
 
 
 class ReleaseManager:
+    """Drives the release phases for one project root.
+
+    ``config`` is the ``compiler_settings`` block of ``project.yaml``; Git and Vault are
+    reached only through the injected ``git_service`` and ``vault_service``, so the
+    phases can be tested with fakes. With ``dry_run`` nothing is written or signed.
+    """
     def __init__(
         self,
         config,
@@ -99,6 +113,7 @@ class ReleaseManager:
         self.logger = logger if logger else logging.getLogger(__name__)
 
     def _path(self, relative_path):
+        """Resolve a path relative to the project root."""
         return self.project_root / relative_path
 
     def _validate_final_project_yaml(self):
