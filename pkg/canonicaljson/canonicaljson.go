@@ -50,6 +50,10 @@ func SetToJSONMock(mock ToJSONFunc) {
 	}
 }
 
+// writeCanonicalJSON writes v as canonical JSON: nil, bool, float64 and string as their JSON
+// literals, []any element by element, map[string]any with sorted keys. Any other value is
+// marshalled with encoding/json first; a JSON object result (e.g. a struct) is decoded again and
+// written as a sorted map, any other result is written as marshalled.
 func writeCanonicalJSON(w io.Writer, v any) error {
 	switch vv := v.(type) {
 	case nil:
@@ -91,6 +95,7 @@ func writeCanonicalJSON(w io.Writer, v any) error {
 	}
 }
 
+// writeJSONString writes v as encoding/json marshals it (used for strings, keys and numbers).
 func writeJSONString(w io.Writer, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -100,6 +105,7 @@ func writeJSONString(w io.Writer, v any) error {
 	return err
 }
 
+// writeJSONArray writes arr as a JSON array, each element in canonical form, in order.
 func writeJSONArray(w io.Writer, arr []any) error {
 	if _, err := w.Write([]byte("[")); err != nil {
 		return err
@@ -118,6 +124,7 @@ func writeJSONArray(w io.Writer, arr []any) error {
 	return err
 }
 
+// writeJSONMap writes m as a JSON object with its keys sorted, each value in canonical form.
 func writeJSONMap(w io.Writer, m map[string]any) error {
 	if _, err := w.Write([]byte("{")); err != nil {
 		return err

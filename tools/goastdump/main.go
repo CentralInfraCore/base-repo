@@ -62,8 +62,11 @@ type FileDump struct {
 }
 
 var (
-	reMajor   = regexp.MustCompile(`^v[0-9]+$`)
-	reDotVer  = regexp.MustCompile(`\.v[0-9]+$`)
+	// reMajor matches a major-version path element such as "v2".
+	reMajor = regexp.MustCompile(`^v[0-9]+$`)
+	// reDotVer matches a gopkg.in-style ".vN" suffix such as in "yaml.v3".
+	reDotVer = regexp.MustCompile(`\.v[0-9]+$`)
+	// spaceRuns matches whitespace runs, folded to one space in doc text.
 	spaceRuns = regexp.MustCompile(`\s+`)
 )
 
@@ -79,6 +82,8 @@ func guessPkgName(p string) string {
 	return reDotVer.ReplaceAllString(last, "")
 }
 
+// docText returns the text of a doc comment group on a single line, with
+// whitespace runs folded to one space; "" for no comment.
 func docText(g *ast.CommentGroup) string {
 	if g == nil {
 		return ""
@@ -86,6 +91,8 @@ func docText(g *ast.CommentGroup) string {
 	return strings.TrimSpace(spaceRuns.ReplaceAllString(g.Text(), " "))
 }
 
+// fileCtx is the per-file resolution context: the imports in scope, keyed by
+// the name the file uses for them (explicit alias or guessed package name).
 type fileCtx struct {
 	imports map[string]string
 }
@@ -179,6 +186,7 @@ func (c *fileCtx) identType(id *ast.Ident) (pkg, name string, ok bool) {
 	return "", "", false
 }
 
+// exported reports whether name starts with an upper-case letter.
 func exported(name string) bool { return ast.IsExported(name) }
 
 // collector gathers refs and calls from a subtree, first occurrence order,
@@ -191,10 +199,12 @@ type collector struct {
 	seenCall map[Call]bool
 }
 
+// newCollector returns an empty collector resolving names through c.
 func newCollector(c *fileCtx) *collector {
 	return &collector{ctx: c, refs: []Ref{}, calls: []Call{}, seenRef: map[Ref]bool{}, seenCall: map[Call]bool{}}
 }
 
+// addCall records c unless the same call was already recorded.
 func (k *collector) addCall(c Call) {
 	if !k.seenCall[c] {
 		k.seenCall[c] = true
@@ -202,6 +212,8 @@ func (k *collector) addCall(c Call) {
 	}
 }
 
+// visit walks the subtree of n, recording every selector on an imported package
+// as a Ref and every call as by call. A nil node is ignored.
 func (k *collector) visit(n ast.Node) {
 	if n == nil {
 		return
@@ -223,6 +235,11 @@ func (k *collector) visit(n ast.Node) {
 	})
 }
 
+// call records a call expression if the called name is exported. Generic
+// instantiations and parentheses are stripped first. A plain identifier is
+// recorded by name only; for a selector the receiver is classified as an import
+// alias (Pkg), a local identifier with a syntactically known type (Pkg/Type),
+// or unknown (name only).
 func (k *collector) call(x *ast.CallExpr) {
 	fun := x.Fun
 	for { // F[T](…) -> F
@@ -265,6 +282,8 @@ func (k *collector) call(x *ast.CallExpr) {
 	}
 }
 
+// recvTypeName returns the base type name of a method receiver, stripping
+// pointers, parentheses and type parameters; "" if it is not a plain name.
 func recvTypeName(e ast.Expr) string {
 	switch x := e.(type) {
 	case *ast.StarExpr:
@@ -281,6 +300,10 @@ func recvTypeName(e ast.Expr) string {
 	return ""
 }
 
+// typeObject builds the Object for a type declaration: kind struct, interface
+// (with its sorted exported method names; embedded interfaces are not listed)
+// or type, and the package refs found in the type expression. Types record no
+// calls.
 func (c *fileCtx) typeObject(name string, doc string, t ast.Expr) Object {
 	k := newCollector(c)
 	k.visit(t)
@@ -311,6 +334,11 @@ func (c *fileCtx) typeObject(name string, doc string, t ast.Expr) Object {
 	return o
 }
 
+// dump parses one file and returns its package, package doc, imports and
+// top-level declarations. A parse error is reported in FileDump.Error, not
+// returned. Blank and dot imports and "_" names are skipped. A declaration's
+// doc is its own comment; inside a parenthesized group the group's comment is
+// not inherited.
 func dump(path string) FileDump {
 	d := FileDump{File: path, Imports: map[string]string{}, Objects: []Object{}}
 	fset := token.NewFileSet()
@@ -390,6 +418,9 @@ func dump(path string) FileDump {
 	return d
 }
 
+// main dumps every file named on the command line and writes one JSON object
+// {"files": [...]} to stdout. It exits with status 2 without arguments and 1 if
+// the output cannot be written; per-file parse errors do not fail the run.
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: goastdump <file.go> [<file.go> ...]")

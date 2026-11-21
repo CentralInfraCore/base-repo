@@ -92,6 +92,7 @@ def _remove_strings(source: str) -> str:
 
 
 def _clean(source: str) -> str:
+    """Return the source with comments removed and string/rune literals blanked."""
     # Comments first — prevents apostrophes in comments from poisoning rune literal regex
     return _remove_strings(_remove_comments(source))
 
@@ -471,6 +472,16 @@ def _suggest_tags(go_file: Path, imports: dict[str, str], objects: list[dict]) -
 # ---------------------------------------------------------------------------
 
 def _parse_objects(source: str, imports: dict[str, str], module_name: str = "") -> list[dict]:
+    """Find the top-level declarations of a Go file with regular expressions (the fallback
+    reader).
+
+    Returns one companion object per struct, interface, other named type, func, method,
+    and single-line package-level ``var`` and ``const``; grouped ``var (...)`` / ``const
+    (...)`` blocks are not recognized. Each object carries its doc comment as
+    ``description`` and the external references found in its body (for funcs and methods
+    also in the signature). Used only with ``--parser regex``, or with ``--parser auto``
+    when goastdump is unavailable.
+    """
     objects: list[dict] = []
     clean = _clean(source)
     doc = _extract_doc_comments(source)
@@ -666,6 +677,9 @@ def _ast_dump(files: list[Path]) -> dict[Path, dict]:
 
 
 def _format_call(c: dict, imports: dict[str, str]) -> str | None:
+    """Format one goastdump call as "pkg.Type.Name" (empty parts omitted), or None for a
+    call into the standard library or an unknown alias, which is not part of the graph.
+    """
     pkg = c.get("pkg", "")
     if pkg and not _is_external(pkg, imports):
         return None  # stdlib (or unknown alias): not part of the graph
@@ -807,6 +821,7 @@ def _merge_data(new_data: dict, old_data: dict) -> dict:
 
 
 def _write_yaml(data: dict, path: Path) -> None:
+    """Write the companion data as a YAML document, keeping the key order."""
     with open(path, "w", encoding="utf-8") as f:
         f.write("---\n")
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False,
@@ -814,6 +829,14 @@ def _write_yaml(data: dict, path: Path) -> None:
 
 
 def main() -> None:
+    """CLI entry point: generate, overwrite or merge the companion of each Go file.
+
+    Declarations come from goastdump unless ``--parser regex``; with ``--parser ast`` a
+    missing go/ast front end exits with status 2 instead of falling back. Existing
+    companions are skipped unless ``--overwrite`` or ``--merge`` is given;
+    ``--detect-implements`` then fills ``implements`` per directory. Exits with status 1
+    if no file was given or any file failed.
+    """
     parser = argparse.ArgumentParser(
         description="Generate companion YAML skeletons for Go source files.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
