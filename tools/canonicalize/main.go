@@ -1,3 +1,8 @@
+// Command canonicalize reads one JSON document from stdin and writes its
+// canonical form (sorted object keys, no insignificant whitespace, produced by
+// pkg/canonicaljson) to stdout, followed by a newline. It lets shell steps hash
+// a document exactly the way the Go services do. A read, parse or write
+// failure is printed to stderr and exits with status 1.
 package main
 
 import (
@@ -13,6 +18,7 @@ import (
 // It can be reassigned for testing purposes.
 var RunFunc = Run
 
+// main runs RunFunc on stdin and stdout and exits with status 1 on error.
 func main() {
 	if err := RunFunc(os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -20,6 +26,9 @@ func main() {
 	}
 }
 
+// Run reads the whole input, parses it as JSON and writes the canonical JSON
+// of the result plus a newline to output. Empty input is an error. Numbers go
+// through float64, so integers beyond 2^53 lose precision.
 func Run(input io.Reader, output io.Writer) error {
 	stdin, err := io.ReadAll(input)
 	if err != nil {

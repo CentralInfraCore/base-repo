@@ -1,3 +1,8 @@
+// Command symbolsgen writes context/SYMBOLS.md, a Markdown list of the exported
+// constants, variables, functions and types of the Go packages named (one
+// pattern per line) in context/SYMBOLS.ALLOWPKGS. Packages that fail to load
+// are logged and skipped. Run it from the repo root (make golang.symbols);
+// make golang.check-symbols fails when the committed file has drifted.
 package main
 
 import (
@@ -14,7 +19,9 @@ import (
 )
 
 const (
-	allowFile  = "context/SYMBOLS.ALLOWPKGS"
+	// allowFile lists the package patterns to document, one per line.
+	allowFile = "context/SYMBOLS.ALLOWPKGS"
+	// outputFile is the generated symbol list, relative to the repo root.
 	outputFile = "context/SYMBOLS.md"
 )
 
@@ -100,6 +107,8 @@ func generateSymbols(pkgPatterns []string) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
+// main reads the allowlist, generates the symbol list and writes it to
+// outputFile, exiting through log.Fatalf on any error.
 func main() {
 	// 1. Read the allowlist of packages
 	allowlist, err := os.ReadFile(allowFile)
