@@ -41,7 +41,8 @@ objects:
   references: []
 - name: fileCtx
   kind: struct
-  description: ''
+  description: 'fileCtx is the per-file resolution context: the imports in scope,
+    keyed by the name the file uses for them (explicit alias or guessed package name).'
   implements: []
   references: []
 - name: collector
@@ -61,7 +62,8 @@ objects:
   - ReplaceAllString
 - name: docText
   kind: func
-  description: ''
+  description: docText returns the text of a doc comment group on a single line, with
+    whitespace runs folded to one space; "" for no comment.
   references: []
   calls:
   - ReplaceAllString
@@ -97,66 +99,80 @@ objects:
   calls: []
 - name: exported
   kind: func
-  description: ''
+  description: exported reports whether name starts with an upper-case letter.
   references: []
   calls: []
 - name: newCollector
   kind: func
-  description: ''
+  description: newCollector returns an empty collector resolving names through c.
   references: []
   calls: []
 - name: addCall
   kind: method
   receiver: collector
-  description: ''
+  description: addCall records c unless the same call was already recorded.
   references: []
   calls: []
 - name: visit
   kind: method
   receiver: collector
-  description: ''
+  description: visit walks the subtree of n, recording every selector on an imported
+    package as a Ref and every call as by call. A nil node is ignored.
   references: []
   calls: []
 - name: call
   kind: method
   receiver: collector
-  description: ''
+  description: call records a call expression if the called name is exported. Generic
+    instantiations and parentheses are stripped first. A plain identifier is recorded
+    by name only; for a selector the receiver is classified as an import alias (Pkg),
+    a local identifier with a syntactically known type (Pkg/Type), or unknown (name
+    only).
   references: []
   calls: []
 - name: recvTypeName
   kind: func
-  description: ''
+  description: recvTypeName returns the base type name of a method receiver, stripping
+    pointers, parentheses and type parameters; "" if it is not a plain name.
   references: []
   calls: []
 - name: typeObject
   kind: method
   receiver: fileCtx
-  description: ''
+  description: 'typeObject builds the Object for a type declaration: kind struct,
+    interface (with its sorted exported method names; embedded interfaces are not
+    listed) or type, and the package refs found in the type expression. Types record
+    no calls.'
   references: []
   calls: []
 - name: dump
   kind: func
-  description: ''
+  description: dump parses one file and returns its package, package doc, imports
+    and top-level declarations. A parse error is reported in FileDump.Error, not returned.
+    Blank and dot imports and "_" names are skipped. A declaration's doc is its own
+    comment; inside a parenthesized group the group's comment is not inherited.
   references: []
   calls:
   - Error
   - IsValid
 - name: main
   kind: func
-  description: ''
+  description: 'main dumps every file named on the command line and writes one JSON
+    object {"files": [...]} to stdout. It exits with status 2 without arguments and
+    1 if the output cannot be written; per-file parse errors do not fail the run.'
   references: []
   calls:
   - Encode
   - SetEscapeHTML
 - name: reMajor
   kind: var
-  description: ''
+  description: reMajor matches a major-version path element such as "v2".
   references: []
 - name: reDotVer
   kind: var
-  description: ''
+  description: reDotVer matches a gopkg.in-style ".vN" suffix such as in "yaml.v3".
   references: []
 - name: spaceRuns
   kind: var
-  description: ''
+  description: spaceRuns matches whitespace runs, folded to one space in doc text.
   references: []
