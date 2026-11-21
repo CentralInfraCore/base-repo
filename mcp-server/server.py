@@ -96,6 +96,7 @@ RULE_FILE_HINTS = [
 
 
 def _clamp_topk(k: int) -> int:
+    """Clamp a requested result count to 1..MAX_TOPK."""
     return max(1, min(int(k), MAX_TOPK))
 
 
@@ -346,6 +347,9 @@ def _load_kb_from_disk() -> dict[str, Any]:
 
 
 def _tokenize(q: str) -> list[str]:
+    """Split a query into lower-case alphabetic word tokens (accented letters kept), close
+    to how make_source.py tokenizes; no stopword removal.
+    """
     # Align closer to make_source.py: lowercase + alpha-only tokens.
     # This also keeps Hungarian accented letters (isalpha() == True).
     # (No stopword removal here to keep server lightweight and deterministic.)
@@ -356,6 +360,7 @@ def _tokenize(q: str) -> list[str]:
 
 
 def _extract_chunk_text(chunk: dict) -> str:
+    """The text of a chunk - its ``content`` if set, else its ``text``, else ""."""
     content = chunk.get("content")
     if isinstance(content, str) and content:
         return content
@@ -390,6 +395,8 @@ def _extract_chunk_file_path(chunk: dict) -> str:
 
 
 def _extract_chunk_section(chunk: dict) -> str:
+    """The section name of a chunk, from the chunk itself or its ``metadata``; "" if none.
+    """
     meta = chunk.get("metadata", {})
     if not isinstance(meta, dict):
         meta = {}
@@ -424,6 +431,9 @@ def _rule_bonus_for_chunk(chunk: dict) -> float:
 
 
 def _kb_mtimes() -> dict[str, float | None]:
+    """The modification times of the chunk, node, edge and inverted-index pickles (None if
+    missing).
+    """
     return {
         "chunks": CHUNKS_PKL.stat().st_mtime if CHUNKS_PKL.exists() else None,
         "nodes": NODES_PKL.stat().st_mtime if NODES_PKL.exists() else None,
@@ -756,6 +766,7 @@ def _incremental_update_kb(changed: list, deleted: list) -> dict:
 
 
 def _file_hash(path: str) -> str:
+    """The hex SHA-256 of a file's content, or "" if it cannot be read."""
     try:
         with open(path, 'rb') as f:
             return hashlib.sha256(f.read()).hexdigest()
@@ -764,6 +775,8 @@ def _file_hash(path: str) -> str:
 
 
 def _scan_watch_dir(watch_dir: Path) -> dict:
+    """Map every non-hidden .md / .yaml / .yml file under watch_dir to its content hash.
+    """
     result = {}
     for root, _, files in os.walk(watch_dir):
         for fname in files:
@@ -1732,12 +1745,16 @@ def _find_promptmaps() -> list[Path]:
 
 
 def _load_promptmap(path: Path) -> dict:
+    """Load a PROMPTMAP.yaml file; an empty file is an empty dict."""
     import yaml as _yaml
     with path.open() as f:
         return _yaml.safe_load(f) or {}
 
 
 def _save_promptmap(path: Path, data: dict) -> None:
+    """Write a PROMPTMAP.yaml atomically (temporary file in the same directory, then
+    rename).
+    """
     import yaml as _yaml
     import tempfile
     # Atomic write: temp file + rename
@@ -2160,6 +2177,14 @@ DEFAULT_PORT = int(os.environ.get("MCP_PORT", "8000"))
 
 
 def main() -> None:
+    """Parse the command line, point the KB paths at ``--kb-dir`` and serve the tools over
+    stdio, or SSE with ``--sse``.
+
+    With ``--source`` a missing KB is built in the background by make_source.py and
+    kb_watch.py is started to keep it current; with ``--rebuild-graph-on-watch`` a
+    monitor thread refreshes the graph after updates. Mutating tools are enabled only by
+    ``--enable-mutations``.
+    """
     parser = argparse.ArgumentParser(description="CIC Graph MCP Server")
     parser.add_argument("--mcp-name", default=os.environ.get("MCP_SERVER_NAME", "cic-relay"),
                         help="MCP server name (default: cic-relay, env: MCP_SERVER_NAME)")
