@@ -1,3 +1,12 @@
+"""Release phases of the wasm flavor: ``ReleaseManager`` and its helpers (schema loading
+and artifact signing come from ``tools.schemalib``).
+
+``release`` runs on the main branch as the *preparation* phase (release branch
+``{component}/releases/v{VERSION}``, ``project.yaml`` filled and signed via Vault,
+committed) and on that release branch as the *finalization* phase (``project.yaml``
+validated, committed, tagged, merged back, branch cleaned up).
+"""
+
 import base64
 import datetime
 import hashlib
@@ -30,6 +39,13 @@ _parse_certificate_info = parse_certificate_info
 
 
 class ReleaseManager:
+    """Drives the release phases for one project root.
+
+    ``config`` is the ``compiler_settings`` block of ``project.yaml``; Git and Vault are
+    reached only through the injected ``git_service`` and ``vault_service``, so the
+    phases can be tested with fakes. With ``dry_run`` nothing is written or signed.
+    """
+
     def __init__(
         self,
         config,
@@ -47,6 +63,7 @@ class ReleaseManager:
         self.logger = logger if logger else logging.getLogger(__name__)
 
     def _path(self, relative_path):
+        """Resolve a path relative to the project root."""
         return self.project_root / relative_path
 
     def _check_base_branch_and_version(self, release_version: str):

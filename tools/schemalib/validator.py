@@ -1,3 +1,7 @@
+"""Validation of a document against a validator schema, after checking that the validator
+schema itself is intact (its recorded checksum matches).
+"""
+
 import logging
 from pathlib import Path
 

@@ -12,18 +12,29 @@ import (
 	"unsafe"
 )
 
+// main is empty: a WASM guest is driven only through its exported functions.
 func main() {}
 
+// allocate reserves size bytes of guest memory with malloc and returns the pointer; the host
+// uses it to pass arguments in and the guest to hand results back.
+//
 //export allocate
 func allocate(size uint32) uintptr {
 	return uintptr(C.malloc(C.size_t(size)))
 }
 
+// deallocate frees memory obtained from allocate; size is part of the host ABI and unused.
+//
 //export deallocate
 func deallocate(ptr uintptr, size uint32) {
 	C.free(unsafe.Pointer(ptr))
 }
 
+// Call is the single host-facing entry point: it reads the op name and the auth and data
+// buffers from guest memory, dispatches the op to its handler and returns the packed result
+// (size << 32 | pointer) of a data or error envelope. An unknown op is an input error; a
+// handler's GuestError keeps its code, any other error is a runtime error.
+//
 //export Call
 func Call(opPtr, opLen, authPtr, authLen, dataPtr, dataLen uint32) uint64 {
 	op := readString(opPtr, opLen)

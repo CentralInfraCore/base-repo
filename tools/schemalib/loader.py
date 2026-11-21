@@ -1,3 +1,8 @@
+"""YAML schema loading: ``load_and_resolve_schema`` resolves ``$ref`` (cross-file
+references relative to the schema's directory) into a JSON-serializable document;
+``load_yaml`` / ``write_yaml`` read and atomically write YAML.
+"""
+
 import datetime
 import json
 import os

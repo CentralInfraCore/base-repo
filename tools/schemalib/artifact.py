@@ -1,3 +1,7 @@
+"""Release artifact helpers: canonical JSON, the spec checksum, SHA-256 in hex and base64,
+certificate subject parsing, and building the signing payload and the signed artifact.
+"""
+
 import base64
 import hashlib
 import json
