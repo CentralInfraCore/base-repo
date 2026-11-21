@@ -23,15 +23,15 @@ type guestError struct {
 // to CodeRuntime in the dispatcher (abi.go: Call).
 const (
 	// CodeInput reports a request the guest cannot accept, including an unknown op.
-	CodeInput    = "INPUT"
+	CodeInput = "INPUT"
 	// CodeRuntime reports a handler failure; it is the code of every untyped handler error.
-	CodeRuntime  = "RUNTIME"
+	CodeRuntime = "RUNTIME"
 	// CodeInternal reports a fault of the guest itself, e.g. a handler result that is not valid JSON.
 	CodeInternal = "INTERNAL"
 	// CodeResource reports an exhausted resource (quota, capacity).
 	CodeResource = "RESOURCE"
 	// CodeTimeout reports an operation that ran out of time.
-	CodeTimeout  = "TIMEOUT"
+	CodeTimeout = "TIMEOUT"
 )
 
 // GuestError is a typed handler error carrying one of the iSDK error codes
