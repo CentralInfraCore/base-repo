@@ -9,8 +9,10 @@ existing embeddings are reused from the sidecar `embeddings_by_id.pkl`.
 Works with any repo or directory — not MCP-specific.
 
 Usage:
-    python mcp-server/kb_watch.py <watch_dir> [--kb-dir kb_data] [--interval 2]
-    python mcp-server/kb_watch.py <watch_dir> --once    # single scan + exit
+    python mcp-server/kb_watch.py [--source DIR] [--kb-dir DIR]   # watch (inotify)
+    python mcp-server/kb_watch.py [--source DIR] [--kb-dir DIR] --once   # single scan + exit
+
+--source defaults to $SOURCE_DIR or ./source, --kb-dir to $KB_DATA_DIR or ./kb_data.
 """
 
 import argparse
@@ -57,6 +59,7 @@ _EXCLUDE_DIRS = {
 
 
 def _file_hash(path: str) -> str:
+    """The hex SHA-256 of a file's content, or "" if it cannot be read."""
     try:
         with open(path, 'rb') as f:
             return hashlib.sha256(f.read()).hexdigest()
@@ -65,6 +68,9 @@ def _file_hash(path: str) -> str:
 
 
 def load_file_state(kb_dir: Path) -> dict:
+    """The {path - content hash} state saved by the last update, or {} if there is none or
+    it is unreadable.
+    """
     p = kb_dir / _STATE_FILE
     if p.exists():
         try:
@@ -75,6 +81,7 @@ def load_file_state(kb_dir: Path) -> dict:
 
 
 def save_file_state(kb_dir: Path, state: dict) -> None:
+    """Save the {path - content hash} state next to the KB."""
     (kb_dir / _STATE_FILE).write_text(json.dumps(state, indent=2))
 
 
@@ -249,10 +256,12 @@ def process_file(file_path: str) -> list:
 # ── PKL helpers ──────────────────────────────────────────────────────────────
 
 def _pkl_path(kb_dir: Path, name: str) -> Path:
+    """The path of a KB pickle under ``kb_dir/pkl``."""
     return kb_dir / 'pkl' / name
 
 
 def _load_pkl(kb_dir: Path, name: str, default):
+    """Load a KB pickle, or return default when it does not exist."""
     p = _pkl_path(kb_dir, name)
     if p.exists():
         with p.open('rb') as f:
@@ -285,6 +294,9 @@ def _load_chunks(kb_dir: Path) -> dict:
 # ── incremental update ────────────────────────────────────────────────────
 
 def _chunks_for_files(chunks_by_id: dict, file_paths: list) -> set:
+    """The ids of the chunks that come from any of file_paths (dedup-aware - any of a
+    chunk's paths counts).
+    """
     fp_set = set(file_paths)
     return {
         cid for cid, c in chunks_by_id.items()
@@ -293,6 +305,7 @@ def _chunks_for_files(chunks_by_id: dict, file_paths: list) -> set:
 
 
 def _next_chunk_id(chunks_by_id: dict) -> int:
+    """The next free number for a sequential ``c<N>`` chunk id."""
     nums = [int(cid[1:]) for cid in chunks_by_id if cid.startswith('c') and cid[1:].isdigit()]
     return max(nums, default=0) + 1
 
@@ -411,6 +424,9 @@ def incremental_update(watch_dir: Path, changed: list, deleted: list,
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def _load_model(kb_dir: Path):
+    """Load the sentence-transformers model the KB was built with (``model_name.pkl``, else
+    the default).
+    """
     from sentence_transformers import SentenceTransformer
     model_name = _load_pkl(kb_dir, 'model_name.pkl', make_source.EMBEDDING_MODEL)
     print(f"Loading model: {model_name}")
@@ -428,16 +444,19 @@ class KBWatchHandler(FileSystemEventHandler):
         self.pending_files: set[str] = set()
 
     def on_modified(self, event):
+        """Queue a modified watched file and process the pending changes."""
         if not event.is_directory and self._should_process(event.src_path):
             self.pending_files.add(event.src_path)
             self._process_changes()
 
     def on_created(self, event):
+        """Queue a created watched file and process the pending changes."""
         if not event.is_directory and self._should_process(event.src_path):
             self.pending_files.add(event.src_path)
             self._process_changes()
 
     def on_deleted(self, event):
+        """Queue a deleted watched file and process the pending changes."""
         if not event.is_directory and self._should_process(event.src_path):
             self.pending_files.add(event.src_path)
             self._process_changes()
@@ -487,6 +506,10 @@ class KBWatchHandler(FileSystemEventHandler):
 
 
 def main():
+    """Watch --source and keep the KB under --kb-dir current. Waits up to ten minutes for a
+    bootstrap build to create chunks.pkl; with --once it applies the changes since the
+    saved state once and exits, otherwise it processes inotify events until interrupted.
+    """
     ap = argparse.ArgumentParser(
         description='Incremental KB watcher — watches any directory, updates KB PKLs on file change (inotify-based)',
     )

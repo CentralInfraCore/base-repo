@@ -46,7 +46,8 @@ objects:
 - name: find_promptmaps
   kind: function
   decorators: []
-  description: ''
+  description: 'The PROMPTMAP.yaml files to read: the colon-separated list in PROMPTMAP_PATHS,
+    else every PROMPTMAP.yaml under SOURCE_DIR.'
   references: []
   calls:
   - PROMPTMAP_PATHS_ENV.split
@@ -55,7 +56,8 @@ objects:
 - name: _repo_name
   kind: function
   decorators: []
-  description: ''
+  description: 'The repository a PROMPTMAP belongs to: the directory above its ``ai/``
+    directory, or else its grandparent directory.'
   references: []
   calls: []
 - name: iter_tasks
@@ -69,7 +71,9 @@ objects:
 - name: load_tasks
   kind: function
   decorators: []
-  description: ''
+  description: Collect the tasks of every PROMPTMAP, optionally filtered by repository
+    (case-insensitive substring), sprint and status, each annotated with its repository,
+    sprint and PROMPTMAP path, sorted by priority (tasks without one last).
   references:
   - yaml.safe_load
   calls:
@@ -85,7 +89,9 @@ objects:
 - name: update_task_status
   kind: function
   decorators: []
-  description: ''
+  description: Set the status of task_id (plus any extra fields) wherever it appears
+    in a PROMPTMAP - entries, sprint task lists or a flat task list - and rewrite
+    the file; returns whether the task was found.
   references:
   - yaml.dump
   - yaml.safe_load
@@ -100,7 +106,7 @@ objects:
 - name: load_profile
   kind: function
   decorators: []
-  description: ''
+  description: Load a task or scope profile ``<name>.yaml``; {} if it does not exist.
   references:
   - yaml.safe_load
   calls:
@@ -110,7 +116,10 @@ objects:
 - name: build_briefing
   kind: function
   decorators: []
-  description: ''
+  description: 'Render the Markdown briefing an agent works from: the task''s identity
+    and priority, the task profile (description, boot sequence, forbidden actions),
+    the scope profile (what it owns and reads, test command, coverage floor, invariants,
+    MCP focus queries), the task prompt, the tests to touch and the accept gate.'
   references: []
   calls:
   - scope_profile.get
@@ -119,13 +128,16 @@ objects:
 - name: run_accept_gate
   kind: function
   decorators: []
-  description: ''
+  description: Run a task's accept command through the shell and return its exit status
+    (the command comes from the PROMPTMAP, a trusted file).
   references: []
   calls: []
 - name: main
   kind: function
   decorators: []
-  description: ''
+  description: List tasks, or pick a task (``--task`` or the highest-priority todo),
+    print its briefing and - unless ``--print-briefing`` - run its accept gate, marking
+    the task done on success and failed after MAX_RETRIES failed attempts.
   references: []
   calls:
   - parser.add_argument

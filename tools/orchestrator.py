@@ -45,12 +45,18 @@ MAX_RETRIES = int(os.environ.get("ORCHESTRATOR_MAX_RETRIES", "2"))
 # --- PROMPTMAP helpers ---
 
 def find_promptmaps() -> list[Path]:
+    """The PROMPTMAP.yaml files to read: the colon-separated list in PROMPTMAP_PATHS, else
+    every PROMPTMAP.yaml under SOURCE_DIR.
+    """
     if PROMPTMAP_PATHS_ENV:
         return [Path(p) for p in PROMPTMAP_PATHS_ENV.split(":") if p.strip()]
     return list(SOURCE_DIR.rglob("PROMPTMAP.yaml"))
 
 
 def _repo_name(path: Path) -> str:
+    """The repository a PROMPTMAP belongs to: the directory above its ``ai/`` directory, or
+    else its grandparent directory.
+    """
     parts = path.parts
     try:
         idx = list(parts).index("ai")
@@ -77,6 +83,10 @@ def iter_tasks(data: dict, sprint: Optional[int] = None):
 
 
 def load_tasks(repo: str = "", sprint: Optional[int] = None, status: Optional[str] = None) -> list[dict]:
+    """Collect the tasks of every PROMPTMAP, optionally filtered by repository
+    (case-insensitive substring), sprint and status, each annotated with its repository,
+    sprint and PROMPTMAP path, sorted by priority (tasks without one last).
+    """
     results = []
     for pm_path in find_promptmaps():
         rname = _repo_name(pm_path)
@@ -95,6 +105,10 @@ def load_tasks(repo: str = "", sprint: Optional[int] = None, status: Optional[st
 
 
 def update_task_status(pm_path: Path, task_id: str, new_status: str, extra: Optional[dict] = None) -> bool:
+    """Set the status of task_id (plus any extra fields) wherever it appears in a PROMPTMAP
+    - entries, sprint task lists or a flat task list - and rewrite the file; returns
+    whether the task was found.
+    """
     with pm_path.open() as f:
         data = yaml.safe_load(f) or {}
     found = False
@@ -128,6 +142,7 @@ def update_task_status(pm_path: Path, task_id: str, new_status: str, extra: Opti
 # --- Profile helpers ---
 
 def load_profile(profiles_dir: Path, name: str) -> dict:
+    """Load a task or scope profile ``<name>.yaml``; {} if it does not exist."""
     p = profiles_dir / f"{name}.yaml"
     if not p.exists():
         return {}
@@ -138,6 +153,11 @@ def load_profile(profiles_dir: Path, name: str) -> dict:
 # --- Briefing builder ---
 
 def build_briefing(task: dict, task_profile: dict, scope_profile: dict) -> str:
+    """Render the Markdown briefing an agent works from: the task's identity and priority,
+    the task profile (description, boot sequence, forbidden actions), the scope profile
+    (what it owns and reads, test command, coverage floor, invariants, MCP focus
+    queries), the task prompt, the tests to touch and the accept gate.
+    """
     lines = ["# CIC Agent Briefing", ""]
     lines += [f"**Repo**: {task.get('repo', '?')}"]
     lines += [f"**Sprint**: {task.get('sprint', '?')}  |  **Task**: {task.get('task', '?')}  |  **Priority**: {task.get('priority', '?')}"]
@@ -199,6 +219,9 @@ def build_briefing(task: dict, task_profile: dict, scope_profile: dict) -> str:
 # --- Accept gate runner ---
 
 def run_accept_gate(accept_cmd: str, cwd: Optional[str] = None) -> int:
+    """Run a task's accept command through the shell and return its exit status (the
+    command comes from the PROMPTMAP, a trusted file).
+    """
     print(f"\n[orchestrator] Running accept gate: {accept_cmd}", file=sys.stderr)
     result = subprocess.run(accept_cmd, shell=True, cwd=cwd)
     return result.returncode
@@ -207,6 +230,10 @@ def run_accept_gate(accept_cmd: str, cwd: Optional[str] = None) -> int:
 # --- Main ---
 
 def main() -> None:
+    """List tasks, or pick a task (``--task`` or the highest-priority todo), print its
+    briefing and - unless ``--print-briefing`` - run its accept gate, marking the task
+    done on success and failed after MAX_RETRIES failed attempts.
+    """
     parser = argparse.ArgumentParser(description="CIC Agent Orchestrator")
     parser.add_argument("--repo", default="", help="Filter by repo name substring")
     parser.add_argument("--sprint", type=int, default=None, help="Filter by sprint number")

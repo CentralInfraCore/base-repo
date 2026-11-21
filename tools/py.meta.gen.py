@@ -66,6 +66,9 @@ _FALLBACK_STDLIB = {
 
 
 def _stdlib_set() -> set[str]:
+    """The names of the standard-library top-level modules (``sys.stdlib_module_names``, or
+    a fallback list).
+    """
     names = getattr(sys, "stdlib_module_names", None)
     return set(names) if names else set(_FALLBACK_STDLIB)
 
@@ -106,6 +109,9 @@ def _parse_imports(tree: ast.Module) -> dict[str, str]:
 
 
 def _is_stdlib(target: str, stdlib: set[str]) -> bool:
+    """Whether an absolute import target belongs to the standard library; relative imports
+    never do.
+    """
     if not target or target.startswith("."):
         return False
     return target.split(".")[0] in stdlib
@@ -116,6 +122,9 @@ def _is_stdlib(target: str, stdlib: set[str]) -> bool:
 # ---------------------------------------------------------------------------
 
 def _iter_subtree(node: ast.AST, skip_kinds: tuple = ()):
+    """Yield every descendant of node, not descending into nodes of skip_kinds (e.g. nested
+    defs).
+    """
     stack = list(ast.iter_child_nodes(node))
     while stack:
         n = stack.pop()
@@ -153,6 +162,8 @@ def _extract_refs(node: ast.AST, imports: dict[str, str], stdlib: set[str],
 # ---------------------------------------------------------------------------
 
 def _dotted_name(node: ast.AST) -> str:
+    """The dotted name of a Name / Attribute chain ("a.b.c"); "" for any other expression.
+    """
     if isinstance(node, ast.Name):
         return node.id
     if isinstance(node, ast.Attribute):
@@ -195,16 +206,19 @@ def _extract_calls(node: ast.AST, imports: dict[str, str], stdlib: set[str]) -> 
 
 
 def _decorator_name(node: ast.AST) -> str:
+    """The dotted name of a decorator, without its call arguments."""
     if isinstance(node, ast.Call):
         return _dotted_name(node.func)
     return _dotted_name(node)
 
 
 def _decorators(node) -> list[str]:
+    """The names of a def's or class's decorators, in source order."""
     return [d for d in (_decorator_name(n) for n in node.decorator_list) if d]
 
 
 def _clean_doc(doc: str | None) -> str:
+    """A docstring folded to one line (stripped lines joined by spaces); "" for none."""
     if not doc:
         return ""
     lines = [line.strip() for line in doc.strip().splitlines() if line.strip()]
@@ -212,6 +226,9 @@ def _clean_doc(doc: str | None) -> str:
 
 
 def _has_main_guard(tree: ast.Module) -> bool:
+    """Whether the module has an ``if __name__ ...`` comparison anywhere (taken as the
+    entrypoint marker).
+    """
     for node in ast.walk(tree):
         if isinstance(node, ast.If):
             test = node.test
@@ -276,6 +293,10 @@ def _suggest_tags(py_file: Path, imports: dict[str, str], objects: list[dict]) -
 # ---------------------------------------------------------------------------
 
 def _parse_objects(tree: ast.Module, imports: dict[str, str], stdlib: set[str]) -> list[dict]:
+    """The companion objects of a module: each top-level class (with its bases, decorators,
+    docstring and references) followed by its methods, each top-level function, and each
+    top-level assignment to a plain name as a const.
+    """
     objects: list[dict] = []
 
     for node in tree.body:
@@ -340,6 +361,7 @@ def _module_name(py_file: Path) -> str:
 # ---------------------------------------------------------------------------
 
 def generate(py_file: Path) -> dict:
+    """Build the companion data of one Python file from its syntax tree."""
     source = py_file.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(py_file))
     stdlib = _stdlib_set()
@@ -407,12 +429,17 @@ def _merge_data(new_data: dict, old_data: dict) -> dict:
 
 
 def _write_yaml(data: dict, path: Path) -> None:
+    """Write the companion data as a YAML document, keeping the key order."""
     with open(path, "w", encoding="utf-8") as f:
         f.write("---\n")
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
 def main() -> None:
+    """CLI entry point: generate, overwrite or merge the companion of each Python file.
+    Existing companions are skipped unless ``--overwrite`` or ``--merge`` is given.
+    Exits with status 1 if no file was given or any file failed.
+    """
     parser = argparse.ArgumentParser(
         description="Generate companion YAML skeletons for Python source files.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -39,18 +39,7 @@ objects:
   calls:
   - pytest.raises
   - tools.compiler.main
-- name: test_validate_command_success
-  kind: method
-  receiver: TestMainCLI
-  decorators: []
-  description: ''
-  references:
-  - tools.compiler.main
-  calls:
-  - mock_release_manager_class.assert_called_once
-  - mocker.patch
-  - tools.compiler.main
-- name: test_release_command_requires_version
+- name: test_close_command_requires_version
   kind: method
   receiver: TestMainCLI
   decorators: []
@@ -61,22 +50,22 @@ objects:
   calls:
   - pytest.raises
   - tools.compiler.main
-- name: test_release_command_success
+- name: test_close_command_success
   kind: method
   receiver: TestMainCLI
   decorators: []
-  description: Test the 'release' command success case.
+  description: Test the 'close' command success case.
   references:
   - tools.compiler.main
   calls:
   - mock_release_manager_class.assert_called_once
   - mocker.patch
   - tools.compiler.main
-- name: test_release_command_with_vault_files
+- name: test_close_command_with_vault_files
   kind: method
   receiver: TestMainCLI
   decorators: []
-  description: Test 'release' command reads Vault token and CA from files.
+  description: Test 'close' command reads Vault token and CA from files.
   references:
   - tools.compiler.main
   calls:

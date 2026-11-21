@@ -37,7 +37,8 @@ objects:
 - name: _stdlib_set
   kind: function
   decorators: []
-  description: ''
+  description: The names of the standard-library top-level modules (``sys.stdlib_module_names``,
+    or a fallback list).
   references: []
   calls: []
 - name: _parse_imports
@@ -52,7 +53,8 @@ objects:
 - name: _is_stdlib
   kind: function
   decorators: []
-  description: ''
+  description: Whether an absolute import target belongs to the standard library;
+    relative imports never do.
   references: []
   calls:
   - target.split
@@ -60,7 +62,8 @@ objects:
 - name: _iter_subtree
   kind: function
   decorators: []
-  description: ''
+  description: Yield every descendant of node, not descending into nodes of skip_kinds
+    (e.g. nested defs).
   references: []
   calls:
   - stack.extend
@@ -80,7 +83,8 @@ objects:
 - name: _dotted_name
   kind: function
   decorators: []
-  description: ''
+  description: The dotted name of a Name / Attribute chain ("a.b.c"); "" for any other
+    expression.
   references: []
   calls:
   - _dotted_name
@@ -99,21 +103,22 @@ objects:
 - name: _decorator_name
   kind: function
   decorators: []
-  description: ''
+  description: The dotted name of a decorator, without its call arguments.
   references: []
   calls:
   - _dotted_name
 - name: _decorators
   kind: function
   decorators: []
-  description: ''
+  description: The names of a def's or class's decorators, in source order.
   references: []
   calls:
   - _decorator_name
 - name: _clean_doc
   kind: function
   decorators: []
-  description: ''
+  description: A docstring folded to one line (stripped lines joined by spaces); ""
+    for none.
   references: []
   calls:
   - doc.strip
@@ -121,7 +126,8 @@ objects:
 - name: _has_main_guard
   kind: function
   decorators: []
-  description: ''
+  description: Whether the module has an ``if __name__ ...`` comparison anywhere (taken
+    as the entrypoint marker).
   references: []
   calls: []
 - name: _suggest_tags
@@ -143,7 +149,9 @@ objects:
 - name: _parse_objects
   kind: function
   decorators: []
-  description: ''
+  description: 'The companion objects of a module: each top-level class (with its
+    bases, decorators, docstring and references) followed by its methods, each top-level
+    function, and each top-level assignment to a plain name as a const.'
   references: []
   calls:
   - _clean_doc
@@ -162,7 +170,7 @@ objects:
 - name: generate
   kind: function
   decorators: []
-  description: ''
+  description: Build the companion data of one Python file from its syntax tree.
   references: []
   calls:
   - _clean_doc
@@ -195,7 +203,7 @@ objects:
 - name: _write_yaml
   kind: function
   decorators: []
-  description: ''
+  description: Write the companion data as a YAML document, keeping the key order.
   references: []
   calls:
   - f.write
@@ -203,7 +211,9 @@ objects:
 - name: main
   kind: function
   decorators: []
-  description: ''
+  description: 'CLI entry point: generate, overwrite or merge the companion of each
+    Python file. Existing companions are skipped unless ``--overwrite`` or ``--merge``
+    is given. Exits with status 1 if no file was given or any file failed.'
   references: []
   calls:
   - _merge_data

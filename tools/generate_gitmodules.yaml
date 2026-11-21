@@ -31,7 +31,8 @@ objects:
 - name: load_manifest
   kind: function
   decorators: []
-  description: ''
+  description: Load the knowledge sources manifest; ValueError unless its top level
+    is a mapping.
   references: []
   calls:
   - ValueError
@@ -40,7 +41,9 @@ objects:
 - name: validate_manifest
   kind: function
   decorators: []
-  description: ''
+  description: 'Check the manifest''s shape: kind ``KnowledgeSources``, a non-empty
+    ``profiles`` mapping and ``sources`` list, every source with its required fields
+    and a unique id. Raises ValueError.'
   references: []
   calls:
   - ValueError
@@ -57,7 +60,9 @@ objects:
 - name: render_gitmodules
   kind: function
   decorators: []
-  description: ''
+  description: Render the .gitmodules text for the included sources (path, url and
+    optional branch each), under a header naming the manifest and profile it was generated
+    from.
   references: []
   calls:
   - _GENERATED_HEADER.format
@@ -66,7 +71,10 @@ objects:
 - name: main
   kind: function
   decorators: []
-  description: ''
+  description: Render .gitmodules for the selected profile and print which sources
+    were included or excluded. ``--dry-run`` only prints the result; ``--check`` exits
+    non-zero when the file on disk differs from it; otherwise the file is written.
+    An invalid manifest exits with status 1.
   references: []
   calls:
   - out_path.exists

@@ -48,6 +48,7 @@ _SKIP_DIRS = {
 
 
 def _now() -> str:
+    """The current UTC time as an ISO 8601 string with second precision and a "Z" suffix."""
     return (
         datetime.now(timezone.utc)
         .replace(microsecond=0)
@@ -81,6 +82,9 @@ def _strip_credentials(url: str | None) -> str | None:
 
 
 def _project_version(repo: Path) -> str | None:
+    """The ``metadata.version`` of the repository's ``project.yaml``, or None when the file
+    is missing, unreadable or has no version.
+    """
     path = repo / "project.yaml"
     if not path.is_file():
         return None
@@ -110,6 +114,10 @@ def _submodule_paths(repo: Path) -> list[Path]:
 
 
 def _describe_repo(repo: Path, rel: str) -> dict[str, Any]:
+    """One ``sources`` row: the repository's remote (credentials stripped), commit and its
+    date, branch, ``git describe`` and exact tag, whether tracked files are modified,
+    and the ``project.yaml`` version.
+    """
     commit = _git(repo, "rev-parse", "HEAD")
     status = _git(repo, "status", "--porcelain", "--untracked-files=no")
     row: dict[str, Any] = {
@@ -177,6 +185,7 @@ def collect_sources(source_dir: str | Path) -> list[dict[str, Any]]:
 
 
 def _builder_info() -> dict[str, Any]:
+    """The commit (and whether it is dirty) of the checkout this builder runs from."""
     here = Path(__file__).resolve().parent
     commit = _git(here, "rev-parse", "HEAD")
     status = _git(here, "status", "--porcelain", "--untracked-files=no")
@@ -297,6 +306,7 @@ def upsert_meta_chunk(
 
 
 def _rev_count(repo: Path, spec: str) -> int | None:
+    """The number of commits ``git rev-list --count spec`` reports, or None if git fails."""
     out = _git(repo, "rev-list", "--count", spec)
     return int(out) if out is not None and out.isdigit() else None
 

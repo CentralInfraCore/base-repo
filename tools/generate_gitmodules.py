@@ -36,6 +36,8 @@ _GENERATED_HEADER = (
 
 
 def load_manifest(path: Path) -> dict:
+    """Load the knowledge sources manifest; ValueError unless its top level is a mapping.
+    """
     with path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
@@ -44,6 +46,10 @@ def load_manifest(path: Path) -> dict:
 
 
 def validate_manifest(data: dict, path: Path) -> None:
+    """Check the manifest's shape: kind ``KnowledgeSources``, a non-empty ``profiles``
+    mapping and ``sources`` list, every source with its required fields and a unique id.
+    Raises ValueError.
+    """
     if data.get("kind") != "KnowledgeSources":
         raise ValueError(f"{path}: kind must be 'KnowledgeSources'")
     profiles = data.get("profiles")
@@ -78,6 +84,9 @@ def select_sources(data: dict, profile: str) -> tuple[list[dict], list[dict]]:
 
 
 def render_gitmodules(included: list[dict], sources_file: str, profile: str) -> str:
+    """Render the .gitmodules text for the included sources (path, url and optional branch
+    each), under a header naming the manifest and profile it was generated from.
+    """
     lines = [_GENERATED_HEADER.format(sources_file=sources_file, profile=profile)]
     for source in included:
         lines.append(f'[submodule "{source["path"]}"]')
@@ -90,6 +99,11 @@ def render_gitmodules(included: list[dict], sources_file: str, profile: str) -> 
 
 
 def main() -> None:
+    """Render .gitmodules for the selected profile and print which sources were included or
+    excluded. ``--dry-run`` only prints the result; ``--check`` exits non-zero when the
+    file on disk differs from it; otherwise the file is written. An invalid manifest
+    exits with status 1.
+    """
     parser = argparse.ArgumentParser(
         description="Render .gitmodules from knowledge.sources.yaml.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

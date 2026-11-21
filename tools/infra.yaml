@@ -1,6 +1,10 @@
 ---
 module: tools.infra
-description: ''
+description: 'Release phases of the mcp flavor: ``ReleaseManager`` and its helpers.
+  ``check`` runs the local pre-flight checks; ``prepare`` (on the main branch) creates
+  the release branch and a signed ``project.yaml``; ``close`` (on the release branch)
+  validates ``project.yaml`` against ``project.schema.yaml``, commits, tags, merges
+  back and cleans up. Source trees are hashed reproducibly from git tree objects.'
 tags:
 - builder
 - executor
@@ -55,7 +59,10 @@ objects:
 - name: ReleaseManager
   kind: class
   decorators: []
-  description: ''
+  description: Drives the release phases for one project root. ``config`` is the ``compiler_settings``
+    block of ``project.yaml``; Git and Vault are reached only through the injected
+    ``git_service`` and ``vault_service``, so the phases can be tested with fakes.
+    With ``dry_run`` nothing is written or signed.
   implements: []
   references: []
 - name: __init__
@@ -70,7 +77,7 @@ objects:
   kind: method
   receiver: ReleaseManager
   decorators: []
-  description: ''
+  description: Resolve a path relative to the project root.
   references: []
   calls: []
 - name: _validate_final_project_yaml

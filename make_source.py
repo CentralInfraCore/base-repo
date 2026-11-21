@@ -1,3 +1,13 @@
+"""Build the CIC knowledge base from the ``source/`` tree.
+
+Markdown is split into one chunk per heading section (merged with its companion
+``.yaml`` metadata); Go and Python code enters only through its companion YAMLs, one
+chunk per file plus one per object; any other YAML is one chunk. The chunks are
+deduplicated, given persistent ids, embedded, and indexed with BM25 and FAISS; a
+knowledge graph is built from sequence, cosine similarity, ``related_nodes`` and call
+edges. The result is written as pickles/JSON under ``kb_data/`` and as SQLite under
+``sqlite_data/``, together with the build provenance (``kb_build_info``).
+"""
 
 import os
 import yaml
@@ -27,6 +37,9 @@ EXCLUDE_DIRS = {
 }
 
 def tokenize(text):
+    """Split text into lower-case search tokens: camelCase and acronym boundaries are
+    split, and surrounding punctuation is stripped.
+    """
     text = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', text)
     text = re.sub(r'([a-z\d])([A-Z])', r'\1 \2', text)
     tokens = text.lower().split()
@@ -35,6 +48,8 @@ def tokenize(text):
 
 
 def detect_language(text):
+    """The language code langdetect assigns to text, or "unknown" when it cannot tell.
+    """
     try:
         return detect(text)
     except LangDetectException:
@@ -61,6 +76,10 @@ def _normalize_list(val):
     return [str(val)]
 
 def process_md_file(file_path):
+    """Split a Markdown file into one chunk per heading section (text before the first
+    heading is a section of its own), with line ranges, detected language and the
+    companion YAML's metadata.
+    """
     chunks = []
     with open(file_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -605,6 +624,12 @@ def _is_py_meta_yaml(file_path):
 
 
 def process_directory(directory_path):
+    """Collect the chunks of every file under directory_path, skipping EXCLUDE_DIRS.
+
+    A first pass classifies each YAML by its sibling (.md, .go or .py); the second
+    routes Markdown, Go and Python companions and other YAML to their processors. A
+    companion without a sibling source is recognised by its keys.
+    """
     all_chunks = []
 
     # First pass: classify YAML files by their sibling source file type
@@ -670,6 +695,10 @@ def _generate_chunk_id(file_path: str, chunk_type: str, section: str, text: str 
 
 
 def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
+    """Build every KB artifact from source_directory and return them in one dict: chunks
+    with persistent ids, the build-info chunk, embeddings, BM25 and FAISS indexes, the
+    metadata index and the graph (edges carry their evidence location).
+    """
     chunks_list = process_directory(source_directory)
     chunks_list = _dedup_chunks(chunks_list)
     chunks_list.sort(key=lambda x: (x['file_path'], x['start_line']))
@@ -739,6 +768,9 @@ def build_knowledge_base(source_directory, model_name=EMBEDDING_MODEL):
     }
 
 def save_knowledge_base_legacy(kb_data, output_dir="kb_data", save_json=True, save_pickle=True):
+    """Write the KB under output_dir: JSON files in ``json/`` and pickles plus the FAISS
+    index in ``pkl/`` (the files the MCP server loads).
+    """
     if not (save_json or save_pickle):
         return
     os.makedirs(output_dir, exist_ok=True)
@@ -794,6 +826,10 @@ def save_knowledge_base_legacy(kb_data, output_dir="kb_data", save_json=True, sa
             pickle.dump(meta_idx, f)
 
 def save_kb_to_sqlite(kb_data, output_dir="sqlite_data"):
+    """Recreate ``knowledge_base.sqlite`` in output_dir from the table definitions in
+    ``db_schema.json`` and fill it: files, terms, chunks and their paths, nodes, edges and
+    the edge evidence.
+    """
     os.makedirs(output_dir, exist_ok=True)
     db_path = os.path.join(output_dir, 'knowledge_base.sqlite')
     schema_path = os.path.join(output_dir, 'db_schema.json')
